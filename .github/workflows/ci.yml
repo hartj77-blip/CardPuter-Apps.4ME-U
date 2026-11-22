@@ -64,9 +64,6 @@ jobs:
         run: |
           apt-get update -qq
           apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file >/dev/null
-          # Without recommends: they bring Debian's Mesa drivers, which the apps' install
-          # then upgrades from Raspberry Pi's repository, so the test sees new packages
-          # (libdisplay-info2) that removing the apps can't take away.
           apt-get install -y -qq --no-install-recommends pkgconf libvncserver-dev freerdp3-dev >/dev/null
       - uses: actions/checkout@v4
         with:
@@ -87,6 +84,11 @@ jobs:
           cmake --build build/device -j"$(nproc)"
       - name: Package the apps
         run: tools/build.sh build/device build/apps
+      # A device has no build libraries. Left here, they hold Debian's Mesa, which the
+      # apps' install upgrades from Raspberry Pi's repository, and the test then sees
+      # the newer Mesa's libraries as left behind.
+      - name: Take the build libraries off again
+        run: apt-get purge -y -qq --auto-remove pkgconf libvncserver-dev freerdp3-dev >/dev/null
       - name: Install, then remove, every app
         run: base/image/tests/apps-install-test.sh build/apps build/device/zeroshell
       # Try one on a device with: sudo zeroos-apps install-file zeroos-app-<id>_*.deb

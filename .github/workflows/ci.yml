@@ -39,6 +39,8 @@ jobs:
         run: cmake -S . -B build/headless -DZS_BACKEND=headless && cmake --build build/headless -j"$(nproc)"
       - name: Unit tests
         run: ctest --test-dir build/headless --output-on-failure
+      - name: App script tests (apps/<id>/tests/*-test.sh)
+        run: for t in apps/*/tests/*-test.sh; do "$t"; done
       - name: Open every app (fails if one crashes)
         run: tools/screenshots.sh build/headless build/screenshots
       - name: Apps as installable modules (fails if one won't load or crashes)

@@ -42,6 +42,7 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | Net Tools | [apps/net](apps/net/README.md) | Discover devices, scan ports, trace routes, DNS, packet capture |
 | Notes | [apps/notes](apps/notes) | Quick text notes |
 | Remote | [apps/remote](apps/remote/README.md) | Tailscale, SSH, remote desktop, Taildrop |
+| Router | [apps/router](apps/router/README.md) | Share your Tailscale exit node with a laptop over Ethernet or USB-C |
 | Sync | [apps/sync](apps/sync/README.md) | Syncthing for Notes, Documents and Recordings |
 | System | [apps/sysmon](apps/sysmon) | CPU, memory, storage, temperature |
 | Terminal | [apps/terminal](apps/terminal) | Linux terminal on the built-in screen |
@@ -50,7 +51,7 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 
 Nothing here has run on a real Cardputer from this repository yet. The apps were moved from the
 OS repository as they were in ZeroOS 0.3.4. Net Tools came over from an open pull request on the OS
-repository and is new here.
+repository and is new here, and so is Router.
 
 ## Work on an app
 
@@ -169,7 +170,7 @@ git add base && git commit -m "Move the OS pin"
 
 - Fold in RF Tools from [cardputer-zero-rf](https://github.com/hartj77-blip/cardputer-zero-rf),
   which fell behind because it had no automatic rebuild.
-- Bring over Net Tools, Router and Grove, which are open pull requests on the OS repository.
+- Bring over Grove, an open pull request on the OS repository.
 - Remove the apps from the OS repository once a device has installed from here.
 - Detailed screenshots per app (the OS repository still has the scripted ones).
 

@@ -1,0 +1,8 @@
+# Media (README.md): music player (mpv, part of ZeroOS for Dock),
+# music and video from Jellyfin (video plays through libmpv, which comes
+# with mpv), voice notes (sox records them).
+NAME="Media"
+SUMMARY="Music player, music and video from a Jellyfin server, voice notes"
+APP_VERSION="1.0.0"
+DEPENDS="mpv, libmpv2, sox, libsox-fmt-all"
+NEEDS="sox"

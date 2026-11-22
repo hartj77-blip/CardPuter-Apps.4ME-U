@@ -1,0 +1,129 @@
+name: Release
+
+# Publishes the apps: every package and zeroos-apps.index become this
+# repository's newest release, which is where the Apps app on a device looks
+# (README.md, "Compatibility").
+#
+# It runs by itself:
+#   - when a change to an app lands on main;
+#   - every 3 hours, and then only publishes if ZeroOS has a new release or
+#     a new app level (so the apps are rebuilt for it without anyone asking).
+# Or start it by hand: Actions tab > Release > Run workflow.
+# Nothing is published unless all of CI passes first.
+on:
+  push:
+    branches: [main]
+    paths: ['apps/**', 'tools/**', 'CMakeLists.txt', 'base']
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  levels:
+    name: Which ZeroOS versions to build for
+    runs-on: ubuntu-24.04
+    outputs:
+      needed: ${{ steps.plan.outputs.needed }}
+      built_for: ${{ steps.plan.outputs.built_for }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tools/levels.sh | tee levels.txt
+          release=$(sed -n 's/^release=//p' levels.txt)
+          levels=$(sed -n 's/^levels=//p' levels.txt)
+          built_for="release=$release levels=$levels"
+          echo "built_for=$built_for" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(sed -n 's/^matrix=//p' levels.txt)" >> "$GITHUB_OUTPUT"
+          # The timed run only publishes when ZeroOS moved on.
+          needed=1
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            have=$(gh release download --repo "$GITHUB_REPOSITORY" --pattern zeroos-apps.index -O - 2>/dev/null |
+                   sed -n 's/^# built-for //p' || true)
+            [ "$have" = "$built_for" ] && needed=0
+            echo "newest release was built for: ${have:-nothing}; now: $built_for"
+          fi
+          echo "needed=$needed" >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: levels
+    if: needs.levels.outputs.needed == '1'
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build for app level ${{ matrix.abi }} (ZeroOS ${{ matrix.ref }})
+    needs: [levels, ci]
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.levels.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Use ZeroOS ${{ matrix.ref }}
+        run: |
+          git -C base fetch --depth 1 --tags origin "${{ matrix.ref }}"
+          git -C base checkout FETCH_HEAD
+      - name: Install cross compiler
+        run: sudo apt-get update && sudo apt-get install -y cmake g++-aarch64-linux-gnu
+      - name: Build the app modules (arm64)
+        run: |
+          cmake -S . -B build/device -DZS_BACKEND=device \
+            -DCMAKE_TOOLCHAIN_FILE=$PWD/base/cmake/aarch64-linux-gnu.cmake
+          cmake --build build/device -j"$(nproc)"
+          aarch64-linux-gnu-strip --strip-unneeded build/device/apps/*.so
+      - name: Package
+        run: |
+          tools/build.sh build/device build/apps
+          cat build/apps/zeroos-apps.index
+          grep -q "^# level abi=${{ matrix.abi }} " build/apps/zeroos-apps.index
+      - uses: actions/upload-artifact@v4
+        with:
+          name: level-${{ matrix.abi }}
+          path: build/apps/
+
+  publish:
+    needs: [levels, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: level-*
+          path: levels
+      - name: Put the release together
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The previous release, for the builds devices on the level below still need.
+          mkdir -p previous
+          gh release download --dir previous --pattern 'zeroos-app*' 2>/dev/null || echo "no previous release"
+          PREVIOUS=$PWD/previous tools/assemble.sh dist "${{ needs.levels.outputs.built_for }}" levels/level-*
+          cat dist/zeroos-apps.index
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="apps-$(date -u +%Y%m%d)-${{ github.run_number }}"
+          {
+            echo "Built for ZeroOS ${{ needs.levels.outputs.built_for }}."
+            echo
+            echo '| App | Version |'
+            echo '| --- | --- |'
+            awk -F= '$1 == "name" {n = $2} $1 == "version" {print "| " n " | " $2 " |"}' dist/zeroos-apps.index
+          } > notes.md
+          gh release create "$tag" dist/zeroos-app-*.deb dist/zeroos-apps.index \
+            --target "$GITHUB_SHA" --title "Apps $(date -u +%Y-%m-%d) (#${{ github.run_number }})" \
+            --notes-file notes.md --latest

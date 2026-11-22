@@ -1,0 +1,3 @@
+NAME="Battery"
+SUMMARY="Time left, power draw and power profile"
+APP_VERSION="1.0.0"

@@ -1,4 +1,4 @@
-# Net Tools (README.md): one pack, module "net", six apps that drive the
+# Net Tools (README.md): one pack, module "net", seven apps that drive the
 # standard Linux network tools. The shared code (net_run, net_sim, net_ui)
 # is listed once, on the first app.
 zs_app(discover "Discover"  ZS_ICON_SEARCH     0x0aa5d6 make_discover_app MODULE net ORDER 220
@@ -13,3 +13,5 @@ zs_app(capture  "Capture"   LV_SYMBOL_DOWNLOAD 0xd6336c make_capture_app  MODULE
        SOURCES capture.cpp)
 zs_app(netinfo  "Netinfo"   ZS_ICON_NETWORK    0x5e6c7b make_netinfo_app  MODULE net ORDER 270
        SOURCES netinfo.cpp)
+zs_app(share    "Share"     ZS_ICON_LAPTOP     0x26a269 make_share_app    MODULE net ORDER 280
+       SOURCES share.cpp)

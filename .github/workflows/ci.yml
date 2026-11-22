@@ -86,6 +86,16 @@ jobs:
         run: tools/build.sh build/device build/apps
       - name: Install, then remove, every app
         run: base/image/tests/apps-install-test.sh build/apps build/device/zeroshell
+      - name: Why a package was left behind (only when the test fails)
+        if: failure()
+        run: |
+          apt-get install -y -qq aptitude >/dev/null 2>&1 || true
+          for p in libdisplay-info2; do
+            echo "== $p: $(apt-mark showmanual | grep -qx "$p" && echo manual || echo auto)"
+            apt-cache rdepends --installed "$p" || true
+            aptitude why "$p" || true
+          done
+          apt-get autoremove -s | tail -5
       # Try one on a device with: sudo zeroos-apps install-file zeroos-app-<id>_*.deb
       - uses: actions/upload-artifact@v4
         with:

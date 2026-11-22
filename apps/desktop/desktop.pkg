@@ -1,0 +1,18 @@
+# Desktop (README.md): remote desktop to your computers, VNC or RDP, on the
+# built-in screen or on the monitor in Dock mode.
+NAME="Desktop"
+SUMMARY="Remote desktop (VNC, RDP) on the built-in screen or a monitor"
+APP_VERSION="1.0.0"
+# zeroos-desktop-view links libvncclient and FreeRDP 3 (Debian trixie's
+# names). On the monitor: gvncviewer for VNC, FreeRDP's Wayland client in a
+# foot window for RDP (as Remote's D key did).
+DEPENDS="libvncclient1, libfreerdp3-3, libwinpr3-3, gvncviewer, freerdp3-wayland"
+payload() {
+    local view=${ZEROOS_BUILD:-}/bin/zeroos-desktop-view
+    [ -x "$view" ] || {
+        echo "error: no $view: the build needs libvncserver-dev and freerdp3-dev (apps/desktop/app.cmake)" >&2
+        exit 1
+    }
+    install -D -m 0755 "$view" "$D/usr/lib/zeroos/zeroos-desktop-view"
+    install -D -m 0755 "$F/zeroos-desktop-dock" "$D/usr/lib/zeroos/zeroos-desktop-dock"
+}

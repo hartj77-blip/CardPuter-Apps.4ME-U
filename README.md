@@ -39,7 +39,7 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | IR Remote | [apps/ir](apps/ir/README.md) | A universal remote, and remotes you teach it |
 | Media | [apps/media](apps/media/README.md) | Music, Jellyfin, voice notes |
 | Mesh | [apps/mesh](apps/mesh) | Meshtastic text messages over LoRa |
-| Net Tools | [apps/net](apps/net/README.md) | Discover devices, scan ports, trace routes, DNS, packet capture |
+| Net Tools | [apps/net](apps/net/README.md) | Discover devices, scan ports, trace routes, DNS, packet capture, share Ethernet |
 | Notes | [apps/notes](apps/notes) | Quick text notes |
 | Remote | [apps/remote](apps/remote/README.md) | Tailscale, SSH, remote desktop, Taildrop |
 | Router | [apps/router](apps/router/README.md) | Share your Tailscale exit node with a laptop over Ethernet or USB-C |

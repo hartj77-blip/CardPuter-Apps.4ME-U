@@ -14,6 +14,7 @@
 #   <id>.pkg     NAME, SUMMARY, APP_VERSION, DEPENDS... and payload() (base/image/apps/make-app-deb.sh)
 #   files/       what payload() copies from, as $F
 #   prepare.sh   optional: fetches or builds what payload() takes from $WORK
+# payload() also sees $ZEROOS_BUILD, the build dir (programs in its bin/).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BUILD=$(realpath "${1:-$ROOT/build/device}")
@@ -24,6 +25,8 @@ ABI=$(sed -n 's/^#define ZS_APP_ABI \([0-9]*\).*/\1/p' "$BASE/shell/src/ui/app.h
 [ -n "$ABI" ] || { echo "error: no ZS_APP_ABI in $BASE/shell/src/ui/app.h (git submodule update --init base)" >&2; exit 1; }
 OS=$(git -C "$BASE" describe --tags --always 2>/dev/null || echo unknown)
 export ZEROOS_ARCH=${ZEROOS_ARCH:-arm64}
+# payload() can take programs the build made from here (Desktop's viewer).
+export ZEROOS_BUILD=$BUILD
 
 ids=("$@")
 if [ ${#ids[@]} -eq 0 ]; then
@@ -51,8 +54,6 @@ rm -f -- "${OUT:?}"/zeroos-app-*.deb "${OUT:?}/zeroos-apps.index"
         version=$(sed -n 's/^APP_VERSION="\([0-9][0-9.]*\)"$/\1/p' "$pkg")
         [ -n "$version" ] || { echo "error: $pkg needs APP_VERSION=\"1.2.3\"" >&2; exit 1; }
         export WORK=$ROOT/build/work/$id
-        # Programs that come with an app (Grove's zeroos-grove-ledd) are built next to the modules.
-        export ZEROOS_APP_BIN=$BUILD/apps
         mkdir -p "$WORK"
         if [ -f "$dir/prepare.sh" ]; then bash "$dir/prepare.sh" >&2; fi
         # The level is part of the version: the same app built for a newer

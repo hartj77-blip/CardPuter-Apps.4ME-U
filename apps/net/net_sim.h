@@ -18,5 +18,6 @@ std::vector<std::string> ip_addr();                        // ip -br addr
 std::vector<std::string> ip_route();                       // ip route
 std::vector<std::string> ss_listen();                      // ss -tulnH
 std::vector<std::string> resolv();                         // /etc/resolv.conf
+std::vector<std::string> share(bool on);                   // zeroos-share status
 
 }  // namespace zs::net::sim

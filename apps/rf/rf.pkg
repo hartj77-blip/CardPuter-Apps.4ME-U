@@ -12,11 +12,11 @@ payload() {
     done
     # The device has librtlsdr.so.0 (Debian trixie). A zrfd built elsewhere
     # (Ubuntu: librtlsdr.so.2) won't start, and one built without the
-    # library can't use a real dongle.
+    # library can't use a real dongle, so neither is packed.
     case $(readelf -d "$bin/zrfd" 2>/dev/null) in
         *'[librtlsdr.so.0]'*) ;;
         *librtlsdr*) echo "error: zrfd is linked to the wrong librtlsdr; build on Debian trixie" >&2; exit 1 ;;
-        *) echo "warning: this zrfd has no RTL-SDR support (librtlsdr-dev missing)" >&2 ;;
+        *) echo "error: this zrfd has no RTL-SDR support: build with librtlsdr-dev installed" >&2; exit 1 ;;
     esac
     install -d "$D/usr/bin"
     for p in zrfd zrf zrf-sim-sensors zrf-sim-aircraft zrf-sim-aprs; do

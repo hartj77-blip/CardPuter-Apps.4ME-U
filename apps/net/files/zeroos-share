@@ -1,0 +1,149 @@
+#!/bin/sh
+# ZeroOS connection sharing for Net Tools' Share app (apps/net/README.md).
+# Turns the Ethernet port into a tiny router: a laptop plugged into it gets an
+# address by DHCP and goes online through whatever this device is online
+# through (Wi-Fi, a tethered phone). With no uplink, the laptop still gets an
+# address, so you can SSH to the Cardputer over the cable.
+#
+#   zeroos-share status     the state, as key<TAB>value lines
+#   zeroos-share on         start sharing on the Ethernet port
+#   zeroos-share off        stop, and give the port back to normal use
+#
+# It is one NetworkManager connection, "zeroos-share", with ipv4.method
+# shared: NetworkManager turns on IP forwarding, adds the NAT rule and runs
+# dnsmasq to hand out 10.42.0.x addresses. It does not start by itself after a
+# reboot. Runs as pi (polkit lets pi manage NetworkManager, 90-zeroos.rules).
+#
+# status prints:
+#   state     on|off|starting
+#   carrier   1|0                 is a cable plugged in (and the other end on)
+#   iface     eth0
+#   address   10.42.0.1/24        this device, on the cable (when on)
+#   uplink    IFACE KIND NAME     where the internet comes from (KIND: wifi,
+#                                 ethernet, usb, bluetooth, other); absent if none
+#   client    IP MAC HOSTNAME     a device that took an address (when on)
+#   cable_online 1                (when off) this device is online through
+#                                 the port: sharing would take that over
+#   error     TEXT                what went wrong, in words for the screen
+#   end
+# Set ZEROOS_SHARE_IFACE to share another wired port.
+set -u
+CON=zeroos-share
+IFACE=${ZEROOS_SHARE_IFACE:-eth0}
+LC_ALL=C
+export LC_ALL
+
+out() { printf '%s\t%s\n' "$1" "$2"; }
+
+need_nm() {
+    if ! command -v nmcli >/dev/null 2>&1; then
+        out error "NetworkManager (nmcli) is not installed"
+        return 1
+    fi
+    if [ ! -e "/sys/class/net/$IFACE" ]; then
+        out error "No Ethernet port ($IFACE) on this device"
+        return 1
+    fi
+    return 0
+}
+
+# Is our connection active? Prints on, starting or off.
+state() {
+    s=$(nmcli -g GENERAL.STATE connection show "$CON" 2>/dev/null)
+    case "$s" in
+        activated) echo on ;;
+        activating) echo starting ;;
+        *) echo off ;;
+    esac
+}
+
+# The interface the default route leaves by, skipping the shared port.
+uplink() {
+    ip -4 route show default 2>/dev/null |
+        awk -v skip="$IFACE" '{for (i = 1; i < NF; i++) if ($i == "dev" && $(i+1) != skip) {print $(i+1); exit}}' ||
+        true
+}
+
+kind_of() {
+    t=$(nmcli -g GENERAL.TYPE device show "$1" 2>/dev/null)
+    drv=$(basename "$(readlink "/sys/class/net/$1/device/driver" 2>/dev/null)" 2>/dev/null)
+    case "$drv" in rndis_host|cdc_ncm|cdc_ether|ipheth) echo usb; return ;; esac
+    case "$t" in
+        wifi) echo wifi ;;
+        ethernet) echo ethernet ;;
+        bt|bluetooth) echo bluetooth ;;
+        *) echo other ;;
+    esac
+}
+
+status() {
+    st=$(state)
+    out state "$st"
+    out carrier "$(cat "/sys/class/net/$IFACE/carrier" 2>/dev/null || echo 0)"
+    out iface "$IFACE"
+    if [ "$st" = on ]; then
+        addr=$(ip -4 -o addr show dev "$IFACE" 2>/dev/null | awk '{print $4; exit}')
+        [ -n "$addr" ] && out address "$addr"
+    fi
+    up=$(uplink)
+    if [ -n "$up" ]; then
+        name=$(nmcli -g GENERAL.CONNECTION device show "$up" 2>/dev/null)
+        out uplink "$up $(kind_of "$up") ${name:-$up}"
+    fi
+    if [ "$st" = off ] && ip -4 route show default 2>/dev/null | grep -q " dev $IFACE "; then
+        out cable_online 1
+    fi
+    if [ "$st" = on ]; then
+        # dnsmasq's lease file: "expiry mac ip hostname client-id"; leases
+        # that have run out are skipped (expiry 0 never runs out).
+        f="/var/lib/NetworkManager/dnsmasq-$IFACE.leases"
+        now=$(date +%s)
+        if [ -r "$f" ]; then
+            while read -r exp mac ip host _; do
+                [ -n "$ip" ] || continue
+                [ "$exp" != 0 ] && [ "$exp" -lt "$now" ] 2>/dev/null && continue
+                [ "$host" = "*" ] && host=""
+                out client "$ip $mac $host"
+            done <"$f"
+        fi
+    fi
+}
+
+on() {
+    need_nm || return 1
+    if ! nmcli -g connection.id connection show "$CON" >/dev/null 2>&1; then
+        if ! nmcli connection add type ethernet ifname "$IFACE" con-name "$CON" \
+                ipv4.method shared ipv6.method ignore \
+                connection.autoconnect no >/dev/null 2>&1; then
+            out error "Couldn't create the sharing connection"
+            return 1
+        fi
+    fi
+    # Without a cable NetworkManager won't activate it; say so plainly.
+    if [ "$(cat "/sys/class/net/$IFACE/carrier" 2>/dev/null)" != 1 ]; then
+        out error "Plug the laptop into the Ethernet port first"
+        return 1
+    fi
+    if ! msg=$(nmcli -w 20 connection up "$CON" 2>&1); then
+        case "$msg" in
+            *dnsmasq*) out error "dnsmasq is missing (install dnsmasq-base)" ;;
+            *) out error "Couldn't start sharing: $(echo "$msg" | tail -n 1)" ;;
+        esac
+        return 1
+    fi
+}
+
+off() {
+    need_nm || return 1
+    # NetworkManager then gives the port back to its usual connection (a
+    # DHCP client), if it has one set to connect by itself.
+    nmcli -w 10 connection down "$CON" >/dev/null 2>&1 || true
+}
+
+case "${1:-status}" in
+    status) status ;;
+    on) on; status ;;
+    off) off; status ;;
+    *) echo "usage: zeroos-share status|on|off" >&2; exit 2 ;;
+esac
+echo end

@@ -3,7 +3,8 @@
 //   Off          -> Turn on Tailscale
 //   Sign-in      -> QR code + link; approve on your phone
 //   Connected    -> your devices (online first). Enter = SSH (or mosh) in the
-//                   terminal, D = remote desktop on the monitor (Dock mode).
+//                   terminal, D = remote desktop: the Desktop app if it is
+//                   installed, else RDP on the monitor (Dock mode).
 //                   Files' S key sends a file here: Enter then sends it.
 // Also: Connect to any host, the SSH user name, mosh on/off, sign out.
 #include <vector>
@@ -66,6 +67,12 @@ public:
         if (key == 'd' || key == 'D') {
             int i = focused_peer();
             if (i < 0) return false;
+            const TsPeer& p = ts_.peers[size_t(i)];
+            // The Desktop app does VNC and RDP, on this screen or the monitor.
+            if (app_find("desktop")) {
+                shell_open_app("desktop", "peer:" + p.name + ":" + p.os);
+                return true;
+            }
             if (!power().docked()) {
                 shell_toast("Remote desktop needs Dock mode (a monitor)");
             } else {
@@ -148,7 +155,8 @@ private:
                 lv_label_set_long_mode(tn, LV_LABEL_LONG_DOT);
                 lv_obj_set_width(tn, 136);
                 const std::string& send = remote_pending_send();
-                std::string hint = send.empty() ? "Enter: SSH\nD: desktop on monitor"
+                std::string hint = send.empty() ? (app_find("desktop") ? "Enter: SSH\nD: remote desktop"
+                                                                       : "Enter: SSH\nD: desktop on monitor")
                                                 : "Send " + send.substr(send.rfind('/') + 1) + ":\npick a device";
                 lv_obj_t* h = label(panel, hint.c_str(), &zs_font_12, send.empty() ? kMuted : kAccent);
                 lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);

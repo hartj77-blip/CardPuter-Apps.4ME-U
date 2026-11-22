@@ -107,4 +107,18 @@ std::vector<std::string> resolv() {
     return {"nameserver 192.168.1.1", "nameserver 1.1.1.1"};
 }
 
+// Sharing over the Ethernet cable, online through Wi-Fi, one laptop plugged in.
+std::vector<std::string> share(bool on) {
+    std::vector<std::string> v = {
+        std::string("state\t") + (on ? "on" : "off"),
+        "carrier\t1",
+        "iface\teth0",
+    };
+    if (on) v.push_back("address\t10.42.0.1/24");
+    v.push_back("uplink\twlan0 wifi Home");
+    if (on) v.push_back("client\t10.42.0.23 3c:52:82:4a:6b:7c thinkpad");
+    v.push_back("end");
+    return v;
+}
+
 }  // namespace zs::net::sim

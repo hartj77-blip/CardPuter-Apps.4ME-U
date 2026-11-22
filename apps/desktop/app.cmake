@@ -30,5 +30,5 @@ if(ZS_DESKTOP_LIBS_FOUND)
 elseif(ZS_BACKEND STREQUAL "device")
   message(WARNING "Desktop: libvncclient, freerdp3 or winpr3 not found, so zeroos-desktop-view "
                   "won't be built and the desktop package can't be made. "
-                  "apt install libvncserver-dev freerdp3-dev")
+                  "apt install pkgconf libvncserver-dev freerdp3-dev")
 endif()

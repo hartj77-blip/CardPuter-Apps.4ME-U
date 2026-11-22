@@ -150,7 +150,7 @@ the Cardputer runs), because Desktop's viewer links Debian's VNC and RDP librari
 packages yourself, on an arm64 Debian trixie machine or container:
 
 ```sh
-sudo apt install cmake g++ dpkg-dev curl gpg libvncserver-dev freerdp3-dev
+sudo apt install cmake g++ dpkg-dev curl gpg pkgconf libvncserver-dev freerdp3-dev
 cmake -S . -B build/device -DZS_BACKEND=device
 cmake --build build/device -j
 tools/build.sh build/device build/apps     # packages and index, in build/apps

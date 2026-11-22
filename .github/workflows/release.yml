@@ -64,26 +64,34 @@ jobs:
   build:
     name: Build for app level ${{ matrix.abi }} (ZeroOS ${{ matrix.ref }})
     needs: [levels, ci]
-    runs-on: ubuntu-24.04
+    # Built on arm64 Debian trixie, what the Cardputer runs, rather than
+    # cross-compiled: Desktop's viewer links Debian's libvncclient and FreeRDP.
+    runs-on: ubuntu-24.04-arm
+    container: debian:trixie
     strategy:
       matrix:
         include: ${{ fromJson(needs.levels.outputs.matrix) }}
     steps:
+      - name: Install tools and libraries
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file >/dev/null
+          apt-get install -y -qq --no-install-recommends pkgconf libvncserver-dev freerdp3-dev >/dev/null
       - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Use ZeroOS ${{ matrix.ref }}
         run: |
+          git config --global --add safe.directory "$PWD"
+          git config --global --add safe.directory "$PWD/base"
           git -C base fetch --depth 1 --tags origin "${{ matrix.ref }}"
           git -C base checkout FETCH_HEAD
-      - name: Install cross compiler
-        run: sudo apt-get update && sudo apt-get install -y cmake g++-aarch64-linux-gnu
       - name: Build the app modules (arm64)
         run: |
           cmake -S . -B build/device -DZS_BACKEND=device \
-            -DCMAKE_TOOLCHAIN_FILE=$PWD/base/cmake/aarch64-linux-gnu.cmake
+            -DCMAKE_C_FLAGS=-mcpu=cortex-a53 -DCMAKE_CXX_FLAGS=-mcpu=cortex-a53
           cmake --build build/device -j"$(nproc)"
-          aarch64-linux-gnu-strip --strip-unneeded build/device/apps/*.so
+          strip --strip-unneeded build/device/apps/*.so build/device/bin/*
       - name: Package
         run: |
           tools/build.sh build/device build/apps

@@ -25,7 +25,7 @@ In **Remote**:
 | Key | Does |
 | --- | --- |
 | Enter on a device | SSH to it in the Terminal (or mosh, if turned on) |
-| D on a device | Remote desktop to it, on the monitor (needs Dock mode) |
+| D on a device | Remote desktop to it: opens it in [Desktop](../desktop/README.md) (VNC or RDP, on this screen or the monitor). Without Desktop installed, RDP on the monitor (needs Dock mode) |
 | Connect to... | SSH to any host or address, e.g. `john@example.com` |
 | SSH as | The user name for SSH (default `pi`) |
 | Use mosh | mosh instead of ssh: survives Wi-Fi changes and sleep; the other end needs `mosh` installed |
@@ -64,11 +64,9 @@ Settings → **Tailscale**:
 | `zeroos-taildrop.service` | `tailscale file get --loop` into `~/Downloads`, started with tailscaled. |
 | `zeroos-terminal.service` | A login session on tty3 running `/usr/lib/zeroos/terminal-session` (tmux, config in `/etc/zeroos/tmux.conf`). It switches the screen to tty3 and back to tty1 when tmux detaches or exits. ZeroShell stops drawing and ignores keys meanwhile, but still dims and wakes the screen. |
 | Console | Terminus 6x12 font. ZeroShell keeps tty1 in graphics mode with its keyboard off, so the console never draws over the UI. |
-| Remote desktop | `zeroos-dock open rdp HOST`: FreeRDP (Wayland) in a terminal window on the monitor, which asks for the user and password. |
+| Remote desktop | The Desktop app when it is installed (`shell_open_app("desktop", "peer:NAME:OS")`). Otherwise `zeroos-dock open rdp HOST`: FreeRDP (Wayland) in a terminal window on the monitor, which asks for the user and password. |
 
 ## Still to do
 
 - Saved hosts outside Tailscale, with their own user names.
-- Remote desktop on the built-in screen (it is 320 x 170, so likely a
-  zoomed viewport), and VNC for Macs.
 - Tailscale SSH (signing in without keys or passwords).

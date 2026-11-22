@@ -1,0 +1,24 @@
+#!/bin/sh
+# Desktop app: a remote desktop on the monitor, in Dock mode.
+#   zeroos-desktop-dock vnc HOST:DISPLAY
+#   zeroos-desktop-dock rdp ADDRESS [USER] [DOMAIN]
+# The viewers ask for the password themselves, in their own window.
+uid=$(id -u pi 2>/dev/null || echo 1000)
+systemctl is-active --quiet zeroos-dock.service || { echo "Dock mode is not running" >&2; exit 1; }
+export XDG_RUNTIME_DIR="/run/user/$uid" WAYLAND_DISPLAY=wayland-0
+case "$1" in
+    vnc)
+        [ -n "$2" ] || { sed -n 3,4p "$0" >&2; exit 2; }
+        setsid gvncviewer "$2" >/dev/null 2>&1 < /dev/null &
+        ;;
+    rdp)
+        [ -n "$2" ] || { sed -n 3,4p "$0" >&2; exit 2; }
+        # As zeroos-dock's own "open rdp", with the saved user and domain.
+        setsid foot -T "Remote desktop: $2" -e sh -c \
+            'wlfreerdp3 /v:"$1" ${2:+"/u:$2"} ${3:+"/d:$3"} /dynamic-resolution /cert:tofu +clipboard /sound
+             echo; echo "Press Enter to close"; read _' \
+            rdp "$2" "$3" "$4" >/dev/null 2>&1 < /dev/null &
+        ;;
+    *) sed -n 2,4p "$0" >&2; exit 2 ;;
+esac
+exit 0

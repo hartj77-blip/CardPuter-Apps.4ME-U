@@ -32,6 +32,7 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | Clock | [apps/clock](apps/clock) | Clock and stopwatch |
 | Compass | [apps/compass](apps/compass) | Compass and spirit level |
 | Dev Tools | [apps/dev](apps/dev/README.md) | Code, REPL, Git and Serial |
+| Desktop | [apps/desktop](apps/desktop/README.md) | Remote desktop (VNC, RDP) on the built-in screen or a monitor |
 | Dock | [apps/dock](apps/dock/README.md) | Desktop on an HDMI monitor |
 | Files | [apps/files](apps/files) | Browse the files on the device |
 | Games | [apps/games](apps/games/README.md) | NES, Game Boy and GBA games |
@@ -78,6 +79,7 @@ Get the code and try it on a PC:
 git clone --recurse-submodules https://github.com/hartj77-blip/CardPuter-Apps.4ME-U
 cd CardPuter-Apps.4ME-U
 sudo apt install cmake g++ libsdl2-dev
+sudo apt install libvncserver-dev freerdp3-dev   # optional: lets Desktop connect in the simulator
 cmake -S . -B build/sim && cmake --build build/sim -j
 ./build/sim/zeroshell            # the home screen in a window, with every app
 ```
@@ -147,14 +149,19 @@ what a device reads. The Release workflow publishes one:
 - when ZeroOS has a new release or a new app level (checked every 3 hours);
 - when you press **Run workflow**.
 
-Nothing is published unless CI passes first. To build the packages yourself:
+Nothing is published unless CI passes first. Releases are built on arm64 Debian trixie (what
+the Cardputer runs), because Desktop's viewer links Debian's VNC and RDP libraries. To build the
+packages yourself, on an arm64 Debian trixie machine or container:
 
 ```sh
-cmake -S . -B build/device -DZS_BACKEND=device \
-  -DCMAKE_TOOLCHAIN_FILE=$PWD/base/cmake/aarch64-linux-gnu.cmake
+sudo apt install cmake g++ dpkg-dev curl gpg pkgconf libvncserver-dev freerdp3-dev
+cmake -S . -B build/device -DZS_BACKEND=device
 cmake --build build/device -j
 tools/build.sh build/device build/apps     # packages and index, in build/apps
 ```
+
+Cross-compiling (`-DCMAKE_TOOLCHAIN_FILE=$PWD/base/cmake/aarch64-linux-gnu.cmake`) still builds
+every module, but not Desktop's viewer, so the Desktop package can't be made that way.
 
 ## The pinned OS
 

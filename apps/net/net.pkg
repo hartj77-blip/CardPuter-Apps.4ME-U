@@ -1,0 +1,13 @@
+# Net Tools (README.md): one pack, six apps (Discover, Ports, Trace, DNS,
+# Capture, Netinfo), front-ends for the standard Linux network tools.
+NAME="Net Tools"
+SUMMARY="Discover devices, scan ports, trace routes, DNS, packet capture and interface info"
+APP_VERSION="1.0.0"
+# arp-scan + nmap (Discover, Ports), mtr-tiny (Trace), dnsutils (DNS, dig),
+# tcpdump (Capture), iproute2 (Netinfo: ip, ss).
+DEPENDS="arp-scan, nmap, mtr-tiny, dnsutils, tcpdump, iproute2"
+payload() {
+    # Lets the UI user run the root-only tools (arp-scan, tcpdump) through
+    # sudo -n with no password. Removing the app removes the rule.
+    install -D -m 0440 "$F/zeroos-net.sudoers" "$D/etc/sudoers.d/zeroos-net"
+}

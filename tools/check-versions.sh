@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 BASE=$1
-version_at() { git show "$1:apps/$2/$2.pkg" 2>/dev/null | sed -n 's/^APP_VERSION="\(.*\)"$/\1/p'; }
+version_at() { { git show "$1:apps/$2/$2.pkg" 2>/dev/null || true; } | sed -n 's/^APP_VERSION="\(.*\)"$/\1/p'; }
 changed=$(git diff --name-only "$BASE"...HEAD -- apps)
 kit=0
 echo "$changed" | grep -q '^apps/kit/' && kit=1

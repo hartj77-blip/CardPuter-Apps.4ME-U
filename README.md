@@ -39,6 +39,7 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | IR Remote | [apps/ir](apps/ir/README.md) | A universal remote, and remotes you teach it |
 | Media | [apps/media](apps/media/README.md) | Music, Jellyfin, voice notes |
 | Mesh | [apps/mesh](apps/mesh) | Meshtastic text messages over LoRa |
+| Net Tools | [apps/net](apps/net/README.md) | Discover devices, scan ports, trace routes, DNS, packet capture |
 | Notes | [apps/notes](apps/notes) | Quick text notes |
 | Remote | [apps/remote](apps/remote/README.md) | Tailscale, SSH, remote desktop, Taildrop |
 | Sync | [apps/sync](apps/sync/README.md) | Syncthing for Notes, Documents and Recordings |
@@ -48,7 +49,8 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | ZClaw | [apps/zclaw](apps/zclaw/README.md) | AI assistant |
 
 Nothing here has run on a real Cardputer from this repository yet. The apps were moved from the
-OS repository as they were in ZeroOS 0.3.4.
+OS repository as they were in ZeroOS 0.3.4. Net Tools came over from an open pull request on the OS
+repository and is new here.
 
 ## Work on an app
 

@@ -171,7 +171,7 @@ git add base && git commit -m "Move the OS pin"
 
 - Fold in RF Tools from [cardputer-zero-rf](https://github.com/hartj77-blip/cardputer-zero-rf),
   which fell behind because it had no automatic rebuild.
-- Remove Net Tools, Router and Grove from the OS repository's open pull requests (close them).
+- Close the Net Tools, Router and Grove pull requests on the OS repository (they live here now).
 - Remove the apps from the OS repository once a device has installed from here.
 - Detailed screenshots per app (the OS repository still has the scripted ones).
 

@@ -29,7 +29,7 @@ jobs:
         if: matrix.os == 'main'
         run: git -C base fetch --depth 1 origin main && git -C base checkout FETCH_HEAD
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake g++ libsdl2-dev python3-pil
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libsdl2-dev python3-pil pkg-config librtlsdr-dev
       - name: Every changed app has a new version
         if: github.event_name == 'pull_request' && matrix.os == 'pinned'
         run: tools/check-versions.sh "origin/${{ github.base_ref }}"
@@ -64,7 +64,7 @@ jobs:
       - name: Install tools
         run: |
           apt-get update -qq
-          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file >/dev/null
+          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file pkg-config librtlsdr-dev >/dev/null
       - uses: actions/checkout@v4
         with:
           submodules: true

@@ -12,6 +12,9 @@ DEMO=$(mktemp -d)
 trap 'rm -rf -- "${DEMO:?}"' EXIT
 # The app ids, from every app.cmake.
 ids=$(sed -n 's/^zs_app(\([a-z0-9-]*\) .*/\1/p' "$ROOT"/apps/*/app.cmake)
+# RF Tools: its radio daemon and helpers from this build, with a simulated radio.
+export PATH="$(dirname "$BIN")/bin:$PATH" ZRFD_BIN="$(dirname "$BIN")/bin/zrfd"
+export ZRFD_SOCKET="$DEMO/zrfd.sock" ZRF_SOURCE=sim ZRF_AUDIO=none
 steps="shot:home.ppm"
 for id in $ids; do steps+=",open:$id,wait:600,shot:$id.ppm"; done
 export ZS_GAMES_CORES="$(dirname "$BIN")/test-cores"

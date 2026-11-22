@@ -1,0 +1,591 @@
+// Unit tests for the DSP and source layers. Exits non-zero on the first failure.
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+
+#include "adif.h"
+#include "adsb.h"
+#include "aprs.h"
+#include "dsp/demod.h"
+#include "dsp/fm_broadcast.h"
+#include "dsp/spectrum.h"
+#include "ft8.h"
+#include "json_flat.h"
+#include "memories.h"
+#include "rds.h"
+#include "proto.h"
+#include "sdr/source.h"
+
+using namespace zrf;
+
+#define CHECK(cond)                                                            \
+    do {                                                                       \
+        if (!(cond)) {                                                         \
+            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+            std::exit(1);                                                      \
+        }                                                                      \
+    } while (0)
+
+static size_t argmax(const std::vector<float>& v) {
+    size_t best = 0;
+    for (size_t i = 1; i < v.size(); ++i)
+        if (v[i] > v[best]) best = i;
+    return best;
+}
+
+static std::vector<cf32> tone(size_t n, double cycles_per_sample, float amp) {
+    std::vector<cf32> v(n);
+    for (size_t i = 0; i < n; ++i) {
+        double a = 2 * M_PI * cycles_per_sample * double(i);
+        v[i] = cf32(amp * float(std::cos(a)), amp * float(std::sin(a)));
+    }
+    return v;
+}
+
+static void test_fft() {
+    const size_t n = 64;
+    Fft fft(n);
+    auto v = tone(n, 5.0 / n, 1.0f);
+    fft.run(v.data());
+    for (size_t i = 0; i < n; ++i) CHECK(std::fabs(std::abs(v[i]) - (i == 5 ? float(n) : 0.0f)) < 1e-2f);
+}
+
+static void test_spectrum_level_and_position() {
+    const size_t n = 1024;
+    Spectrum sp(n);
+    CHECK(sp.take().empty());
+    // Full-scale tone 100 bins above centre reads 0 dB at bin n/2 + 100.
+    auto v = tone(n, 100.0 / n, 1.0f);
+    sp.add(v.data());
+    auto out = sp.take();
+    CHECK(out.size() == n);
+    CHECK(argmax(out) == n / 2 + 100);
+    CHECK(std::fabs(out[n / 2 + 100]) < 0.1f);
+    CHECK(out[n / 2 - 100] < -80.0f);
+    // Negative frequencies land below centre; half amplitude is 6 dB down.
+    v = tone(n, -200.0 / n, 0.5f);
+    sp.add(v.data());
+    out = sp.take();
+    CHECK(argmax(out) == n / 2 - 200);
+    CHECK(std::fabs(out[n / 2 - 200] + 6.02f) < 0.1f);
+}
+
+static void test_reduce_peak() {
+    std::vector<float> in(1024, -100.0f);
+    in[517] = -10.0f;   // one narrow signal must survive reduction
+    auto out = reduce_peak(in, 320);
+    CHECK(out.size() == 320);
+    CHECK(argmax(out) == 517 * 320 / 1024);
+    CHECK(out[argmax(out)] == -10.0f);
+    CHECK(reduce_peak(in, 1024) == in);
+}
+
+static void test_proto() {
+    CHECK(db_to_byte(-200) == 0 && db_to_byte(50) == 255);
+    CHECK(std::fabs(byte_to_db(db_to_byte(-42.5f)) + 42.5f) < 0.01f);
+    std::vector<uint8_t> bytes = {0, 1, 0x7f, 0xff}, back;
+    CHECK(to_hex(bytes) == "00017fff");
+    CHECK(from_hex("00017fff", back) && back == bytes);
+    CHECK(!from_hex("0g", back) && !from_hex("abc", back));
+}
+
+// The simulated FM station at 98.3 MHz shows up where the tuning says it should.
+static void test_sim_source() {
+    std::string err;
+    auto src = make_source("sim", err);
+    CHECK(src && src->open(err));
+    const double rate = 1.024e6;
+    const size_t n = 1024;
+    CHECK(src->set_rate(rate) && src->set_gain(std::nullopt));
+    CHECK(!src->set_rate(1.0));
+    Spectrum sp(n);
+    std::vector<cf32> block(n);
+    for (double tuned : {98.3e6, 98.2e6}) {
+        CHECK(src->set_freq(tuned));
+        for (int i = 0; i < 8; ++i) {
+            CHECK(src->read(block.data(), n) == n);
+            sp.add(block.data());
+        }
+        auto out = sp.take();
+        double peak_hz = tuned + (double(argmax(out)) - n / 2.0) * rate / n;
+        CHECK(std::fabs(peak_hz - 98.3e6) < 80e3);   // within the station's width
+        CHECK(out[argmax(out)] > -40.0f);
+        CHECK(out[10] < -60.0f);                      // noise floor at the band edge
+    }
+    CHECK(!make_source("nonsense", err) && !err.empty());
+}
+
+static void test_file_source() {
+    const char* path = "zrf_test_iq.u8";
+    {
+        std::ofstream f(path, std::ios::binary);
+        // 256 samples of a tone at +rate/4: I/Q steps through (1,0),(0,1),(-1,0),(0,-1).
+        const unsigned char cyc[8] = {255, 127, 127, 255, 0, 127, 127, 0};
+        for (int i = 0; i < 64; ++i) f.write(reinterpret_cast<const char*>(cyc), 8);
+    }
+    std::string err;
+    auto src = make_source(std::string("file:") + path, err);
+    CHECK(src && src->open(err));
+    CHECK(src->set_rate(2e6));
+    const size_t n = 1024;   // longer than the file: playback loops
+    std::vector<cf32> block(n);
+    CHECK(src->read(block.data(), n) == n);
+    Spectrum sp(n);
+    sp.add(block.data());
+    CHECK(argmax(sp.take()) == n / 2 + n / 4);
+    std::remove(path);
+
+    auto missing = make_source("file:/nonexistent/iq.u8", err);
+    CHECK(missing && !missing->open(err));
+}
+
+// Strongest audio frequency in Hz, by FFT of the last 8192 samples.
+static double audio_peak_hz(const std::vector<int16_t>& pcm, double rate) {
+    const size_t n = 8192;
+    CHECK(pcm.size() >= n);
+    Spectrum sp(n);
+    std::vector<cf32> v(n);
+    for (size_t i = 0; i < n; ++i) v[i] = cf32(pcm[pcm.size() - n + i] / 32768.0f, 0);
+    sp.add(v.data());
+    auto out = sp.take();
+    // Real input is symmetric; look at positive frequencies above 100 Hz only.
+    size_t lo = n / 2 + size_t(100 * n / rate), best = lo;
+    for (size_t i = lo; i < n; ++i)
+        if (out[i] > out[best]) best = i;
+    return (double(best) - n / 2.0) * rate / n;
+}
+
+static double rms(const std::vector<int16_t>& pcm, size_t from) {
+    double sum = 0;
+    for (size_t i = from; i < pcm.size(); ++i) sum += double(pcm[i]) * pcm[i];
+    return std::sqrt(sum / double(pcm.size() - from)) / 32768.0;
+}
+
+// Each simulated signal demodulates to the tone it carries.
+static void test_demod() {
+    Mode m;
+    CHECK(parse_mode("nfm", m) && m == Mode::Nfm && !parse_mode("ssb", m));
+    struct Case { Mode mode; double hz, rate, tone; };
+    const Case cases[] = {
+        {Mode::Wfm, 98.3e6, 1.024e6, 1000},    // broadcast FM
+        {Mode::Wfm, 98.3e6, 250e3, 1000},      // same station through the narrow view
+        {Mode::Nfm, 162.55e6, 1.024e6, 700},   // narrow FM
+        {Mode::Nfm, 162.55e6, 2.048e6, 700},
+        {Mode::Am, 121.5e6, 1.024e6, 1000},    // airband AM
+        {Mode::Usb, 14.2e6, 1.024e6, 700},     // upper sideband: tones 700 and 1900 Hz above the dial
+        {Mode::Lsb, 7.15e6, 250e3, 700},       // lower sideband
+        {Mode::Cw, 121.5e6, 1.024e6, 700},     // a carrier on the dial is a 700 Hz tone; its 1 kHz sidebands are filtered off
+    };
+    for (const Case& c : cases) {
+        std::string err;
+        auto src = make_source("sim", err);
+        CHECK(src && src->open(err) && src->set_rate(c.rate) && src->set_freq(c.hz));
+        Demod demod(c.mode, c.rate);
+        CHECK(demod.audio_rate() > 30000 && demod.audio_rate() < 34000);
+        std::vector<cf32> block(4096);
+        std::vector<int16_t> pcm;
+        while (pcm.size() < size_t(demod.audio_rate() * 0.45 * demod.channels())) {
+            CHECK(src->read(block.data(), block.size()) == block.size());
+            demod.run(block.data(), block.size(), pcm);
+        }
+        // Broadcast FM comes out in stereo: look at the left channel, which carries the 1 kHz tone.
+        if (demod.channels() == 2) {
+            std::vector<int16_t> left;
+            for (size_t i = 0; i + 1 < pcm.size(); i += 2) left.push_back(pcm[i]);
+            pcm = left;
+        }
+        double peak = audio_peak_hz(pcm, demod.audio_rate());
+        if (std::fabs(peak - c.tone) > 15) std::fprintf(stderr, "%s at %.0f: tone %.1f Hz\n", mode_name(c.mode), c.rate, peak);
+        CHECK(std::fabs(peak - c.tone) < 15);
+        double level = rms(pcm, pcm.size() / 2);
+        CHECK(level > 0.1 && level < 0.9);   // audible, not clipped
+    }
+
+    // The wrong sideband is rejected. Input: a strong tone 700 Hz below the
+    // dial and one 20 dB weaker 1000 Hz above it. On USB the weak wanted tone
+    // must still come out at least 25 dB above what leaks of the strong one,
+    // which makes the rejection at least 45 dB.
+    const double rate = 1.024e6;
+    Demod demod(Mode::Usb, rate);
+    std::vector<cf32> block(4096);
+    std::vector<int16_t> pcm;
+    double t = 0;
+    while (pcm.size() < 16000) {
+        for (cf32& v : block) {
+            double a = -2 * M_PI * 700 * t, b = 2 * M_PI * 1000 * t;
+            v = cf32(float(0.1 * std::cos(a) + 0.01 * std::cos(b)), float(0.1 * std::sin(a) + 0.01 * std::sin(b)));
+            t += 1 / rate;
+        }
+        demod.run(block.data(), block.size(), pcm);
+    }
+    const size_t n = 8192;
+    Spectrum sp(n);
+    std::vector<cf32> v(n);
+    for (size_t i = 0; i < n; ++i) v[i] = cf32(pcm[pcm.size() - n + i] / 32768.0f, 0);
+    sp.add(v.data());
+    auto out = sp.take();
+    auto at = [&](double hz) {
+        size_t bin = n / 2 + size_t(hz * n / demod.audio_rate() + 0.5);
+        return std::max({out[bin - 1], out[bin], out[bin + 1]});
+    };
+    if (at(1000) - at(700) < 25) std::fprintf(stderr, "wanted %.1f dB, leak %.1f dB\n", at(1000), at(700));
+    CHECK(at(1000) - at(700) > 25);
+}
+
+// A strong station one channel away must not get into the audio: the wanted
+// signal is 30 dB weaker than a neighbour 12.5 kHz up, and still wins.
+static void test_adjacent_channel() {
+    for (double rate : {1.024e6, 2.048e6, 250e3}) {
+        Demod demod(Mode::Nfm, rate);
+        std::vector<cf32> block(4096);
+        std::vector<int16_t> pcm;
+        double t = 0, wanted = 0, other = 0;
+        while (pcm.size() < size_t(demod.audio_rate() * 0.5)) {
+            for (cf32& v : block) {
+                wanted += 2 * M_PI * (3000 * std::sin(2 * M_PI * 700 * t)) / rate;
+                other += 2 * M_PI * (12500 + 2500 * std::sin(2 * M_PI * 1900 * t)) / rate;
+                v = cf32(float(0.01 * std::cos(wanted) + 0.3 * std::cos(other)),
+                         float(0.01 * std::sin(wanted) + 0.3 * std::sin(other)));
+                t += 1 / rate;
+            }
+            demod.run(block.data(), block.size(), pcm);
+        }
+        double peak = audio_peak_hz(pcm, demod.audio_rate());
+        if (std::fabs(peak - 700) > 15) std::fprintf(stderr, "at %.0f: heard %.0f Hz instead of the wanted 700\n", rate, peak);
+        CHECK(std::fabs(peak - 700) < 15);
+    }
+}
+
+static void test_json() {
+    auto f = parse_flat_json(R"({"model":"Acurite-Tower","id":11524,"temperature_C":21.3,"ok":true,)"
+                             R"("name":"a \"b\", c","rows":[{"len":3,"data":"a,b}"},[1,2]],"last":-4.5} )");
+    CHECK(f.size() == 7);
+    CHECK(*json_get(f, "model") == "Acurite-Tower" && *json_get(f, "id") == "11524");
+    CHECK(*json_get(f, "temperature_C") == "21.3" && *json_get(f, "ok") == "true");
+    CHECK(*json_get(f, "name") == "a \"b\", c");
+    CHECK(*json_get(f, "rows") == R"([{"len":3,"data":"a,b}"},[1,2]])");
+    CHECK(*json_get(f, "last") == "-4.5" && !json_get(f, "missing"));
+    CHECK(parse_flat_json("{}").empty() && parse_flat_json("").empty());
+    CHECK(parse_flat_json("not json").empty() && parse_flat_json(R"({"a":1)").empty());
+    CHECK(parse_flat_json(R"({"a" 1})").empty() && parse_flat_json(R"({"a":"unterminated})").empty());
+}
+
+// Published reference frames with known answers, then our own encoder
+// checked against the decoder.
+static void test_adsb() {
+    AdsbTracker t;
+    CHECK(t.add("*8D4840D6202CC371C32CE0576098;", 0));
+    CHECK(t.aircraft().size() == 1 && t.aircraft()[0].icao == 0x4840D6 && t.aircraft()[0].callsign == "KLM1023");
+
+    CHECK(t.add("*8D40621D58C386435CC412692AD6;", 1));   // odd half
+    CHECK(!t.aircraft()[1].has_position);                // one half is not enough
+    CHECK(t.add("*8d40621d58c382d690c8ac2863a7;", 2));   // even half, lower case as rtl_adsb prints
+    const Aircraft& p = t.aircraft()[1];
+    CHECK(p.icao == 0x40621D && p.has_altitude && p.altitude_ft == 38000);
+    CHECK(p.has_position && std::fabs(p.lat - 52.2572) < 0.001 && std::fabs(p.lon - 3.91937) < 0.001);
+
+    CHECK(t.add("*8D485020994409940838175B284F;", 3));   // ground speed
+    const Aircraft& v = t.aircraft()[2];
+    CHECK(v.has_velocity && std::fabs(v.speed_kt - 159.2) < 0.1 && std::fabs(v.heading_deg - 182.88) < 0.01);
+    CHECK(v.climb_fpm == -832);
+    CHECK(t.add("*8DA05F219B06B6AF189400CBC33F;", 3));   // airspeed and heading
+    const Aircraft& w = t.aircraft()[3];
+    CHECK(w.has_velocity && std::fabs(w.speed_kt - 375) < 0.1 && std::fabs(w.heading_deg - 243.98) < 0.01);
+    CHECK(w.climb_fpm == -2304);
+
+    // Damaged, short and foreign lines are refused.
+    CHECK(!t.add("*8D4840D6202CC371C32CE0576099;", 4));  // one bit wrong
+    CHECK(!t.add("*5D4840D6A1B2C3;", 4) && !t.add("hello", 4) && !t.add("", 4) && !t.add("*8D48;", 4));
+    CHECK(t.aircraft().size() == 4);
+
+    // Round trip through our encoder at awkward places on the globe.
+    struct { double lat, lon; int alt; double spd, hdg; int climb; } cases[] = {
+        {40.6413, -73.7781, 11000, 250, 45, 1280}, {-33.9461, 151.1772, 35000, 480, 271, 0},
+        {64.13, -21.94, 2025, 140, 359, -640},     {0.01, 0.01, 41000, 510, 180, 64},
+        {51.47, -0.4543, 0, 120, 90, -1920},
+    };
+    uint32_t icao = 0xABC000;
+    for (auto& c : cases) {
+        AdsbTracker r;
+        CHECK(r.add(adsb_ident_frame(icao, "TEST12"), 0));
+        CHECK(r.add(adsb_position_frame(icao, c.alt, c.lat, c.lon, false), 0));
+        CHECK(r.add(adsb_position_frame(icao, c.alt, c.lat, c.lon, true), 1));
+        CHECK(r.add(adsb_velocity_frame(icao, c.spd, c.hdg, c.climb), 1));
+        const Aircraft& a = r.aircraft()[0];
+        CHECK(a.callsign == "TEST12" && a.altitude_ft == c.alt && a.has_position);
+        CHECK(std::fabs(a.lat - c.lat) < 0.0005 && std::fabs(a.lon - c.lon) < 0.0005);
+        CHECK(std::fabs(a.speed_kt - c.spd) < 1.5 && a.climb_fpm == c.climb);
+        double dh = std::fabs(a.heading_deg - c.hdg);
+        CHECK(std::min(dh, 360 - dh) < 0.5);
+        ++icao;
+    }
+    // Halves heard too far apart are not combined.
+    AdsbTracker far;
+    far.add(adsb_position_frame(1, 30000, 48, 11, false), 0);
+    far.add(adsb_position_frame(1, 30000, 48, 11, true), 30);
+    CHECK(!far.aircraft()[0].has_position);
+    far.expire(100);
+    CHECK(far.aircraft().empty());
+}
+
+static void test_aprs() {
+    AprsPacket p;
+    // The two position examples from the APRS specification.
+    CHECK(parse_aprs("APRS: N0CALL-9>APRS,WIDE1-1,WIDE2-1:!4903.50N/07201.75W-Test 001234", p));
+    CHECK(p.source == "N0CALL-9" && p.destination == "APRS" && p.path == "WIDE1-1,WIDE2-1" && p.kind == "position");
+    CHECK(p.has_position && std::fabs(p.lat - 49.05833) < 1e-4 && std::fabs(p.lon + 72.02917) < 1e-4);
+    CHECK(p.text == "Test 001234");
+    CHECK(parse_aprs("N0CALL>APRS:=/5L!!<*e7>7P[", p));   // compressed, and without the "APRS: " prefix
+    CHECK(p.has_position && std::fabs(p.lat - 49.5) < 1e-3 && std::fabs(p.lon + 72.75) < 1e-3);
+    CHECK(parse_aprs("APRS: N0CALL>APRS:@092345z4903.50S/07201.75E>moving", p));   // with a time, other hemisphere
+    CHECK(p.has_position && p.lat < -49 && p.lon > 72 && p.text == "moving");
+
+    CHECK(parse_aprs("APRS: W1ABC-9>APDR16,WIDE1-1::K1XYZ    :Are you there?{07", p));
+    CHECK(p.kind == "message" && p.addressee == "K1XYZ" && p.text == "Are you there?" && !p.has_position);
+    CHECK(parse_aprs("APRS: AA1HAM>APRS:>On the air", p) && p.kind == "status" && p.text == "On the air");
+    CHECK(parse_aprs("APRS: KB1QRP-7>T1SUWV:`c5Pl >/", p) && p.kind == "Mic-E" && !p.has_position);
+    CHECK(parse_aprs("APRS: N1WX>APRS:@092345z4138.20N/07251.00W_090/005g010t052", p) && p.kind == "weather");
+    // A damaged position leaves the packet readable but unplaced.
+    CHECK(parse_aprs("APRS: N0CALL>APRS:!49x3.50N/07201.75W-", p) && !p.has_position);
+    CHECK(!parse_aprs("AFSK1200: garbage", p) && !parse_aprs("", p) && !parse_aprs("APRS: >APRS:!x", p));
+    CHECK(!parse_aprs("APRS: not a call>APRS:>hi", p));
+
+    double lat, lon, km, brg;
+    CHECK(grid_to_latlon("FN31pr", lat, lon) && std::fabs(lat - 41.7292) < 1e-3 && std::fabs(lon + 72.7083) < 1e-3);
+    CHECK(grid_to_latlon("jo65", lat, lon) && std::fabs(lat - 55.5) < 1e-9 && std::fabs(lon - 13.0) < 1e-9);
+    CHECK(!grid_to_latlon("ZZ99", lat, lon) && !grid_to_latlon("FN3", lat, lon) && !grid_to_latlon("FN31zz", lat, lon));
+    distance_bearing(0, 0, 0, 1, km, brg);   // one degree along the equator, due east
+    CHECK(std::fabs(km - 111.19) < 0.05 && std::fabs(brg - 90) < 0.01);
+    distance_bearing(0, 0, 1, 0, km, brg);   // one degree due north
+    CHECK(std::fabs(km - 111.19) < 0.05 && brg < 0.01);
+    distance_bearing(40.6413, -73.7781, 51.47, -0.4543, km, brg);   // New York JFK to London Heathrow
+    CHECK(std::fabs(km - 5540) < 15 && std::fabs(brg - 51.4) < 0.5);
+    CHECK(looks_like_callsign("W1AW") && looks_like_callsign("VE3ABC/P") && looks_like_callsign("N0CALL-9"));
+    CHECK(!looks_like_callsign("HELLO") && !looks_like_callsign("12") && !looks_like_callsign("W1 AW"));
+}
+
+static void test_adif() {
+    CHECK(adif_band(14.225) == "20m" && adif_band(7.0) == "40m" && adif_band(146.52) == "2m");
+    CHECK(adif_band(446.0) == "70cm" && adif_band(223.5) == "1.25m" && adif_band(98.1).empty());
+
+    Qso q;
+    q.call = "w1aw"; q.date = "20261119"; q.time = "184530"; q.freq_mhz = 14.225; q.mode = "USB";
+    q.rst_sent = "59"; q.rst_rcvd = "57"; q.comment = "Hiram, Newington <CT>"; q.my_call = "n0call"; q.my_grid = "FN31pr";
+    std::string rec = adif_record(q);
+    // Exactly what other logging programs expect to read.
+    CHECK(rec == "<CALL:4>W1AW <QSO_DATE:8>20261119 <TIME_ON:6>184530 <FREQ:8>14.22500 <BAND:3>20m "
+                 "<MODE:3>SSB <SUBMODE:3>USB <RST_SENT:2>59 <RST_RCVD:2>57 <COMMENT:21>Hiram, Newington <CT> "
+                 "<STATION_CALLSIGN:6>N0CALL <MY_GRIDSQUARE:6>FN31pr <EOR>\n");
+
+    Qso cw = q;
+    cw.call = "VE3ABC/P"; cw.mode = "CW"; cw.freq_mhz = 7.03; cw.rst_sent = cw.rst_rcvd = "599"; cw.comment.clear();
+    Qso digi = q;
+    digi.call = "K1XYZ"; digi.mode = "DIGI"; digi.freq_mhz = 0;
+    std::string file = adif_header() + rec + adif_record(cw) + adif_record(digi);
+    auto log = adif_parse(file);
+    CHECK(log.size() == 3);
+    // The comment's angle brackets must not be read as a field.
+    CHECK(log[0].call == "W1AW" && log[0].mode == "USB" && log[0].comment == "Hiram, Newington <CT>");
+    CHECK(std::fabs(log[0].freq_mhz - 14.225) < 1e-9 && log[0].date == "20261119" && log[0].time == "184530");
+    CHECK(log[0].rst_sent == "59" && log[0].rst_rcvd == "57" && log[0].my_call == "N0CALL" && log[0].my_grid == "FN31pr");
+    CHECK(log[1].call == "VE3ABC/P" && log[1].mode == "CW" && log[1].rst_rcvd == "599" && log[1].comment.empty());
+    CHECK(log[2].call == "K1XYZ" && log[2].mode == "DIGI" && log[2].freq_mhz == 0);
+
+    // Another program's file: lower-case tags, type letters, fields we don't keep, no header.
+    auto other = adif_parse("<call:5>DL1AB<qso_date:8:d>20250101<time_on:4>0930<band:3>40m<mode:3>FT8<tx_pwr:3>100<eor>\n"
+                            "<name:3>Bob<eor><call:4>G4XY<mode:2>FM<eor>");
+    CHECK(other.size() == 2 && other[0].call == "DL1AB" && other[0].mode == "FT8" && other[0].time == "0930");
+    CHECK(other[1].call == "G4XY" && other[1].mode == "FM");
+    // A file cut off mid-record keeps the complete contacts.
+    CHECK(adif_parse(file.substr(0, file.size() - 40)).size() == 2);
+    CHECK(adif_parse("").empty() && adif_parse("not a log").empty() && adif_parse("<CALL:99>short").empty());
+}
+
+// Three FT8 signals of different strengths in noise, one of them late and
+// one weak, all decode with the right text, frequency and timing.
+static void test_ft8() {
+    uint8_t tones[kFt8Symbols];
+    CHECK(!ft8_tones("THIS TEXT IS FAR TOO LONG TO BE AN FT8 MESSAGE", tones));
+    for (int rate : {32000, 31250}) {
+        struct { const char* text; double hz, start, amp; } sigs[] = {
+            {"CQ K1ABC FN42", 1500, 0.5, 0.2}, {"K1ABC W9XYZ -07", 812.5, 1.3, 0.05}, {"W9XYZ K1ABC RR73", 2400, 0.5, 0.012}};
+        std::vector<float> audio(size_t(rate) * 15, 0.0f);
+        uint32_t rng = 12345;
+        for (float& v : audio) {   // noise, about 0.03 RMS
+            float sum = 0;
+            for (int k = 0; k < 4; ++k) { rng = rng * 1664525u + 1013904223u; sum += float(rng >> 8) / 16777216.0f - 0.5f; }
+            v = sum * 0.05f;
+        }
+        for (auto& sg : sigs) {
+            CHECK(ft8_tones(sg.text, tones));
+            double phase = 0;
+            for (int sym = 0; sym < kFt8Symbols; ++sym) {
+                size_t a = size_t((sg.start + sym * kFt8SymbolSeconds) * rate), b = size_t((sg.start + (sym + 1) * kFt8SymbolSeconds) * rate);
+                for (size_t i = a; i < b && i < audio.size(); ++i) {
+                    phase += 2 * M_PI * (sg.hz + tones[sym] * kFt8ToneSpacing) / rate;
+                    audio[i] += float(sg.amp * std::sin(phase));
+                }
+            }
+        }
+        auto got = ft8_decode(audio.data(), audio.size(), rate);
+        CHECK(got.size() == 3);
+        // Expected strengths from the amplitudes and the noise level: about +22, +10 and -3 dB.
+        const int expect[] = {22, 10, -3};
+        int k = 0;
+        for (auto& sg : sigs) {
+            const Ft8Message* m = nullptr;
+            for (auto& g : got)
+                if (g.text == sg.text) m = &g;
+            CHECK(m != nullptr);
+            CHECK(std::fabs(m->freq_hz - sg.hz) < 4 && std::fabs(m->dt - sg.start) < 0.1);
+            if (std::abs(m->snr_db - expect[k]) > 4) std::fprintf(stderr, "ft8 '%s': %d dB, expected about %d\n", sg.text, m->snr_db, expect[k]);
+            CHECK(std::abs(m->snr_db - expect[k]) <= 4);
+            ++k;
+        }
+    }
+    // Silence decodes to nothing.
+    std::vector<float> quiet(32000 * 15, 0.0f);
+    CHECK(ft8_decode(quiet.data(), quiet.size(), 32000).empty());
+}
+
+static void test_memories() {
+    const char* path = "zrf_test_memories.tsv";
+    std::vector<Memory> list = {
+        {162.55e6, "nfm", true, "Weather"}, {14.2e6, "usb", false, "20 m calling"}, {98.1e6, "wfm", false, "Tab\tand newline\nin name"}};
+    CHECK(save_memories(path, list));
+    auto back = load_memories(path);
+    CHECK(back.size() == 3);
+    CHECK(back[0].hz == 162.55e6 && back[0].mode == "nfm" && back[0].squelch && back[0].name == "Weather");
+    CHECK(back[1].hz == 14.2e6 && back[1].mode == "usb" && !back[1].squelch && back[1].name == "20 m calling");
+    CHECK(back[2].name == "Tab and newline in name");   // kept on one line
+    // A hand-edited file with junk in it: good lines survive, bad ones are skipped.
+    {
+        std::ofstream f(path);
+        f << "# comment\n\nnot a channel\n146520000\tnfm\t0\tSimplex\r\nabc\tnfm\t0\tBad number\n"
+             "5\tnfm\t0\tToo low\n121500000\tam\t1\n433920000\t\t0\tNo mode\n121500000\tam\t1\tGuard\n";
+    }
+    back = load_memories(path);
+    CHECK(back.size() == 2 && back[0].name == "Simplex" && back[1].name == "Guard" && back[1].squelch);
+    std::remove(path);
+    CHECK(load_memories("/nonexistent/memories.tsv").empty());
+    CHECK(!save_memories("/nonexistent/dir/memories.tsv", list));
+}
+
+static void test_rds() {
+    // The check bits for a data word, worked by hand from the generator
+    // polynomial: 0x0001 * x^10 mod g(x) is g(x) without its top term.
+    CHECK(rds_crc(0x0000) == 0 && rds_crc(0x0001) == 0x1B9);
+    auto bits = rds_encode(0x54A8, "ZERO FM", "Now playing: test tones on every channel");
+    CHECK(bits.size() % 104 == 0);
+    RdsDecoder d;
+    // Start mid-stream, as a receiver does, and run the sequence twice.
+    for (int pass = 0; pass < 3; ++pass)
+        for (size_t i = (pass == 0 ? 37 : 0); i < bits.size(); ++i) d.push_bit(bits[i]);
+    CHECK(d.synced() && d.pi() == 0x54A8);
+    CHECK(d.name() == "ZERO FM ");
+    CHECK(d.text() == "Now playing: test tones on every channel");
+
+    // A few damaged bits lose a group, not the station.
+    RdsDecoder noisy;
+    for (int pass = 0; pass < 4; ++pass)
+        for (size_t i = 0; i < bits.size(); ++i) noisy.push_bit(bits[i] ^ ((i + size_t(pass) * 37) % 211 == 5 ? 1 : 0));
+    CHECK(noisy.synced() && noisy.name() == "ZERO FM ");
+    // A dropped bit is recovered from: sync is lost and found again.
+    RdsDecoder slip;
+    for (int pass = 0; pass < 5; ++pass)
+        for (size_t i = 0; i < bits.size(); ++i)
+            if (!(pass == 1 && i == 500)) slip.push_bit(bits[i]);
+    CHECK(slip.synced() && slip.name() == "ZERO FM " && slip.text() == "Now playing: test tones on every channel");
+    // Random bits don't produce a station.
+    RdsDecoder junk;
+    uint32_t rng = 7;
+    for (int i = 0; i < 20000; ++i) { rng = rng * 1664525u + 1013904223u; junk.push_bit(int(rng >> 20 & 1)); }
+    CHECK(junk.name().empty() && junk.text().empty());
+}
+
+// Level in dB of the strongest of a tone's nearest bins, from the last 8192 samples.
+static double tone_db(const std::vector<float>& x, double hz, double rate) {
+    const size_t n = 8192;
+    Spectrum sp(n);
+    std::vector<cf32> v(n);
+    for (size_t i = 0; i < n; ++i) v[i] = cf32(x[x.size() - n + i], 0);
+    sp.add(v.data());
+    auto out = sp.take();
+    size_t bin = n / 2 + size_t(hz * n / rate + 0.5);
+    return std::max({out[bin - 1], out[bin], out[bin + 1]});
+}
+
+// A stereo station with RDS, as it comes out of the FM discriminator: left
+// and right carry different tones and come out on their own channels, and
+// the station's name and text are read. A mono station stays mono.
+static void test_fm_broadcast() {
+    for (double rate : {256000.0, 250000.0}) {
+        const int decim = 8;
+        auto bits = rds_encode(0x54A8, "ZERO FM", "Stereo and RDS test");
+        std::vector<int> levels(bits.size());   // differentially encoded
+        int e = 0;
+        for (size_t i = 0; i < bits.size(); ++i) { e ^= bits[i]; levels[i] = e ? 1 : -1; }
+
+        for (bool with_pilot : {true, false}) {
+            FmBroadcast fm(rate, decim);
+            std::vector<float> disc(8192), out, left, right;
+            uint32_t rng = 99;
+            double t = 0;
+            for (int block = 0; block < int(4.0 * rate / 8192); ++block) {   // four seconds
+                for (float& v : disc) {
+                    double l = 0.8 * std::sin(2 * M_PI * 1000 * t), r = 0.4 * std::sin(2 * M_PI * 2500 * t);
+                    double pilot = 2 * M_PI * 19000 * t + 0.7;   // the station's own phase
+                    double u = t * 1187.5;
+                    double rds = levels[size_t(u) % levels.size()] * std::sin(2 * M_PI * (u - std::floor(u)));
+                    rng = rng * 1664525u + 1013904223u;
+                    double noise = (double(rng >> 8) / 16777216.0 - 0.5) * 0.02;
+                    double m = (l + r) / 2, d = (l - r) / 2;
+                    v = float(with_pilot ? 0.9 * (m + d * std::sin(2 * pilot)) + 0.09 * std::sin(pilot) + 0.05 * rds * std::sin(3 * pilot) + noise
+                                         : 0.9 * m + noise);
+                    t += 1 / rate;
+                }
+                out.clear();
+                fm.run(disc.data(), disc.size(), out);
+                for (size_t i = 0; i + 1 < out.size(); i += 2) { left.push_back(out[i]); right.push_back(out[i + 1]); }
+            }
+            double audio = rate / decim;
+            if (with_pilot) {
+                CHECK(fm.stereo());
+                // Each channel has its own tone, with the other at least 25 dB down.
+                double sep_l = tone_db(left, 1000, audio) - tone_db(left, 2500, audio);
+                double sep_r = tone_db(right, 2500, audio) - tone_db(right, 1000, audio);
+                if (sep_l < 25 || sep_r < 25) std::fprintf(stderr, "stereo separation at %.0f: %.1f / %.1f dB\n", rate, sep_l, sep_r);
+                CHECK(sep_l > 25 && sep_r > 25);
+                if (fm.rds().name() != "ZERO FM ") std::fprintf(stderr, "rds at %.0f: synced %d groups %d name '%s'\n", rate, fm.rds().synced(), fm.rds().groups(), fm.rds().name().c_str());
+                CHECK(fm.rds().pi() == 0x54A8 && fm.rds().name() == "ZERO FM ");
+                CHECK(fm.rds().text() == "Stereo and RDS test");
+            } else {
+                CHECK(!fm.stereo() && fm.rds().name().empty());
+                for (size_t i = left.size() - 1000; i < left.size(); ++i) CHECK(left[i] == right[i]);
+                CHECK(tone_db(left, 1000, audio) - tone_db(left, 2500, audio) > 3);   // both tones, the louder one louder
+            }
+        }
+    }
+}
+
+int main() {
+    test_fft();
+    test_spectrum_level_and_position();
+    test_reduce_peak();
+    test_proto();
+    test_sim_source();
+    test_file_source();
+    test_demod();
+    test_adjacent_channel();
+    test_json();
+    test_adsb();
+    test_aprs();
+    test_adif();
+    test_memories();
+    test_rds();
+    test_fm_broadcast();
+    test_ft8();
+    std::puts("all DSP tests passed");
+    return 0;
+}

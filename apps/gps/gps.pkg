@@ -1,0 +1,13 @@
+# GPS (README.md): a GPS module on the UART (G14/G15, EXT and Grove).
+NAME="GPS"
+SUMMARY="Position, saved spots and GPX tracks with a GPS module"
+APP_VERSION="1.0.0"
+DEPENDS="gpsd, gpsd-clients"
+NEEDS="gpsd"
+# gpsd starts when a client connects and only reads the receiver while someone watches.
+ENABLE="gpsd.socket"
+DISABLE_DEPS="gpsd.service"
+STOP_ON_REMOVE="gpsd.service"
+payload() {
+    install -D -m 0644 "$F/gpsd.default" "$D/usr/share/zeroos/app-overrides/gps/etc/default/gpsd"
+}

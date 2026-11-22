@@ -1,0 +1,13 @@
+# IR Remote (README.md): a universal remote from Flipper-IRDB, and your own
+# remotes learned button by button. The code database comes with the app.
+NAME="IR Remote"
+SUMMARY="A universal remote (about 2,000 remotes from Flipper-IRDB) and remotes you teach it"
+APP_VERSION="1.0.0"
+DEPENDS="v4l-utils, ir-keytable"
+payload() {
+    # Built by prepare.sh with irdb/build_irdb.py.
+    [ -f "$WORK/irdb/index.tsv" ] || { echo "error: no IR code database at $WORK/irdb" >&2; exit 1; }
+    install -d "$D/usr/share/zeroos/ir"
+    cp -r "$WORK/irdb/." "$D/usr/share/zeroos/ir/"
+    find "$D/usr/share/zeroos/ir" -type d -exec chmod 0755 {} + -o -type f -exec chmod 0644 {} +
+}

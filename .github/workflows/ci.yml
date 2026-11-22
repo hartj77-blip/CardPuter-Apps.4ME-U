@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:   # release.yml runs it before it publishes
+
+permissions:
+  contents: read
+
+jobs:
+  apps:
+    name: Build, tests and screenshots
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # pinned: the ZeroOS commit this repository names (base/).
+        # main: ZeroOS as it is now, so an OS change that breaks an app shows here first.
+        os: [pinned, main]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0   # tools/check-versions.sh compares with main
+      - name: Use ZeroOS main
+        if: matrix.os == 'main'
+        run: git -C base fetch --depth 1 origin main && git -C base checkout FETCH_HEAD
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libsdl2-dev python3-pil
+      - name: Every changed app has a new version
+        if: github.event_name == 'pull_request' && matrix.os == 'pinned'
+        run: tools/check-versions.sh "origin/${{ github.base_ref }}"
+      - name: Build SDL simulator (compile check)
+        run: cmake -S . -B build/sim -DZS_BACKEND=sim && cmake --build build/sim -j"$(nproc)"
+      - name: Build headless
+        run: cmake -S . -B build/headless -DZS_BACKEND=headless && cmake --build build/headless -j"$(nproc)"
+      - name: Unit tests
+        run: ctest --test-dir build/headless --output-on-failure
+      - name: Open every app (fails if one crashes)
+        run: tools/screenshots.sh build/headless build/screenshots
+      - name: Apps as installable modules (fails if one won't load or crashes)
+        run: |
+          cmake -S . -B build/modules -DZS_BACKEND=headless -DZS_APPS_AS_MODULES=ON
+          cmake --build build/modules -j"$(nproc)"
+          base/shell/tools/modules-test.sh build/modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: build/screenshots
+
+  install:
+    name: Install every app for real (Debian trixie arm64)
+    runs-on: ubuntu-24.04-arm
+    # What the Cardputer runs (Raspberry Pi OS is trixie plus Raspberry Pi's
+    # repository), with the real apt: every app installs with what it
+    # depends on, side by side, and removes cleanly.
+    container: debian:trixie
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file >/dev/null
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Add Raspberry Pi's repository (as on the device)
+        run: |
+          git config --global --add safe.directory "$PWD"
+          git config --global --add safe.directory "$PWD/base"
+          # The same key pi-gen installs (base/image/build.sh pins that commit).
+          curl -fsSL -o /usr/share/keyrings/raspberrypi-archive-keyring.pgp \
+            https://raw.githubusercontent.com/CardputerZero/pi-gen/e3b4e323782a59a426b92356248f5bc09a098be1/stage0/00-configure-apt/files/raspberrypi-archive-keyring.pgp
+          echo 'deb [signed-by=/usr/share/keyrings/raspberrypi-archive-keyring.pgp] http://archive.raspberrypi.com/debian trixie main' \
+            > /etc/apt/sources.list.d/raspi.list
+          apt-get update -qq
+      - name: Build ZeroShell and the app modules
+        run: |
+          cmake -S . -B build/device -DZS_BACKEND=device
+          cmake --build build/device -j"$(nproc)"
+      - name: Package the apps
+        run: tools/build.sh build/device build/apps
+      - name: Install, then remove, every app
+        run: base/image/tests/apps-install-test.sh build/apps build/device/zeroshell
+      # Try one on a device with: sudo zeroos-apps install-file zeroos-app-<id>_*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zeroos-apps
+          path: build/apps/

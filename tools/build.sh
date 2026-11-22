@@ -14,6 +14,7 @@
 #   <id>.pkg     NAME, SUMMARY, APP_VERSION, DEPENDS... and payload() (base/image/apps/make-app-deb.sh)
 #   files/       what payload() copies from, as $F
 #   prepare.sh   optional: fetches or builds what payload() takes from $WORK
+# payload() also sees $ZEROOS_BUILD, the build dir (programs in its bin/).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BUILD=$(realpath "${1:-$ROOT/build/device}")
@@ -24,6 +25,8 @@ ABI=$(sed -n 's/^#define ZS_APP_ABI \([0-9]*\).*/\1/p' "$BASE/shell/src/ui/app.h
 [ -n "$ABI" ] || { echo "error: no ZS_APP_ABI in $BASE/shell/src/ui/app.h (git submodule update --init base)" >&2; exit 1; }
 OS=$(git -C "$BASE" describe --tags --always 2>/dev/null || echo unknown)
 export ZEROOS_ARCH=${ZEROOS_ARCH:-arm64}
+# payload() can take programs the build made from here (Desktop's viewer).
+export ZEROOS_BUILD=$BUILD
 
 ids=("$@")
 if [ ${#ids[@]} -eq 0 ]; then

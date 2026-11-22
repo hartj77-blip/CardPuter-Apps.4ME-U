@@ -36,6 +36,7 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | Files | [apps/files](apps/files) | Browse the files on the device |
 | Games | [apps/games](apps/games/README.md) | NES, Game Boy and GBA games |
 | GPS | [apps/gps](apps/gps) | Position, saved spots and GPX tracks |
+| Grove | [apps/grove](apps/grove/README.md) | Light a NeoPixel LED strip on the Grove port, with effects |
 | IR Remote | [apps/ir](apps/ir/README.md) | A universal remote, and remotes you teach it |
 | Media | [apps/media](apps/media/README.md) | Music, Jellyfin, voice notes |
 | Mesh | [apps/mesh](apps/mesh) | Meshtastic text messages over LoRa |
@@ -51,7 +52,7 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 
 Nothing here has run on a real Cardputer from this repository yet. The apps were moved from the
 OS repository as they were in ZeroOS 0.3.4. Net Tools came over from an open pull request on the OS
-repository and is new here, and so is Router.
+repository and is new here, and so are Router and Grove.
 
 ## Work on an app
 
@@ -170,7 +171,7 @@ git add base && git commit -m "Move the OS pin"
 
 - Fold in RF Tools from [cardputer-zero-rf](https://github.com/hartj77-blip/cardputer-zero-rf),
   which fell behind because it had no automatic rebuild.
-- Bring over Grove, an open pull request on the OS repository.
+- Close the Net Tools, Router and Grove pull requests on the OS repository (they live here now).
 - Remove the apps from the OS repository once a device has installed from here.
 - Detailed screenshots per app (the OS repository still has the scripted ones).
 

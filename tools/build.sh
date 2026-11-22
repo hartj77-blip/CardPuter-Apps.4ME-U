@@ -51,6 +51,8 @@ rm -f -- "${OUT:?}"/zeroos-app-*.deb "${OUT:?}/zeroos-apps.index"
         version=$(sed -n 's/^APP_VERSION="\([0-9][0-9.]*\)"$/\1/p' "$pkg")
         [ -n "$version" ] || { echo "error: $pkg needs APP_VERSION=\"1.2.3\"" >&2; exit 1; }
         export WORK=$ROOT/build/work/$id
+        # Programs that come with an app (Grove's zeroos-grove-ledd) are built next to the modules.
+        export ZEROOS_APP_BIN=$BUILD/apps
         mkdir -p "$WORK"
         if [ -f "$dir/prepare.sh" ]; then bash "$dir/prepare.sh" >&2; fi
         # The level is part of the version: the same app built for a newer

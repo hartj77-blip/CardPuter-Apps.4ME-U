@@ -75,8 +75,8 @@ jobs:
       - name: Install tools and libraries
         run: |
           apt-get update -qq
-          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file \
-            pkgconf libvncserver-dev freerdp3-dev >/dev/null
+          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file >/dev/null
+          apt-get install -y -qq --no-install-recommends pkgconf libvncserver-dev freerdp3-dev >/dev/null
       - uses: actions/checkout@v4
         with:
           submodules: true

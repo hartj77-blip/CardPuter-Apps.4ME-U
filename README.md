@@ -103,6 +103,9 @@ cmake -S . -B build/sim && cmake --build build/sim -j
 digits and `-`. Pick an `ORDER` for its place on the home screen (the OS's own apps use 100 and
 200 to 220).
 
+**Rename an app:** rename it as above, then add `REPLACES="<old id>"` to the new `.pkg`. Update all
+on a device then installs the new app in place of the old one.
+
 **Try a build on a device** before it is released: CI attaches the packages to every pull
 request (the `zeroos-apps` artifact). Copy one over and run
 `sudo zeroos-apps install-file zeroos-app-<id>_*.deb`.

@@ -15,7 +15,7 @@ Open **Station** and set:
 | Callsign | Goes into every contact you log, as the station that made it. |
 | Grid locator | 4 or 6 characters (`FN31` or `FN31pr`). APRS shows each station's distance and direction from it, and it is logged with each contact. |
 | Frequency correction | The dongle's crystal error in ppm. An RTL-SDR Blog V4 is within about 1 ppm, so 0 is usually right. To measure it, tune a signal of known frequency (a NOAA weather channel, a beacon) and adjust until it sits on the centre line. |
-| Antenna power | The V4's bias tee: 4.5 V up the coax for a masthead amplifier, up to 180 mA. **Leave it off unless the antenna needs it**; into a DC-shorted antenna it does nothing useful and costs battery. Takes effect the next time an RF app opens. |
+| Antenna power | The V4's bias tee: 4.5 V up the coax for a masthead amplifier, up to 180 mA. **Leave it off unless the antenna needs it**; into a DC-shorted antenna it does nothing useful and costs battery. Takes effect the next time an RF tool opens. |
 | APRS frequency | In kHz: 144390 in the Americas, 144800 in Europe. |
 | Rig model, port, speed | For Hamlib; see Rig control below. |
 

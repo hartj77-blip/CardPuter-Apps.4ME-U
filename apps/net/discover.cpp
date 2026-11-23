@@ -11,6 +11,7 @@
 #include "apps/common.h"
 #include "net_run.h"
 #include "net_sim.h"
+#include "apps/kit/suite.h"
 
 namespace zs {
 namespace {
@@ -83,7 +84,7 @@ public:
         }
         if (key == LV_KEY_ENTER) {
             int i = focused();
-            if (i >= 0) shell_open_app("ports", hosts_[size_t(i)].ip);
+            if (i >= 0) kit::suite_open("ports", hosts_[size_t(i)].ip);
             return true;
         }
         return false;

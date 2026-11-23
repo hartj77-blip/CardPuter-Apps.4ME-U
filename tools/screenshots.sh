@@ -16,12 +16,23 @@ ids=$(sed -n 's/^zs_app(\([a-z0-9-]*\) .*/\1/p' "$ROOT"/apps/*/app.cmake)
 export PATH="$(dirname "$BIN")/bin:$PATH" ZRFD_BIN="$(dirname "$BIN")/bin/zrfd"
 export ZRFD_SOCKET="$DEMO/zrfd.sock" ZRF_SOURCE=sim ZRF_AUDIO=none
 steps="shot:home.ppm"
-for id in $ids; do steps+=",open:$id,wait:600,shot:$id.ppm"; done
+# Apps that hold several tools (apps/kit/suite.h): each tool too, picked by
+# its number in the app's menu (Net Tools 1-7, RF Tools 1-9).
+declare -A tools=([net]=7 [rf]=9)
+shots=""
+for id in $ids; do
+    steps+=",open:$id,wait:600,shot:$id.ppm"
+    shots+=" $id"
+    for ((n = 1; n <= ${tools[$id]:-0}; n++)); do
+        steps+=",open:$id,key:$n,wait:600,shot:$id-$n.ppm"
+        shots+=" $id-$n"
+    done
+done
 export ZS_GAMES_CORES="$(dirname "$BIN")/test-cores"
 export ZEROOS_AI_FAKE="Four."
 (cd "$OUT" && HOME="$DEMO" TZ=UTC "$BIN" --script "$steps,home")
 python3 "$ROOT/base/shell/tools/ppm2png.py" "$OUT"
-for id in $ids; do
+for id in $shots; do
     [ -s "$OUT/$id.png" ] || { echo "FAIL no screen for $id"; exit 1; }
 done
 echo "ok   every app opens: $(echo $ids)"

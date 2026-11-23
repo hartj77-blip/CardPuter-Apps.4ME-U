@@ -11,6 +11,7 @@
 #include "apps/common.h"
 #include "net_run.h"
 #include "net_ui.h"
+#include "apps/kit/suite.h"
 
 namespace zs {
 
@@ -18,7 +19,7 @@ class TargetApp : public App {
 public:
     void build(lv_obj_t* root) override {
         root_ = root;
-        std::string arg = shell_app_arg();   // a host handed over by Discover
+        std::string arg = kit::tool_arg();   // a host handed over by Discover
         if (!arg.empty()) {
             target_ = arg;
             show_output();

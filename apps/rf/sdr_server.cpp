@@ -110,7 +110,7 @@ private:
             lv_label_set_text(body_, "Lets an SDR program on a computer or phone use this "
                                      "radio over Wi-Fi or Tailscale (rtl_tcp).\n\n"
                                      "While it is on, anyone on the same network can tune "
-                                     "the radio, and the other RF apps can't use it.");
+                                     "the radio, and the other RF tools can't use it.");
             lv_label_set_text(log_, "");
             lv_label_set_text(hint_, "Enter  start");
             return;

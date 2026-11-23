@@ -89,7 +89,7 @@ private:
         if (f.kind == Kind::Toggle) {
             prefs::set_int(f.key, prefs::get_int(f.key, 0) ? 0 : 1);
             if (std::string(f.key) == "rf.biastee" && prefs::get_int(f.key, 0))
-                shell_toast("On from the next time an RF app opens");
+                shell_toast("On from the next time an RF tool opens");
         } else {
             self->editing_ = i;
             self->entry_ = f.kind == Kind::Number ? std::to_string(prefs::get_int(f.key, std::atoi(f.fallback)))

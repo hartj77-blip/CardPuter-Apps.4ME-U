@@ -1,16 +1,21 @@
 # RF Tools
 
-Nine apps for a USB software-defined radio dongle (RTL-SDR Blog V4 first): **Spectrum**,
-**Scanner**, **Sensors**, **Aircraft**, **APRS**, **FT8**, **Logbook**, **SDR Server** and
-**Station**. They are one app in the Apps app, so installing RF Tools adds all nine to the home
-screen with the radio programs they drive, and removing it takes them away again.
+One app for a USB software-defined radio dongle (RTL-SDR Blog V4 first), with nine tools inside:
+**Spectrum**, **Scanner**, **Sensors**, **Aircraft**, **APRS**, **FT8**, **Logbook**, **SDR Server**
+and **Station**. Installing RF Tools adds one icon to the home screen, with the radio programs the
+tools drive; removing it takes them away again.
+
+Open **RF Tools** and pick a tool from its menu: **1** to **9**, or Up/Down and **Enter**, or type
+to filter. **Esc** in a tool comes back to the menu, and **Esc** on the menu leaves the app. The
+menu remembers the tool you used last.
 
 It hasn't been tried with a real dongle yet. So far it's been tested against a simulated radio and
 recorded files.
 
 | Part | What |
 | --- | --- |
-| `*.cpp`, `*.h` | The nine apps. One module, `rf.so`, since they share one connection to the radio daemon. |
+| `rf.cpp` | The app: its menu of tools (the menu itself is `apps/kit/suite.h`, shared with Net Tools). |
+| `*.cpp`, `*.h` | The nine tools. One module, `rf.so`, since they share one connection to the radio daemon. |
 | `core/` | The radio side: receiver backends, spectrum, FM and AM demodulation, the daemon `zrfd` and its protocol ([core/README.md](core/README.md)), and stand-ins for a simulated radio. |
 | `files/` | What the package installs besides the programs: the first-run check, the dongle rules, the licences of code built in. |
 
@@ -25,15 +30,15 @@ press picks the mode that suits the frequency: the right sideband on an amateur 
 bottom of one, AM on the airband. The bottom line names the band you are in and, while listening,
 shows signal strength above the noise. **S** toggles squelch. **R** records raw IQ
 to `~/Recordings` (about 2 MB a second at the default width; it stops by itself before the card
-fills, and when you retune). Audio and recording stop when you leave the app.
+fills, and when you retune). Audio and recording stop when you leave Spectrum.
 
 **A** saves the channel you are on (type a name, **Enter**); **L** lists your saved channels, where
 **Enter** tunes to one and **D** deletes it. They live in `~/.config/zeroos/rf-memories.tsv`, one
 line each, and the Scanner can scan them.
 
 **K** makes the radio keep playing after you leave Spectrum, so you can listen while writing notes
-or browsing files. Opening Spectrum again picks the audio back up; opening another RF app stops it,
-because that app needs the receiver. Spectrum reopens where you left it (frequency, width, step,
+or browsing files. Opening Spectrum again picks the audio back up; opening another RF tool stops it,
+because that tool needs the receiver. Spectrum reopens where you left it (frequency, width, step,
 gain and squelch). **H** shows all the keys.
 
 On broadcast FM the bottom line shows the station's name and text (from RDS) and whether it is in

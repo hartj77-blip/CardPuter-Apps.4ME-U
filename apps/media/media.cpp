@@ -66,6 +66,15 @@ constexpr int kStreamW = 427, kStreamH = 240, kStreamKbps = 700;
 // And for the monitor in Dock mode: 720p, decoded in hardware there.
 constexpr int kDockW = 1280, kDockH = 720, kDockKbps = 4000;
 constexpr uint32_t kReportEveryMs = 30000;
+
+// Library lists came with a later ZeroOS than some this app is built for
+// (releases build against the newest released ZeroOS too). The values were
+// added at the end of their enums, so they are spelled by number here; an
+// older ZeroOS answers "Nothing to open" and the fixed rows stay.
+constexpr JfView kViewLibraries = JfView(13);   // JfView::Libraries
+constexpr JfView kViewLibrary = JfView(14);     // JfView::Library
+constexpr JfItem::Kind kFolder = JfItem::Kind(9);   // JfItem::Folder
+constexpr int kPage = 200;                       // kJfPage: rows in one reply
 constexpr uint32_t kOsdMs = 3000;   // the info bar stays up this long after a key
 
 std::string mmss(int ms) {
@@ -583,7 +592,7 @@ private:
         shell_toast("Loading libraries...");
         lv_refr_now(nullptr);
         std::string error;
-        if (!hal().jellyfin_list(jf_, JfView::Libraries, "", libs_, error)) {
+        if (!hal().jellyfin_list(jf_, kViewLibraries, "", libs_, error)) {
             libs_.clear();
             // "Nothing to open": this ZeroOS predates library lists.
             if (error != "Nothing to open") shell_toast(error);
@@ -648,7 +657,7 @@ private:
             const char* icon = track ? nullptr
                                : it.playable_video() ? LV_SYMBOL_VIDEO
                                : it.kind == JfItem::Playlist ? LV_SYMBOL_LIST
-                               : it.kind == JfItem::Folder ? folder_icon(it.detail)
+                               : it.kind == kFolder ? folder_icon(it.detail)
                                                            : LV_SYMBOL_DIRECTORY;
             std::string text = row_text(it, lv.view);
             if (track) text = fmt("%d. ", ++track_no) + text;
@@ -720,7 +729,7 @@ private:
             switch (r.kind) {
                 case kSearch: search(); break;
                 case kResume: open_level("Continue watching", JfView::Resume, ""); break;
-                case kLibrary: open_level(r.lib.name, JfView::Library, r.lib.id + ":" + r.lib.detail); break;
+                case kLibrary: open_level(r.lib.name, kViewLibrary, r.lib.id + ":" + r.lib.detail); break;
                 case kMovies: open_level("Movies", JfView::Movies, ""); break;
                 case kShows: open_level("TV shows", JfView::Shows, ""); break;
                 case kAlbums: open_level("Albums", JfView::Albums, ""); break;
@@ -743,7 +752,7 @@ private:
             case JfItem::Artist: open_level(it.name, JfView::ArtistAlbums, it.id); break;
             case JfItem::Playlist: open_level(it.name, JfView::PlaylistTracks, it.id); break;
             case JfItem::Series: open_level(it.name, JfView::Seasons, it.id); break;
-            case JfItem::Folder: open_level(it.name, JfView::Library, it.id + ":" + it.detail); break;
+            case kFolder: open_level(it.name, kViewLibrary, it.id + ":" + it.detail); break;
             case JfItem::Season:
                 if (it.series_id.empty()) {
                     shell_toast("The server didn't say which show");
@@ -774,7 +783,7 @@ private:
 
     static bool paged(JfView v) {
         return v == JfView::Albums || v == JfView::Artists || v == JfView::Playlists || v == JfView::Movies ||
-               v == JfView::Shows || v == JfView::Library;
+               v == JfView::Shows || v == kViewLibrary;
     }
 
     // Ask the server for a list and show it as a new level.
@@ -790,7 +799,7 @@ private:
             shell_toast(error);
             return;
         }
-        lv.more = paged(view) && int(lv.items.size()) >= kJfPage;
+        lv.more = paged(view) && int(lv.items.size()) >= kPage;
         shell_toast(lv.items.empty() ? "Nothing found" : fmt("%zu found", lv.items.size()));
         stack_.push_back(std::move(lv));
         rebuild_list();
@@ -809,7 +818,7 @@ private:
             return;
         }
         int first_new = int(lv.items.size());
-        lv.more = int(more.size()) >= kJfPage;
+        lv.more = int(more.size()) >= kPage;
         lv.items.insert(lv.items.end(), more.begin(), more.end());
         shell_toast(fmt("%zu in all", lv.items.size()));
         rebuild_list();

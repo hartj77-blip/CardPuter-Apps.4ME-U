@@ -1,0 +1,8 @@
+# Recorder (README.md): voice notes from the microphone, into ~/Recordings
+# (sox records them; Sync can keep the folder on a PC). They used to be a
+# tab in Media.
+NAME="Recorder"
+SUMMARY="Voice notes: record, play back, rename, delete"
+APP_VERSION="1.0.0"
+DEPENDS="sox, libsox-fmt-all"
+NEEDS="sox"

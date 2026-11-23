@@ -1,11 +1,61 @@
-# Jellyfin
+# Media
 
-The **Media** app plays music and video (movies and TV shows) from a Jellyfin
-server, as well as music from `~/Music`.
+The **Media** app is a music player in the style of the classic desktop MP3
+players: a green LCD with the time and a spectrum analyser, the title
+scrolling past, transport buttons, and the playlist underneath. It plays music
+from `~/Music` (the **Library** tab) and music and video (movies, TV shows,
+home videos...) from every library on a Jellyfin server (the **Jellyfin** tab).
 
-## Sign in
+Voice notes used to be a tab here. They are in their own app now,
+[Recorder](../recorder/README.md); your notes in `~/Recordings` are where they were.
 
-1. Open **Media** and press **Right** twice for the **Jellyfin** tab.
+## The player
+
+```
+ LIBRARY  JELLYFIN  ===========================  ~/Music
+ +-----------------+ +-----------------------------------+
+ | >         1:23  | | 3. Bench Tapes - Low Battery Blu… |
+ | ||| |||||  || | | [OGG] [3/6] [SHUF]  VOL ====        |
+ +-----------------+ [|<][>][||][#][>|]  ----o--------   |
+ +--------------------------------------------------------+
+ | 1. Synthwave Demos - Night Drive                  3:34 |
+ | 2. Synthwave Demos - Solder Fumes                 3:07 |
+ | 3. Bench Tapes - Low Battery Blues                4:03 |
+ +--------------------------------------------------------+
+```
+
+The LCD shows play, pause or stop, and the time (it blinks while paused). The
+strip on the right scrolls the track; under it are the format (MP3, FLAC,
+OGG..., NET for a Jellyfin stream), where you are in the queue, whether
+shuffle is on, and the volume. The playlist marks the track that's playing in
+white and the one you're on in blue.
+
+| Key | Does |
+| --- | --- |
+| Up / Down | Move in the playlist |
+| Enter | Play the track (and the rest of the list after it), or open a folder |
+| Left / Right | Library / Jellyfin tab |
+| / | Search: the Library tab narrows its list to an artist or title; Jellyfin searches the server |
+| Esc | Clear the search, or back one level in Jellyfin |
+| Z X C V B | Previous, play, pause, stop, next: the classic player's keys |
+| Space | Pause / resume |
+| N / P | Next / previous track |
+| S | Shuffle on or off (from the next track you pick) |
+| + / - | Volume |
+| **Fn + Q** | Play / pause. With nothing playing, plays the track you're on |
+| **Fn + W / Fn + E** | Previous / next track |
+| Fn + S / Fn + D, Fn + A | Volume down / up, sound off (anywhere) |
+| Tab | The menu: search, shuffle, stop, and for Jellyfin refresh libraries, sign in or out |
+| 0 | Every key at once |
+
+The media keys (Fn + Q, W, E) work in every app, not only this one, and so do a
+Bluetooth headset's or car's buttons. The queue belongs to ZeroShell, not the
+Media app, so music carries on to the next track after you leave the app and
+while the screen is off.
+
+## Jellyfin: sign in
+
+1. Open **Media** and press **Right** for the **Jellyfin** tab.
 2. Press **Enter** on **Sign in...** and answer three questions:
    - **Server**: its name or address. `nas` or `192.168.1.20` means
      `http://nas:8096` (Jellyfin's usual port); type the whole address, such as
@@ -17,21 +67,29 @@ which is saved in `~/.config/zeroos/settings.conf` (readable only by you).
 **Sign out** forgets it; you can also remove "Cardputer Zero" under Devices in
 Jellyfin's dashboard.
 
-The Jellyfin tab's first list: **Search**, **Continue watching**, **Movies**,
-**TV shows**, then the music lists (**Latest albums**, **Albums**, **Artists**,
-**Playlists**) and **Sign out**.
+The Jellyfin tab's first list: **Search**, **Continue watching**, then every
+library on your server, by the names you gave them (two music libraries, Kids
+movies, Home videos, Music videos, Audiobooks, Collections...), then **Latest
+albums**, **Artists** and **Playlists**. **Sign out** and **Refresh libraries**
+are in the menu (**Tab**).
+
+| A library of | Opens as |
+| --- | --- |
+| Music | its albums |
+| Movies | its movies |
+| Shows | its shows, then seasons, then episodes |
+| Anything else (home videos, music videos, books, mixed, collections) | its folders and files, folders first |
+
+Live TV libraries aren't listed: there's no tuner support. On ZeroOS 0.4.0 and older
+the library rows aren't there; you get the fixed **Movies**,
+**TV shows** and **Albums** rows instead, as before.
 
 ## Playing music
 
-| Key | Does |
-| --- | --- |
-| Enter | Open an album, artist or playlist; play a track |
-| Esc or ` | Back one level |
-| / | Search tracks, albums and artists |
-| Space | Pause / resume |
-| N / P | Next / previous track |
-| S | Stop |
-| + / - | Volume |
+The keys are the player's (see [The player](#the-player)): **Enter** opens an
+album, artist, playlist or folder and plays a track, **Esc** goes back one
+level, and **/** searches the whole server: tracks, albums, artists, playlists,
+movies, shows, episodes, music videos and audiobooks.
 
 Playing a track queues the rest of the album or playlist after it. The queue
 belongs to ZeroShell, not the Media app, so music carries on to the next track
@@ -39,8 +97,8 @@ after you leave the app and while the screen is off. Wi-Fi stays on while
 something is playing.
 
 Tracks in mp3, flac, ogg, opus, m4a or wav play as they are; the server
-converts anything else to mp3. Lists show the first 200 entries, so use search
-in a big library.
+converts anything else to mp3. Long lists come 200 at a time: **More...** at
+the bottom fetches the next 200.
 
 ## Watching video
 
@@ -50,8 +108,9 @@ the headphone jack or Bluetooth, whichever music would use.
 
 | Key | Does |
 | --- | --- |
-| Space or Enter | Pause / resume |
+| Space, Enter or Fn + Q | Pause / resume |
 | Left / Right | Back / forward 10 seconds |
+| Fn + W / Fn + E | Back 10 / forward 30 seconds |
 | Down / Up | Back / forward a minute |
 | 0 | From the start |
 | + / - | Volume |
@@ -67,6 +126,8 @@ while paused or loading.
 - The Cardputer tells the server what it is playing: it shows in Jellyfin's
   dashboard, and the place you stopped is saved for every device.
 - An episode that plays to the end goes on to the next one in the season.
+- A Bluetooth headset's or car's play and skip buttons pause and skip the
+  video too (ZeroOS newer than 0.4.0), instead of starting your music over it.
 - The screen stays on while a video plays (not while paused). Turning the
   Cardputer face down, or the screen turning off, pauses it.
 - Video belongs to the Media app, unlike music: leaving the app stops it.
@@ -97,6 +158,9 @@ network. Set **Settings > Tailscale** to **Always on** so it stays connected.
 
 - No album art or posters, and no subtitle or audio track choice (the
   server's defaults are used).
+- No photos, e-books or Live TV.
+- The spectrum analyser is for the look: the player doesn't hand the sound to
+  the app, so it dances to the beat of a random number generator.
 - Video needs Wi-Fi that keeps up with about 1 Mbit/s.
 - Names in scripts the built-in font lacks (Chinese, Japanese, Cyrillic...)
   show as boxes.

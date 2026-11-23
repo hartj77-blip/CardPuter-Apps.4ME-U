@@ -53,7 +53,7 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | System | [apps/sysmon](apps/sysmon) | CPU, memory, storage, temperature |
 | Terminal | [apps/terminal](apps/terminal) | Linux terminal on the built-in screen |
 | Tether | [apps/tether](apps/tether/README.md) | Get online through your phone |
-| ZClaw | [apps/zclaw](apps/zclaw/README.md) | AI assistant |
+| AI | [apps/ai](apps/ai/README.md) | AI assistant |
 
 Apps that need extra hardware: Camera needs a Cardputer with a camera, GPS a GPS module, Mesh the
 Cap LoRa-1262, Grove an LED strip on the Grove port, and RF Tools an RTL-SDR dongle.
@@ -102,6 +102,9 @@ cmake -S . -B build/sim && cmake --build build/sim -j
 `.cpp` and `.pkg` files to your app's id, and edit `app.cmake`. The id is lower-case letters,
 digits and `-`. Pick an `ORDER` for its place on the home screen (the OS's own apps use 100 and
 200 to 220).
+
+**Rename an app:** rename it as above, then add `REPLACES="<old id>"` to the new `.pkg`. Update all
+on a device then installs the new app in place of the old one.
 
 **Try a build on a device** before it is released: CI attaches the packages to every pull
 request (the `zeroos-apps` artifact). Copy one over and run

@@ -32,10 +32,13 @@ ids=("$@")
 if [ ${#ids[@]} -eq 0 ]; then
     for pkg in "$ROOT"/apps/*/*.pkg; do ids+=("$(basename "$pkg" .pkg)"); done
 fi
-# Every module needs an app folder: nothing gets left out.
+# Every module needs an app folder: nothing gets left out. A module an app
+# here replaces (REPLACES=, a renamed app the pinned OS still lists) is left out.
 if [ $# -eq 0 ]; then
+    replaced=" $(sed -n 's/^REPLACES="\(.*\)".*/\1/p' "$ROOT"/apps/*/*.pkg | tr '\n' ' ') "
     for m in "$BUILD"/apps/*.so; do
         id=$(basename "$m" .so)
+        [[ $replaced == *" $id "* ]] && continue
         [ -f "$ROOT/apps/$id/$id.pkg" ] || { echo "error: no apps/$id/$id.pkg for $m" >&2; exit 1; }
     done
 fi

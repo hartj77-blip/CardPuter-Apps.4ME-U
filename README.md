@@ -1,13 +1,16 @@
 # CardPuter-Apps.4ME-U
 
-The installable apps for [ZeroOS](https://github.com/hartj77-blip/CardPuter-OS.4ME-U) on the
-M5Stack Cardputer Zero. ZeroOS itself is small: it comes with **Apps**, **Settings**, **Update**
-and **Wi-Fi**. Everything else lives here, and you install it from the **Apps** app on the device.
+Apps for [ZeroOS](https://github.com/hartj77-blip/CardPuter-OS.4ME-U), the operating system for
+the M5Stack Cardputer Zero.
 
-| Where | What |
+ZeroOS ships with just four apps: **Apps**, **Settings**, **Update** and **Wi-Fi**. Everything
+else is in this repository, one folder per app, and gets installed from the **Apps** app on the
+device. Each app is versioned and released on its own, so updating one doesn't touch the others.
+
+| Repository | What's in it |
 | --- | --- |
-| [CardPuter-OS.4ME-U](https://github.com/hartj77-blip/CardPuter-OS.4ME-U) | The OS: the home screen, the four apps above, the SD card image, OS updates |
-| This repository | Every other app, one folder each, and the packages the Apps app downloads |
+| [CardPuter-OS.4ME-U](https://github.com/hartj77-blip/CardPuter-OS.4ME-U) | The OS: home screen, the four built-in apps, SD card image, OS updates |
+| This one | Every other app, and the packages the Apps app downloads |
 
 ## Install an app
 
@@ -52,13 +55,16 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | Tether | [apps/tether](apps/tether/README.md) | Get online through your phone |
 | ZClaw | [apps/zclaw](apps/zclaw/README.md) | AI assistant |
 
-Nothing here has run on a real Cardputer from this repository yet. The apps were moved from the
-OS repository as they were in ZeroOS 0.3.4. Net Tools came over from an open pull request on the OS
-repository and is new here, and so are Router and Grove. RF Tools came from cardputer-zero-rf.
+Apps that need extra hardware: Camera needs a Cardputer with a camera, GPS a GPS module, Mesh the
+Cap LoRa-1262, Grove an LED strip on the Grove port, and RF Tools an RTL-SDR dongle.
+
+Most of these have only been tested in the simulator and CI so far, not on a real Cardputer. If
+something doesn't work on your device, please
+[open an issue](https://github.com/hartj77-blip/CardPuter-Apps.4ME-U/issues).
 
 ## Work on an app
 
-Each app is one folder, so one person (or one chat) can own it without touching the others.
+Each app is self-contained in its own folder, so you can work on one without touching the others.
 
 ```
 apps/<id>/
@@ -175,13 +181,6 @@ git -C base fetch origin && git -C base checkout origin/main
 git add base && git commit -m "Move the OS pin"
 ```
 
-## What's next
-
-- Archive [cardputer-zero-rf](https://github.com/hartj77-blip/cardputer-zero-rf): RF Tools is made here now.
-- Close the Net Tools, Router and Grove pull requests on the OS repository (they live here now).
-- Remove the apps from the OS repository once a device has installed from here.
-- Detailed screenshots per app (the OS repository still has the scripted ones).
-
 ## Licence
 
-See [LICENSE](LICENSE). Third-party parts are named in each app's README.
+MIT, see [LICENSE](LICENSE). Third-party parts are listed in each app's README.

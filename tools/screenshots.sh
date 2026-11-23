@@ -18,7 +18,7 @@ export ZRFD_SOCKET="$DEMO/zrfd.sock" ZRF_SOURCE=sim ZRF_AUDIO=none
 steps="shot:home.ppm"
 for id in $ids; do steps+=",open:$id,wait:600,shot:$id.ppm"; done
 export ZS_GAMES_CORES="$(dirname "$BIN")/test-cores"
-export ZEROOS_ZCLAW_FAKE="Four."
+export ZEROOS_AI_FAKE="Four."
 (cd "$OUT" && HOME="$DEMO" TZ=UTC "$BIN" --script "$steps,home")
 python3 "$ROOT/base/shell/tools/ppm2png.py" "$OUT"
 for id in $ids; do

@@ -1,8 +1,8 @@
-# Net Tools (README.md): one pack, seven apps (Discover, Ports, Trace, DNS,
+# Net Tools (README.md): one app with seven tools (Discover, Ports, Trace, DNS,
 # Capture, Netinfo, Share), front-ends for the standard Linux network tools.
 NAME="Net Tools"
 SUMMARY="Discover devices, scan ports, trace routes, DNS, packet capture, interface info and Ethernet sharing"
-APP_VERSION="1.1.0"
+APP_VERSION="2.0.0"
 # arp-scan + nmap (Discover, Ports), mtr-tiny (Trace), dnsutils (DNS, dig),
 # tcpdump (Capture), iproute2 (Netinfo: ip, ss). Share uses NetworkManager,
 # which is part of ZeroOS; its "shared" mode needs dnsmasq-base (DHCP and DNS

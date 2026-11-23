@@ -1,8 +1,8 @@
-# RF Tools (README.md): nine apps for an RTL-SDR dongle in one module, rf.so,
+# RF Tools (README.md): one app with nine tools for an RTL-SDR dongle, rf.so,
 # and the radio programs they drive (core/, built into the build's bin/).
 NAME="RF Tools"
 SUMMARY="Spectrum, Scanner, Sensors, Aircraft, APRS, FT8, Logbook, SDR Server and Station, for an RTL-SDR dongle"
-APP_VERSION="1.0.0"
+APP_VERSION="2.0.0"
 DEPENDS="rtl-sdr, rtl-433, multimon-ng, libhamlib-utils, uhubctl, sox, usbutils"
 NEEDS="rtl-sdr, rtl-433, multimon-ng, Hamlib"
 payload() {

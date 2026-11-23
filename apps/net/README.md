@@ -1,18 +1,21 @@
 # Net Tools
 
-Net Tools is one installable pack, from the Apps app, that adds seven
-keyboard-driven network apps to the home screen, each a front-end for a standard
-Linux tool. The apps are thin: the analysis is done by the
+Net Tools is one installable app, from the Apps app, with seven
+keyboard-driven network tools inside, each a front-end for a standard
+Linux tool. The tools are thin: the analysis is done by the
 same programs you'd run on any Linux box, so the output is the real thing.
 
 It works over whatever connection the device has — the built-in Wi-Fi, a
 tethered phone, or the **Ethernet port**. Discover and Capture let you pick the
 interface.
 
-Install it from **Apps** (pick **Net Tools**, **Install**), then open any of the
-apps below. Removing the pack removes the apps and the tools it brought.
+Install it from **Apps** (pick **Net Tools**, **Install**), then open **Net Tools**
+and pick a tool from its menu: **1** to **7**, or Up/Down and **Enter**, or type to
+filter. **Esc** in a tool comes back to the menu, and **Esc** on the menu leaves the
+app. The menu remembers the tool you used last. Removing Net Tools removes it and the
+programs it brought.
 
-| App | Tool | What it does |
+| Tool | Program | What it does |
 | --- | --- | --- |
 | **Discover** | `arp-scan` | Every device on your network: IP, vendor, MAC |
 | **Ports** | `nmap` | The open ports and services on one host |
@@ -38,7 +41,8 @@ order, with the hardware vendor read from its MAC.
 
 Runs an nmap connect scan of the common ports on one host and lists the service
 nmap names on each. Type an address, or arrive here with **Enter** from
-Discover. **R** scans again; **Esc** goes back to type another host.
+Discover. **R** scans again; **Esc** goes back to type another host, and **Esc**
+again goes back to Discover (if you came from there) or the menu.
 
 ## Trace
 
@@ -110,8 +114,8 @@ phone.
 
 Finding devices (arp-scan) and capturing packets (tcpdump) need root. The pack
 installs a small `sudoers` rule (`/etc/sudoers.d/zeroos-net`) that lets the
-home-screen user run just those two tools without a password, which is how the
-apps run them. Everything else — nmap's connect scan, mtr, dig, ip, ss — runs as
+home-screen user run just those two tools without a password, which is how Net Tools
+runs them. Everything else — nmap's connect scan, mtr, dig, ip, ss — runs as
 you, with no extra privileges, and so does Share (through NetworkManager, which
 ZeroOS already lets you manage). Removing the pack removes the rule.
 
@@ -124,6 +128,6 @@ may be against the rules or the law where you are.
 
 ## On the simulator
 
-In the PC simulator and the headless build there is no real network, so the apps
+In the PC simulator and the headless build there is no real network, so the tools
 replay a small canned network (a router, a Pi, a few phones and laptops) so you
 can see how each screen looks. On the device they run the real tools.

@@ -5,9 +5,8 @@ Nine apps for a USB software-defined radio dongle (RTL-SDR Blog V4 first): **Spe
 **Station**. They are one app in the Apps app, so installing RF Tools adds all nine to the home
 screen with the radio programs they drive, and removing it takes them away again.
 
-It came from [cardputer-zero-rf](https://github.com/hartj77-blip/cardputer-zero-rf), which is no
-longer where it's made. Nothing here has run with a real dongle yet: it works against a simulated
-radio and recorded files, and audio was checked by measurement, never by ear.
+It hasn't been tried with a real dongle yet. So far it's been tested against a simulated radio and
+recorded files.
 
 | Part | What |
 | --- | --- |

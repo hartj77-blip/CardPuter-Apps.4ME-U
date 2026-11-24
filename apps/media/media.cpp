@@ -1,27 +1,22 @@
-// Media: your own music and video files, dressed as a classic desktop MP3
-// player: a green LCD with the time and a spectrum analyser, a scrolling
-// title, transport buttons, and a file explorer underneath in place of the
-// playlist. It plays what is on the device (the SD card), on a USB drive,
-// or on a server whose share is mounted (SMB, NFS, SSHFS), and http(s)
-// addresses. Jellyfin has its own app now. Voice notes are in Recorder.
+// Media: your own music, dressed as a classic desktop MP3 player: an LCD
+// with the time and a spectrum analyser, a scrolling title, transport
+// buttons, and a file explorer underneath in place of the playlist. It plays
+// what is on the device (the SD card), on a USB drive, or on a server whose
+// share is mounted (SMB, NFS, SSHFS), and http(s) addresses. Jellyfin has its
+// own app. Voice notes are in Recorder. Music only: video files aren't listed.
 //
 //   Up/Down      choose                   Enter        open / play
 //   Left         up a folder              Right        open a folder
 //   X            play the focused file, or everything in a folder
-//   Z C V B      previous, pause, stop, next (the old desktop keys)
-//   Space        pause / resume           N / P        next / previous
-//   S            shuffle on or off        + / -        volume
+//   C V B N M    the five buttons: previous, play, pause, stop, next
+//   Space        pause / resume           S            shuffle on or off
+//   T            the next theme           + / -        volume
 //   Fn+Q/W/E     the keyboard's media keys: play/pause, previous, next
 //   /            search this folder       Esc / Del    up a folder, or clear the search
-//   Tab          the menu (open an address, shuffle, stop, rescan)
+//   Tab          the menu (themes, open an address, shuffle, stop, rescan)
 //
 // Playing goes through the shell's queue (ui/player.h), so it carries on to
 // the next track after you leave the app or the screen turns off.
-//
-// A video file plays full width in the app (README.md):
-//   Space pause   Left/Right -/+10 s   Up/Down +/-1 min   0 from the start
-//   + / - volume  M on the monitor     Esc or S stop
-// Video belongs to the app: it stops when you leave Media.
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -42,20 +37,48 @@ namespace zs {
 namespace {
 using namespace theme;
 
-// The look: gunmetal chrome, a black LCD with green digits, a blue bar on
-// the playlist's selected row.
-constexpr uint32_t kChrome = 0x262637;
-constexpr uint32_t kChromeHi = 0x50506e;
-constexpr uint32_t kChromeLo = 0x101018;
-constexpr uint32_t kLcd = 0x000000;
-constexpr uint32_t kGreen = 0x00e000;
-constexpr uint32_t kGreenDim = 0x0f5a0f;
-constexpr uint32_t kGold = 0xdcb85a;
-constexpr uint32_t kGoldDim = 0x6e5c2c;
-constexpr uint32_t kSelect = 0x1414b4;
-constexpr uint32_t kButton = 0x3a3a55;
-constexpr uint32_t kButtonText = 0xc4c4d8;
-constexpr uint32_t kFolder = 0xdcb85a;   // folders in the list: gold, like the title bar
+// The looks. Each is a set of colours for the same player: the case
+// (chrome), the LCDs, the gold-ish accents of the title bar, the playlist's
+// selected row, the buttons and the spectrum analyser. T or the menu goes to
+// the next; the choice is kept (media.theme).
+struct Theme {
+    const char* name;
+    uint32_t chrome, chrome_hi, chrome_lo;   // the case, its light and dark edges
+    uint32_t lcd, text, text_dim;            // LCD background, digits, unlit digits
+    uint32_t accent, accent_dim;             // title bar, seek bar, flashed button
+    uint32_t select, select_text;            // the selected row
+    uint32_t button, button_text;
+    uint32_t folder;                         // folders in the list
+    uint32_t spec_lo, spec_hi, peak;         // analyser: bottom, top, peak caps
+};
+
+constexpr Theme kThemes[] = {
+    // Gunmetal chrome, a black LCD with green digits, a blue selection.
+    {"Classic", 0x262637, 0x50506e, 0x101018, 0x000000, 0x00e000, 0x0f5a0f, 0xdcb85a, 0x6e5c2c, 0x1414b4,
+     0xffffff, 0x3a3a55, 0xc4c4d8, 0xdcb85a, 0x10c010, 0xe01e00, 0x9a9aa8},
+    // An old amber terminal.
+    {"Amber", 0x2a2118, 0x5a4630, 0x120d08, 0x0c0700, 0xffb000, 0x5c3c00, 0xffcc66, 0x7a5a28, 0x7a3e00,
+     0xfff0d0, 0x3e3022, 0xe8d4b0, 0xffcc66, 0xff8c00, 0xffe066, 0xc0a080},
+    // A blue backlit LCD on dark steel.
+    {"Ice", 0x1c2633, 0x46607a, 0x0a1018, 0x020a14, 0x5ad2ff, 0x164a66, 0xa8e4ff, 0x3d6680, 0x0f5a8c,
+     0xffffff, 0x2a3a4e, 0xc8dcf0, 0xa8e4ff, 0x1e78ff, 0xb4f0ff, 0xdceaf5},
+    // Pink, ZeroOS Media's own colour.
+    {"Cherry", 0x2e1a24, 0x6a3a52, 0x140a10, 0x0e0308, 0xff5c9a, 0x5c1c38, 0xffb3d1, 0x7a4058, 0xa0205a,
+     0xffffff, 0x46263a, 0xf0c8da, 0xffb3d1, 0xd6336c, 0xffd0e4, 0xe0b0c8},
+    // Purple and neon cyan.
+    {"Vapor", 0x241a3a, 0x5a3e8c, 0x0e0a1a, 0x0a0614, 0x3cf0e6, 0x1a5c5a, 0xff71ce, 0x7a3a66, 0x6b2fb3,
+     0xffffff, 0x382a5a, 0xd8ccf0, 0xff71ce, 0x01cdfe, 0xff71ce, 0xfffb96},
+    // Deep green and lime, like a radio at night.
+    {"Forest", 0x16241a, 0x3a5a40, 0x08100a, 0x020a04, 0x9cff57, 0x2a5418, 0xd8e8a0, 0x5a6a3a, 0x2f6b2a,
+     0xffffff, 0x243a28, 0xcce0c8, 0xd8e8a0, 0x2fa84f, 0xe8ff80, 0xb0c8a0},
+    // Brushed silver with a grey-green LCD and dark digits: a light theme.
+    {"Silver", 0xc8c8d0, 0xf4f4f8, 0x7c7c88, 0x9aa88a, 0x1a2414, 0x7a8870, 0x26263a, 0x6a6a78, 0x2a4aa0,
+     0xffffff, 0xdcdce4, 0x26263a, 0x4a3c08, 0x2c3a24, 0x2c3a24, 0x50604a},
+    // Black and white, as plain and as clear as it gets.
+    {"Mono", 0x000000, 0x9a9a9a, 0x2a2a2a, 0x000000, 0xffffff, 0x5a5a5a, 0xffffff, 0x8a8a8a, 0xffffff,
+     0x000000, 0x1e1e1e, 0xffffff, 0xc8c8c8, 0xffffff, 0xffffff, 0x8a8a8a},
+};
+constexpr int kThemeCount = int(sizeof(kThemes) / sizeof(kThemes[0]));
 
 constexpr int kH = kBodyH;            // the soft-key bar takes the bottom
 constexpr int kBars = 19;             // spectrum analyser columns
@@ -63,11 +86,6 @@ constexpr int kBarH = 18;
 constexpr int kLcdW = 116, kLcdH = 50;
 constexpr int kRightX = 4 + kLcdW + 4, kRightW = kScreenW - kRightX - 4;
 constexpr int kListY = 70;
-
-// The video picture: the whole content area. 16:9 fills it at 267 x 150.
-constexpr int kVidW = kScreenW;
-constexpr int kVidH = kContentH;
-constexpr uint32_t kOsdMs = 3000;     // the info bar stays up this long after a key
 
 // Playing a whole folder looks this many folders down, for this many files.
 constexpr int kDeep = 5;
@@ -96,14 +114,6 @@ std::string ext_of(const std::string& name) {
 
 bool is_audio(const std::string& name) {
     static const char* const k[] = {".mp3", ".flac", ".ogg", ".oga", ".wav", ".m4a", ".opus", ".aac", ".wma"};
-    std::string e = ext_of(name);
-    for (auto x : k)
-        if (e == x) return true;
-    return false;
-}
-
-bool is_video(const std::string& name) {
-    static const char* const k[] = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".mpg", ".mpeg", ".ts"};
     std::string e = ext_of(name);
     for (auto x : k)
         if (e == x) return true;
@@ -140,13 +150,6 @@ bool is_dir(const std::string& path) {
     return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-std::string human(long long b) {
-    if (b < 1024) return fmt("%lld B", b);
-    if (b < 1024 * 1024) return fmt("%.0f KB", b / 1024.0);
-    if (b < 1024LL * 1024 * 1024) return fmt("%.1f MB", b / 1048576.0);
-    return fmt("%.1f GB", b / 1073741824.0);
-}
-
 // A plain box: no padding, no scrolling, a 1-pixel border.
 lv_obj_t* box(lv_obj_t* parent, int x, int y, int w, int h, uint32_t bg, uint32_t border) {
     lv_obj_t* o = lv_obj_create(parent);
@@ -164,7 +167,7 @@ lv_obj_t* box(lv_obj_t* parent, int x, int y, int w, int h, uint32_t bg, uint32_
 
 // One row of the explorer.
 struct Entry {
-    enum Type { Place, Dir, Audio, Video, List, Address } type = Dir;
+    enum Type { Place, Dir, Audio, List, Address } type = Dir;
     std::string name;
     std::string path;
     long long size = 0;
@@ -215,14 +218,15 @@ std::vector<Entry> mounted_places() {
 class MediaApp : public App {
 public:
     ~MediaApp() override {
-        // Leaving the app: the screen is being torn down, so only stop the video.
         if (anim_) lv_timer_delete(anim_);
-        close_video(false);
     }
 
     void build(lv_obj_t* root) override {
         root_ = root;
         shuffle_ = prefs::get_str("media.shuffle", "0") == "1";
+        std::string want = prefs::get_str("media.theme", kThemes[0].name);
+        for (int i = 0; i < kThemeCount; ++i)
+            if (want == kThemes[i].name) theme_ = i;
         // Back where you were last time, if it is still there.
         std::string last = prefs::get_str("media.folder", "");
         std::string base = prefs::get_str("media.place", "");
@@ -231,11 +235,7 @@ public:
             cwd_ = last;
         }
 
-        lv_obj_t* frame = box(root, 0, 0, kScreenW, kH, kChrome, kChrome);
-        lv_obj_set_style_border_width(frame, 0, 0);
-        build_title_bar(frame);
-        build_main_window(frame);
-
+        build_player();
         anim_ = lv_timer_create([](lv_timer_t* t) { static_cast<MediaApp*>(lv_timer_get_user_data(t))->animate(); },
                                 60, this);
         set_actions();
@@ -243,10 +243,6 @@ public:
     }
 
     void tick() override {
-        if (vid_) {
-            video_tick();
-            return;
-        }
         auto& h = hal();
         PlaybackState pb = h.playback();
         playing_ = !pb.path.empty() && !pb.paused;
@@ -257,7 +253,7 @@ public:
         // Paused: the time blinks, as it always has on these players.
         bool blink_off = pb.paused && (lv_tick_get() / 500) % 2;
         lv_label_set_text(time_, pb.path.empty() ? "0:00" : blink_off ? "" : mmss(pb.pos_ms).c_str());
-        lv_obj_set_style_text_color(time_, c(pb.path.empty() ? kGreenDim : kGreen), 0);
+        lv_obj_set_style_text_color(time_, c(pb.path.empty() ? T().text_dim : T().text), 0);
 
         const QueueItem* q = player_current();
         int at = -1;
@@ -265,7 +261,7 @@ public:
             if (queue_paths_[i] == pb.path) at = int(i);
         std::string marquee;
         if (pb.path.empty()) {
-            marquee = "ZeroOS Media  ***  Enter plays, X plays a whole folder  ***  ";
+            marquee = "ZeroOS Media  ***  Enter plays, X plays a whole folder, T changes the look  ***  ";
         } else {
             std::string name = q ? q->title : stem(pb.path);
             std::string artist = q ? q->artist : "";
@@ -278,7 +274,7 @@ public:
         }
         lv_label_set_text(kind_, pb.path.empty() ? "---" : format_of(pb.path).c_str());
         lv_label_set_text(pos_, at >= 0 ? fmt("%d/%zu", at + 1, queue_paths_.size()).c_str() : "-/-");
-        lv_obj_set_style_text_color(shuf_, c(shuffle_ ? kGreen : kGreenDim), 0);
+        lv_obj_set_style_text_color(shuf_, c(shuffle_ ? T().text : T().text_dim), 0);
         lv_bar_set_value(vol_, h.muted() ? 0 : h.volume(), LV_ANIM_OFF);
         int permille = pb.dur_ms > 0 ? int(1000LL * pb.pos_ms / pb.dur_ms) : 0;
         lv_bar_set_value(seek_, permille, LV_ANIM_OFF);
@@ -291,13 +287,12 @@ public:
         for (int i = 0; i < 5; ++i)
             if (flash_at_[i] && now - flash_at_[i] > 180) {
                 flash_at_[i] = 0;
-                lv_obj_set_style_bg_color(buttons_[i], c(kButton), 0);
-                lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(kButtonText), 0);
+                lv_obj_set_style_bg_color(buttons_[i], c(T().button), 0);
+                lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(T().button_text), 0);
             }
     }
 
     bool on_key(uint32_t key) override {
-        if (vid_) return video_key(key);
         if (input_) return false;   // typing in the text box
         auto& h = hal();
         switch (key) {
@@ -315,34 +310,47 @@ public:
             // The keyboard's media keys (Fn + Q / W / E), and a headset's
             // when the shell passes them on: here they act on the list too.
             case kKeyPlayPause:
-            case 'c': case 'C':
             case ' ': {
-                flash(key == 'c' || key == 'C' ? kPause : kPlay);
                 PlaybackState pb = h.playback();
+                flash(!pb.path.empty() && !pb.paused ? kPause : kPlay);
                 if (!pb.path.empty()) h.set_paused(!pb.paused);
                 else activate(focused_index());
                 return true;
             }
+            // The bottom row, C V B N M: the five buttons, left to right.
+            case 'c': case 'C':
+            case kKeyPrevTrack:
+                flash(kPrev);
+                step(-1);
+                return true;
+            case 'v': case 'V': {
+                // Play: resume, or start the row you're on.
+                flash(kPlay);
+                PlaybackState pb = h.playback();
+                if (pb.path.empty()) activate(focused_index());
+                else if (pb.paused) h.set_paused(false);
+                return true;
+            }
+            case 'b': case 'B': {
+                flash(kPause);
+                PlaybackState pb = h.playback();
+                if (!pb.path.empty()) h.set_paused(!pb.paused);
+                return true;
+            }
+            case 'n': case 'N':
+                flash(kStop);
+                stop();
+                return true;
+            case 'm': case 'M':
+            case kKeyNextTrack:
+                flash(kNext);
+                step(+1);
+                return true;
             case 'x': case 'X':
                 flash(kPlay);
                 play_focused();
                 return true;
-            case kKeyNextTrack:
-            case 'b': case 'B':
-            case 'n': case 'N':
-                flash(kNext);
-                step(+1);
-                return true;
-            case kKeyPrevTrack:
-            case 'z': case 'Z':
-            case 'p': case 'P':
-                flash(kPrev);
-                step(-1);
-                return true;
-            case 'v': case 'V':
-                flash(kStop);
-                stop();
-                return true;
+            case 't': case 'T': next_theme(); return true;
             case 's': case 'S': toggle_shuffle(); return true;
             case '+': case '=':
                 h.set_volume(std::min(100, h.volume() + 5));
@@ -356,10 +364,6 @@ public:
     }
 
     bool on_back() override {
-        if (vid_) {
-            close_video(true);
-            return true;
-        }
         if (input_) {
             close_input();
             return true;
@@ -379,20 +383,51 @@ public:
 private:
     enum Button { kPrev, kPlay, kPause, kStop, kNext };
 
+    const Theme& T() const { return kThemes[theme_]; }
+
     // ---- Building the screen --------------------------------------------
 
+    // The whole player in the current theme. Called again to change it.
+    void build_player() {
+        lv_obj_t* frame = box(root_, 0, 0, kScreenW, kH, T().chrome, T().chrome);
+        lv_obj_set_style_border_width(frame, 0, 0);
+        build_title_bar(frame);
+        build_main_window(frame);
+    }
+
+    // T: the next look. Everything is rebuilt in its colours; the place in
+    // the list stays.
+    void next_theme() {
+        if (input_) return;
+        int keep = focused_index();
+        std::string keep_path = keep >= 0 && keep < int(entries_.size()) ? entries_[size_t(keep)].path : "";
+        theme_ = (theme_ + 1) % kThemeCount;
+        prefs::set_str("media.theme", T().name);
+        lv_group_remove_all_objs(group);
+        lv_obj_clean(root_);
+        list_ = nullptr;
+        for (int i = 0; i < kBars; ++i) level_[i] = peak_[i] = peak_hold_[i] = 0;
+        for (auto& f : flash_at_) f = 0;
+        shown_marquee_.clear();
+        build_player();
+        set_actions();
+        rebuild_list(keep_path, false);
+        tick();
+        shell_toast(std::string("Theme: ") + T().name);
+    }
+
     void build_title_bar(lv_obj_t* frame) {
-        lv_obj_t* t = label(frame, "ZEROOS MEDIA", &zs_font_12, kGold);
+        lv_obj_t* t = label(frame, "ZEROOS MEDIA", &zs_font_12, T().accent);
         lv_obj_set_pos(t, 6, 0);
         lv_obj_update_layout(t);
         int x = 6 + lv_obj_get_width(t) + 8;
         // The grip ridges between the name and where you are.
         for (int k = 0; k < 2; ++k) {
-            lv_obj_t* r = box(frame, x, 5 + k * 3, kScreenW - x - 6, 1, kGoldDim, kGoldDim);
+            lv_obj_t* r = box(frame, x, 5 + k * 3, kScreenW - x - 6, 1, T().accent_dim, T().accent_dim);
             lv_obj_set_style_border_width(r, 0, 0);
         }
-        crumb_ = label(frame, "", &zs_font_12, kGold);
-        lv_obj_set_style_bg_color(crumb_, c(kChrome), 0);
+        crumb_ = label(frame, "", &zs_font_12, T().accent);
+        lv_obj_set_style_bg_color(crumb_, c(T().chrome), 0);
         lv_obj_set_style_bg_opa(crumb_, LV_OPA_COVER, 0);
         lv_obj_set_style_pad_left(crumb_, 5, 0);
         lv_obj_align(crumb_, LV_ALIGN_TOP_RIGHT, -6, 0);
@@ -400,52 +435,53 @@ private:
 
     void build_main_window(lv_obj_t* frame) {
         // The LCD: play state, time, spectrum analyser.
-        lv_obj_t* lcd = box(frame, 4, 16, kLcdW, kLcdH, kLcd, kChromeHi);
+        lv_obj_t* lcd = box(frame, 4, 16, kLcdW, kLcdH, T().lcd, T().chrome_hi);
         lv_obj_set_style_border_side(lcd, lv_border_side_t(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
-        state_ = label(lcd, LV_SYMBOL_STOP, &zs_font_12, kGreen);
+        state_ = label(lcd, LV_SYMBOL_STOP, &zs_font_12, T().text);
         lv_obj_set_pos(state_, 5, 5);
-        time_ = label(lcd, "0:00", &zs_font_20, kGreenDim);
+        time_ = label(lcd, "0:00", &zs_font_20, T().text_dim);
         lv_obj_set_style_text_align(time_, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_set_width(time_, 84);
         lv_obj_set_pos(time_, 24, 0);
         for (int i = 0; i < kBars; ++i) {
             int x = 5 + i * 5, y = kLcdH - 4 - kBarH;
-            // Each column is the whole green-yellow-red gradient, covered
-            // from the top down to its level; a grey cap marks the peak.
-            lv_obj_t* g = box(lcd, x, y, 4, kBarH, 0xe01e00, 0);
+            // Each column is the whole gradient (the theme's bottom colour
+            // to its top one), covered from the top down to its level; a
+            // cap marks the peak.
+            lv_obj_t* g = box(lcd, x, y, 4, kBarH, T().spec_hi, 0);
             lv_obj_set_style_border_width(g, 0, 0);
-            lv_obj_set_style_bg_grad_color(g, c(0x10c010), 0);
+            lv_obj_set_style_bg_grad_color(g, c(T().spec_lo), 0);
             lv_obj_set_style_bg_main_stop(g, 40, 0);
             lv_obj_set_style_bg_grad_dir(g, LV_GRAD_DIR_VER, 0);
-            mask_[i] = box(lcd, x, y, 4, kBarH, kLcd, 0);
+            mask_[i] = box(lcd, x, y, 4, kBarH, T().lcd, 0);
             lv_obj_set_style_border_width(mask_[i], 0, 0);
-            peak_obj_[i] = box(lcd, x, y + kBarH - 1, 4, 1, 0x9a9aa8, 0);
+            peak_obj_[i] = box(lcd, x, y + kBarH - 1, 4, 1, T().peak, 0);
             lv_obj_set_style_border_width(peak_obj_[i], 0, 0);
         }
 
         // The title, scrolling, in its own strip of LCD.
-        lv_obj_t* strip = box(frame, kRightX, 16, kRightW, 16, kLcd, kChromeHi);
+        lv_obj_t* strip = box(frame, kRightX, 16, kRightW, 16, T().lcd, T().chrome_hi);
         lv_obj_set_style_border_side(strip, lv_border_side_t(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
-        marquee_ = label(strip, "", &zs_font_12, kGreen);
+        marquee_ = label(strip, "", &zs_font_12, T().text);
         lv_obj_set_width(marquee_, kRightW - 6);
         lv_label_set_long_mode(marquee_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_pos(marquee_, 3, 0);
 
         // Small LCD boxes: the format, place in the queue, shuffle; volume.
         auto lcd_box = [&](int x, int w, const char* text) {
-            lv_obj_t* b = box(frame, x, 35, w, 14, kLcd, kChromeHi);
+            lv_obj_t* b = box(frame, x, 35, w, 14, T().lcd, T().chrome_hi);
             lv_obj_set_style_border_side(b, lv_border_side_t(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
-            lv_obj_t* l = label(b, text, &zs_font_12, kGreen);
+            lv_obj_t* l = label(b, text, &zs_font_12, T().text);
             lv_obj_center(l);
             return l;
         };
         kind_ = lcd_box(kRightX, 38, "---");
         pos_ = lcd_box(kRightX + 41, 50, "-/-");
         shuf_ = lcd_box(kRightX + 94, 38, "SHUF");
-        lv_obj_t* vl = label(frame, "VOL", &zs_font_12, kGoldDim);
+        lv_obj_t* vl = label(frame, "VOL", &zs_font_12, T().accent_dim);
         lv_obj_set_pos(vl, kRightX + 136, 35);
-        vol_ = thin_bar(frame, kRightW - 164, 5, kGreen);
-        lv_obj_set_style_bg_color(vol_, c(kChromeLo), LV_PART_MAIN);
+        vol_ = thin_bar(frame, kRightW - 164, 5, T().text);
+        lv_obj_set_style_bg_color(vol_, c(T().chrome_lo), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(vol_, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_pos(vol_, kRightX + 162, 40);
         lv_bar_set_range(vol_, 0, 100);
@@ -454,12 +490,12 @@ private:
         static const char* const syms[5] = {LV_SYMBOL_PREV, LV_SYMBOL_PLAY, LV_SYMBOL_PAUSE, LV_SYMBOL_STOP,
                                             LV_SYMBOL_NEXT};
         for (int i = 0; i < 5; ++i) {
-            buttons_[i] = box(frame, kRightX + i * 25, 53, 22, 13, kButton, kChromeHi);
+            buttons_[i] = box(frame, kRightX + i * 25, 53, 22, 13, T().button, T().chrome_hi);
             lv_obj_set_style_border_side(buttons_[i], lv_border_side_t(LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT), 0);
-            lv_obj_center(label(buttons_[i], syms[i], &zs_font_12, kButtonText));
+            lv_obj_center(label(buttons_[i], syms[i], &zs_font_12, T().button_text));
         }
-        seek_ = thin_bar(frame, kRightW - 130, 4, kGold);
-        lv_obj_set_style_bg_color(seek_, c(kChromeLo), LV_PART_MAIN);
+        seek_ = thin_bar(frame, kRightW - 130, 4, T().accent);
+        lv_obj_set_style_bg_color(seek_, c(T().chrome_lo), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(seek_, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_pos(seek_, kRightX + 128, 58);
         lv_bar_set_range(seek_, 0, 1000);
@@ -468,16 +504,16 @@ private:
     // A transport button lights up for a moment when its key is pressed.
     void flash(Button b) {
         flash_at_[b] = lv_tick_get() | 1;
-        lv_obj_set_style_bg_color(buttons_[b], c(kGold), 0);
-        lv_obj_set_style_text_color(lv_obj_get_child(buttons_[b], 0), c(kChromeLo), 0);
+        lv_obj_set_style_bg_color(buttons_[b], c(T().accent), 0);
+        lv_obj_set_style_text_color(lv_obj_get_child(buttons_[b], 0), c(T().chrome), 0);
         for (int i = 0; i < 5; ++i)
-            if (i != b) lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(kButtonText), 0);
+            if (i != b) lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(T().button_text), 0);
     }
 
     // The analyser: lively while something plays, falling flat otherwise.
     // (It is for the look: the player doesn't hand over the sound itself.)
     void animate() {
-        if (vid_ || power().screen_off()) return;
+        if (power().screen_off()) return;
         if (!playing_ && idle_frames_ > 40) return;   // settled: nothing to draw
         idle_frames_ = playing_ ? 0 : idle_frames_ + 1;
         for (int i = 0; i < kBars; ++i) {
@@ -504,21 +540,20 @@ private:
     }
 
     void set_actions() {
-        if (vid_) {
-            shell_set_actions({});   // the picture takes the whole area
-            return;
-        }
         std::vector<Action> a;
         a.push_back({"Open / play", 0, "Enter", nullptr});
         a.push_back({"Up a folder", 0, LV_SYMBOL_LEFT, nullptr});
         a.push_back({"Play folder", 0, "X", nullptr});
         a.push_back({"Search folder", 'f', "/", [this] { search(); }});
-        a.push_back({"Pause", 0, "Space", nullptr});
-        a.push_back({"Previous", 0, "Z", nullptr});
-        a.push_back({"Stop", 't', "V", [this] { stop(); }});
-        a.push_back({"Next", 0, "B", nullptr});
+        a.push_back({"Play / pause", 0, "Space", nullptr});
+        a.push_back({"Previous", 0, "C", nullptr});
+        a.push_back({"Play", 0, "V", nullptr});
+        a.push_back({"Pause", 0, "B", nullptr});
+        a.push_back({"Stop", 't', "N", [this] { stop(); }});
+        a.push_back({"Next", 0, "M", nullptr});
         a.push_back({shuffle_ ? "Shuffle off" : "Shuffle on", 's', "S", [this] { toggle_shuffle(); }});
         a.push_back({"Volume", 0, "+ -", nullptr});
+        a.push_back({std::string("Theme: ") + T().name + " (next)", 'e', "T", [this] { next_theme(); }});
         a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
         a.push_back({"Places", 'h', nullptr, [this] { go_places(); }});
         a.push_back({"Rescan", 'r', nullptr, [this] {
@@ -552,7 +587,6 @@ private:
             v.push_back(e);
         };
         add("Music", home + "/Music", LV_SYMBOL_AUDIO, "SD");
-        add("Videos", home + "/Videos", LV_SYMBOL_VIDEO, "SD");
         if (is_dir(home + "/Downloads")) add("Downloads", home + "/Downloads", LV_SYMBOL_DOWNLOAD, "SD");
         add("SD card", home, LV_SYMBOL_SD_CARD, "HOME");
         for (auto& m : mounted_places()) v.push_back(m);
@@ -589,7 +623,6 @@ private:
                 }
                 if (!S_ISREG(st.st_mode)) continue;
                 if (is_audio(n)) e.type = Entry::Audio;
-                else if (is_video(n)) e.type = Entry::Video;
                 else if (is_playlist(n)) e.type = Entry::List;
                 else continue;   // only what Media can play
                 files.push_back(e);
@@ -632,11 +665,11 @@ private:
         lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
         for (lv_style_selector_t st : {lv_style_selector_t(LV_STATE_FOCUSED), lv_style_selector_t(LV_STATE_FOCUS_KEY),
                                        lv_style_selector_t(LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY)}) {
-            lv_obj_set_style_bg_color(b, c(kSelect), st);
+            lv_obj_set_style_bg_color(b, c(T().select), st);
             lv_obj_set_style_bg_opa(b, LV_OPA_COVER, st);
-            lv_obj_set_style_text_color(b, c(0xffffff), st);
+            lv_obj_set_style_text_color(b, c(T().select_text), st);
         }
-        lv_obj_set_style_text_color(b, c(now ? 0xffffff : color), 0);
+        lv_obj_set_style_text_color(b, c(now ? T().select_text : color), 0);
         lv_obj_set_style_radius(b, 0, 0);
         lv_obj_set_style_border_width(b, 0, 0);
         lv_obj_set_style_outline_width(b, 0, LV_STATE_FOCUS_KEY);
@@ -659,7 +692,7 @@ private:
     void note(const std::string& text) {
         lv_obj_t* t = lv_list_add_text(list_, text.c_str());
         lv_obj_set_style_bg_opa(t, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_text_color(t, c(kGreenDim), 0);
+        lv_obj_set_style_text_color(t, c(T().text_dim), 0);
         lv_obj_set_style_text_font(t, &zs_font_12, 0);
         lv_obj_set_style_pad_ver(t, 0, 0);
         lv_obj_set_style_pad_hor(t, 3, 0);
@@ -679,25 +712,24 @@ private:
         list_ = lv_list_create(root_);
         lv_obj_set_pos(list_, 4, kListY);
         lv_obj_set_size(list_, kScreenW - 8, kH - kListY - 2);
-        lv_obj_set_style_bg_color(list_, c(kLcd), 0);
+        lv_obj_set_style_bg_color(list_, c(T().lcd), 0);
         lv_obj_set_style_bg_opa(list_, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_color(list_, c(kChromeHi), 0);
+        lv_obj_set_style_border_color(list_, c(T().chrome_hi), 0);
         lv_obj_set_style_border_width(list_, 1, 0);
         lv_obj_set_style_border_side(list_, lv_border_side_t(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
         lv_obj_set_style_radius(list_, 0, 0);
         lv_obj_set_style_pad_all(list_, 1, 0);
         lv_obj_set_style_pad_row(list_, 0, 0);
         lv_obj_set_scrollbar_mode(list_, LV_SCROLLBAR_MODE_ACTIVE);
-        lv_obj_set_style_bg_color(list_, c(kGreenDim), LV_PART_SCROLLBAR);
+        lv_obj_set_style_bg_color(list_, c(T().text_dim), LV_PART_SCROLLBAR);
 
         listed_playing_ = hal().playback().path;
         lv_obj_t* focus = nullptr;
         lv_obj_t* now_row = nullptr;
         int files = 0, shown_n = 0;
         if (!cwd_.empty() && entries_.empty()) {
-            note(is_dir(cwd_) ? "No music or video here" : "Can't open this folder");
+            note(is_dir(cwd_) ? "No music here" : "Can't open this folder");
             if (place_ == home_dir() + "/Music") note("Copy music to ~/Music on the SD card");
-            if (place_ == home_dir() + "/Videos") note("Copy videos to ~/Videos on the SD card");
         }
         for (size_t i = 0; i < entries_.size(); ++i) {
             const Entry& e = entries_[i];
@@ -707,16 +739,13 @@ private:
             switch (e.type) {
                 case Entry::Place:
                 case Entry::Address:
-                    b = add_row(e.icon, e.name, e.note, int(i), kGreen);
+                    b = add_row(e.icon, e.name, e.note, int(i), T().text);
                     break;
-                case Entry::Dir: b = add_row(LV_SYMBOL_DIRECTORY, e.name, "", int(i), kFolder); break;
-                case Entry::List: b = add_row(LV_SYMBOL_LIST, stem(e.name), "M3U", int(i), kGreen); break;
-                case Entry::Video:
-                    b = add_row(LV_SYMBOL_VIDEO, stem(e.name), human(e.size), int(i), kGreen);
-                    break;
+                case Entry::Dir: b = add_row(LV_SYMBOL_DIRECTORY, e.name, "", int(i), T().folder); break;
+                case Entry::List: b = add_row(LV_SYMBOL_LIST, stem(e.name), "M3U", int(i), T().text); break;
                 case Entry::Audio: {
                     bool now = e.path == listed_playing_;
-                    b = add_row(nullptr, fmt("%d. ", ++files) + stem(e.name), format_of(e.name), int(i), kGreen, now);
+                    b = add_row(nullptr, fmt("%d. ", ++files) + stem(e.name), format_of(e.name), int(i), T().text, now);
                     if (now) now_row = b;
                     break;
                 }
@@ -868,7 +897,7 @@ private:
         switch (e.type) {
             case Entry::Place:
                 if (!is_dir(e.path)) {
-                    // ~/Videos may not exist yet: make the folders that are ours.
+                    // ~/Music may not exist yet: make the folders that are ours.
                     if (e.path.rfind(home_dir() + "/", 0) == 0) mkdir(e.path.c_str(), 0755);
                     if (!is_dir(e.path)) {
                         shell_toast("Can't open " + e.name);
@@ -881,7 +910,6 @@ private:
             case Entry::Address: open_address(); break;
             case Entry::Dir: open_dir(e.path); break;
             case Entry::List: play_queue(read_playlist(e.path), 0, e.name); break;
-            case Entry::Video: open_video(e.path, stem(e.name)); break;
             case Entry::Audio: {
                 // The folder plays on from this track (what the search shows, if any).
                 std::vector<QueueItem> q;
@@ -923,8 +951,7 @@ private:
         activate(i);
     }
 
-    // A stream or a file on a web server: music plays in the queue, video
-    // full screen.
+    // A stream or a file on a web server: it plays in the queue.
     void open_address() {
         ask("Address (http:// or https://)", last_address_, false, [this](const std::string& typed) {
             std::string url = typed;
@@ -933,10 +960,6 @@ private:
             if (url.empty()) return;
             if (!is_url(url)) url = "http://" + url;
             last_address_ = url;
-            if (is_video(url)) {
-                open_video(url, stem(url));
-                return;
-            }
             std::vector<QueueItem> q = {{url, stem(url).empty() ? url : stem(url), "", -1, ""}};
             play_queue(std::move(q), 0, url);
         });
@@ -954,21 +977,21 @@ private:
     using Done = std::function<void(const std::string&)>;
     void ask(const char* title, const std::string& initial, bool password, Done done) {
         done_ = std::move(done);
-        input_ = box(root_, 0, 0, 300, 50, kChrome, kGold);
+        input_ = box(root_, 0, 0, 300, 50, T().chrome, T().accent);
         lv_obj_align(input_, LV_ALIGN_TOP_MID, 0, 30);
         lv_obj_set_style_pad_all(input_, 5, 0);
-        label(input_, title, &zs_font_12, kGold);
+        label(input_, title, &zs_font_12, T().accent);
         lv_obj_t* ta = lv_textarea_create(input_);
         lv_textarea_set_one_line(ta, true);
         lv_textarea_set_password_mode(ta, password);
         lv_textarea_set_text(ta, initial.c_str());
         lv_obj_set_width(ta, 288);
-        lv_obj_set_style_bg_color(ta, c(kLcd), 0);
-        lv_obj_set_style_text_color(ta, c(kGreen), 0);
-        lv_obj_set_style_border_color(ta, c(kChromeHi), 0);
+        lv_obj_set_style_bg_color(ta, c(T().lcd), 0);
+        lv_obj_set_style_text_color(ta, c(T().text), 0);
+        lv_obj_set_style_border_color(ta, c(T().chrome_hi), 0);
         lv_obj_set_style_radius(ta, 0, 0);
         lv_obj_set_style_pad_ver(ta, 2, 0);
-        lv_obj_set_style_bg_color(ta, c(kGreen), LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_bg_color(ta, c(T().text), LV_PART_CURSOR | LV_STATE_FOCUSED);
         lv_obj_align(ta, LV_ALIGN_BOTTOM_MID, 0, 0);
         lv_obj_add_event_cb(ta, [](lv_event_t* e) {
             auto* self = static_cast<MediaApp*>(lv_event_get_user_data(e));
@@ -1029,185 +1052,6 @@ private:
         }, self);
     }
 
-    // ---- Video ----------------------------------------------------------
-    // A file on the card, a drive or a share, or an address. mpv decodes it
-    // and scales each picture to the screen.
-
-    void open_video(const std::string& path, const std::string& title) {
-        close_video(true);
-        player_stop();   // music and video share the speaker
-        queue_paths_.clear();
-        vid_pixels_.assign(size_t(kVidW) * kVidH, 0);
-        std::string error;
-        if (!hal().video_open(path, "", 0, kVidW, kVidH, error)) {
-            shell_toast(error.empty() ? "Can't play " + title : error);
-            vid_pixels_.clear();
-            return;
-        }
-        vid_path_ = path;
-        vid_name_ = title;
-        build_video_view();
-        set_actions();
-        show_osd();
-    }
-
-    void build_video_view() {
-        vid_ = lv_obj_create(root_);
-        style_plain(vid_);
-        lv_obj_set_pos(vid_, 0, 0);
-        lv_obj_set_size(vid_, kVidW, kVidH);
-        lv_obj_set_style_bg_color(vid_, c(0x000000), 0);
-        lv_obj_set_style_bg_opa(vid_, LV_OPA_COVER, 0);
-        lv_obj_remove_flag(vid_, LV_OBJ_FLAG_SCROLLABLE);
-
-        vid_dsc_ = lv_image_dsc_t{};
-        vid_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
-        vid_dsc_.header.cf = LV_COLOR_FORMAT_RGB565;
-        vid_dsc_.header.w = kVidW;
-        vid_dsc_.header.h = kVidH;
-        vid_dsc_.header.stride = kVidW * 2;
-        vid_dsc_.data = reinterpret_cast<const uint8_t*>(vid_pixels_.data());
-        vid_dsc_.data_size = uint32_t(vid_pixels_.size() * 2);
-        vid_img_ = lv_image_create(vid_);
-        lv_image_set_src(vid_img_, &vid_dsc_);
-        lv_obj_set_pos(vid_img_, 0, 0);
-
-        vid_wait_ = label(vid_, "Loading...", &zs_font_14, kGreen);
-        lv_obj_center(vid_wait_);
-
-        // The info bar along the bottom, in the player's colours: title,
-        // time, a gold progress line.
-        vid_osd_ = box(vid_, 0, kVidH - 40, kVidW, 40, kChrome, kChromeHi);
-        lv_obj_set_style_border_side(vid_osd_, LV_BORDER_SIDE_TOP, 0);
-        lv_obj_set_style_bg_opa(vid_osd_, LV_OPA_80, 0);
-        vid_title_ = label(vid_osd_, vid_name_.c_str(), &zs_font_12, kGreen);
-        lv_obj_set_width(vid_title_, kVidW - 12);
-        lv_label_set_long_mode(vid_title_, LV_LABEL_LONG_DOT);
-        lv_obj_set_pos(vid_title_, 6, 2);
-        vid_bar_ = thin_bar(vid_osd_, kVidW - 12, 3, kGold);
-        lv_obj_set_style_bg_color(vid_bar_, c(kChromeLo), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(vid_bar_, LV_OPA_COVER, LV_PART_MAIN);
-        lv_bar_set_range(vid_bar_, 0, 1000);
-        lv_obj_set_pos(vid_bar_, 6, 19);
-        vid_time_ = label(vid_osd_, "", &zs_font_12, kGreen);
-        lv_obj_set_pos(vid_time_, 6, 24);
-        lv_obj_t* hint = label(vid_osd_, "Space pause  " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " seek  Esc stop",
-                               &zs_font_12, kGoldDim);
-        lv_obj_align(hint, LV_ALIGN_TOP_RIGHT, -6, 24);
-
-        if (group) lv_group_focus_obj(nullptr);
-        // Pictures come faster than the shell's 10 Hz tick.
-        vid_timer_ = lv_timer_create([](lv_timer_t* t) {
-            static_cast<MediaApp*>(lv_timer_get_user_data(t))->video_pump();
-        }, 20, this);
-    }
-
-    void video_pump() {
-        if (!vid_ || power().screen_off()) return;   // nobody is looking; the tick pauses it
-        if (hal().video_frame(vid_pixels_.data())) lv_obj_invalidate(vid_img_);
-    }
-
-    void video_tick() {
-        VideoState st = hal().video();
-        uint32_t now = lv_tick_get();
-        if (!st.open) {
-            std::string error = st.error;
-            bool finished = st.finished;
-            std::string name = vid_name_;
-            close_video(true);
-            if (!error.empty()) shell_toast(error);
-            else if (finished) shell_toast("Finished " + name);
-            return;
-        }
-        if (power().screen_off()) {
-            if (!st.paused) hal().video_pause(true);   // face down or timed out: keep the place
-        } else if (!st.paused) {
-            power().stay_awake(now);
-        }
-
-        const char* wait = st.loading ? "Loading..." : st.paused ? LV_SYMBOL_PAUSE "  Paused" : "";
-        lv_label_set_text(vid_wait_, wait);
-        if (*wait) lv_obj_remove_flag(vid_wait_, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(vid_wait_, LV_OBJ_FLAG_HIDDEN);
-
-        bool osd = st.paused || st.loading || now - vid_osd_at_ < kOsdMs;
-        if (osd) lv_obj_remove_flag(vid_osd_, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(vid_osd_, LV_OBJ_FLAG_HIDDEN);
-        if (osd) {
-            int permille = st.dur_ms > 0 ? int(1000LL * st.pos_ms / st.dur_ms) : 0;
-            lv_bar_set_value(vid_bar_, permille, LV_ANIM_OFF);
-            lv_label_set_text(vid_time_, (mmss(st.pos_ms) + " / " + mmss(st.dur_ms) +
-                                          fmt("   VOL %d%%", hal().volume()))
-                                             .c_str());
-        }
-    }
-
-    void show_osd() { vid_osd_at_ = lv_tick_get(); }
-
-    bool video_key(uint32_t key) {
-        auto& h = hal();
-        show_osd();
-        switch (key) {
-            case ' ':
-            case LV_KEY_ENTER:
-            case kKeyPlayPause: h.video_pause(!h.video().paused); return true;
-            case LV_KEY_LEFT: h.video_seek(-10, false); return true;
-            case LV_KEY_RIGHT: h.video_seek(+10, false); return true;
-            case LV_KEY_UP: h.video_seek(+60, false); return true;
-            case LV_KEY_DOWN: h.video_seek(-60, false); return true;
-            case kKeyPrevTrack: h.video_seek(-10, false); return true;
-            case kKeyNextTrack: h.video_seek(+30, false); return true;
-            case '0': h.video_seek(0, true); return true;
-            case '+': case '=':
-                h.set_volume(std::min(100, h.volume() + 5));
-                return true;
-            case '-': case '_':
-                h.set_volume(std::max(0, h.volume() - 5));
-                return true;
-            case 's': case 'S': case 'v': case 'V': close_video(true); return true;
-            case 'm': case 'M': video_to_monitor(); return true;
-            case LV_KEY_ESC: return false;   // on_back() closes it
-        }
-        // The shell's own keys (volume, brightness) still work; the list
-        // underneath gets nothing.
-        return !is_shell_key(key);
-    }
-
-    // Dock mode: the monitor's player has hardware decoding, so a big file
-    // plays better there.
-    void video_to_monitor() {
-        if (!hal().display().dock_running) {
-            shell_toast("Start Dock mode for the monitor first");
-            return;
-        }
-        std::string path = vid_path_;
-        close_video(true);
-        if (!hal().dock_open("video", path)) {
-            shell_toast("Can't open the video on the monitor");
-            return;
-        }
-        shell_toast("Playing on the monitor");
-    }
-
-    // Stop the video and, with ui, take the picture off the screen.
-    void close_video(bool ui) {
-        if (vid_timer_) {
-            lv_timer_delete(vid_timer_);
-            vid_timer_ = nullptr;
-        }
-        if (!vid_) return;
-        hal().video_close();
-        if (ui) {
-            lv_obj_delete(vid_);
-            vid_ = nullptr;
-            set_actions();
-            rebuild_list(vid_path_);
-        }
-        vid_ = nullptr;
-        vid_pixels_.clear();
-        vid_pixels_.shrink_to_fit();
-    }
-
     lv_obj_t* root_ = nullptr;
     lv_obj_t* crumb_ = nullptr;
     lv_obj_t* list_ = nullptr;
@@ -1229,21 +1073,13 @@ private:
     std::string filter_;               // the search, within this folder
     std::vector<std::string> queue_paths_;   // what we queued, for "3/12"
     bool shuffle_ = false;
+    int theme_ = 0;                    // kThemes[theme_]
     std::string listed_playing_;       // what the list last marked as playing
     std::string last_address_;
     int pending_ = -1;
     lv_obj_t* input_ = nullptr;
     Done done_;
 
-    // Video
-    lv_obj_t* vid_ = nullptr;   // the player view, over everything; null when no video
-    lv_obj_t *vid_img_ = nullptr, *vid_wait_ = nullptr, *vid_osd_ = nullptr, *vid_title_ = nullptr,
-             *vid_bar_ = nullptr, *vid_time_ = nullptr;
-    lv_timer_t* vid_timer_ = nullptr;
-    lv_image_dsc_t vid_dsc_{};
-    std::vector<uint16_t> vid_pixels_;
-    std::string vid_path_, vid_name_;
-    uint32_t vid_osd_at_ = 0;
 };
 }  // namespace
 

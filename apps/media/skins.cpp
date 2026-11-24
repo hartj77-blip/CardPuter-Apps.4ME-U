@@ -448,11 +448,9 @@ private:
         t3(p, "10", 297, 79, ENGR);
         t3e(p, "VOLUME", 274, 87, ENGR, ENGR_HI);
         static const char* keys[5] = {"PREV", "PLAY", "PAUSE", "STOP", "NEXT"};
-        static const char* letters[5] = {"P", "SPC", "SPC", "S", "N"};
         for (int i = 0; i < 5; ++i) {
             int x = 14 + i * 22;
             t3e(p, keys[i], x + 10 - w3(keys[i]) / 2, 118, ENGR, ENGR_HI);
-            t3(p, letters[i], x + 10 - w3(letters[i]) / 2, 126, R(0x6a6a70));
         }
         p.rect(12, 96, 296, 1, R(0x7a7a80));
         p.rect(12, 97, 296, 1, R(0xf4f4f8));
@@ -521,7 +519,7 @@ private:
             t3(p, q, 262 - w3(q), 80, AMB);
         }
         std::string title = v.stopped ? "Media" : v.title;
-        std::string sub = v.stopped ? "Pick music on the playlist, T changes the skin"
+        std::string sub = v.stopped ? "Nothing playing"
                                     : v.artist + (v.album.empty() || v.album == v.artist ? "" : " \xC2\xB7 " + v.album);
         int tw = 262 - seg_w(tm) - 6 - 128;
         tx.draw(title, 127, 50, &::zs_font_16, 0x6a3a0c, box(124, 50, tw + 3, 20));
@@ -546,11 +544,9 @@ private:
         dial_glass(p, 36, 13, 271, 80);
         t3e(p, "PRESET", 11, 13, ENGR, ENGR_HI);
         static const char* keys[6] = {"BACK", "OPEN", "FIND", "SHUF", "SKIN", "DECK"};
-        static const char* letters[6] = {"BKSP", "OK", "A-Z", "^H", "^T", "ESC"};
         for (int i = 0; i < 6; ++i) {
             int x = 14 + i * 25;
             t3e(p, keys[i], x + 11 - w3(keys[i]) / 2, 118, ENGR, ENGR_HI);
-            t3(p, letters[i], x + 11 - w3(letters[i]) / 2, 126, R(0x6a6a70));
         }
         p.rect(12, 97, 296, 1, R(0x7a7a80));
         p.rect(12, 98, 296, 1, R(0xf4f4f8));
@@ -829,7 +825,7 @@ private:
         t3(p, "SHUF", 52, 61, v.shuffle ? CY : CYD);
         t3(p, "MUTE", 72, 61, v.muted ? CY : CYD);
         // The title in big pixel letters, scrolling inside the oval.
-        std::string mq = v.stopped ? "ZEROOS MEDIA - ENTER PLAYS - " : upper(v.title) + (v.artist.empty() ? "" : " - " + upper(v.artist)) + " - ";
+        std::string mq = v.stopped ? "ZEROOS MEDIA - " : upper(v.title) + (v.artist.empty() ? "" : " - " + upper(v.artist)) + " - ";
         int mw = w3(mq, 3) + 3, off = int(std::fmod(t * 26, float(mw)));
         {
             // Clipped to its window and to the oval, a pixel at a time.
@@ -871,7 +867,7 @@ private:
             int py = 65 - int(std::lround(peaks_[i]));
             if (peaks_[i] > 0.5f && inE(float(x + 1), float(py), rx - 3, ry - 2)) p.rect(x, py, 3, 1, R(0xffffff));
         }
-        // The buttons in their sockets: C V B N M.
+        // The buttons in their sockets: previous, play, pause, stop, next.
         static const int bt[5][3] = {{60, 95, 10}, {88, 94, 13}, {117, 95, 10}, {142, 96, 10}, {167, 97, 10}};
         for (int k = 0; k < 5; ++k) {
             int x = bt[k][0], y = bt[k][1], r = bt[k][2];

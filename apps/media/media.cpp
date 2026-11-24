@@ -11,9 +11,11 @@
 //             Space pauses while nothing is typed.
 //             Everything else is in the Tab menu (Ctrl + its letter).
 //   Player    a Control screen in the explorer's place: Enter or Space
-//             pause, N next, P previous (Left / Right too), S stop,
-//             H shuffle, T the next skin, + / - volume. Esc: the Library.
-// The keyboard's media keys (Fn + Q / W / E) work on both, and in every app.
+//             pause, Left / Right previous / next, S stop, H shuffle,
+//             T the next skin, + / - volume. Esc: the Library.
+// Tracks are changed with the keyboard's media keys, Fn + Q (play / pause),
+// Fn + W (previous) and Fn + E (next), on both tabs and in every app; no
+// letters do it (Ctrl + N and Ctrl + P from the menu too).
 //
 // Skins (skins.h): besides the classic look, whole-screen pixel-art skins
 // with a player screen and a playlist screen; the playlist is the Library
@@ -525,12 +527,17 @@ private:
         auto shuffle = [this] { return std::string(shuffle_ ? "Shuffle off" : "Shuffle on"); };
         auto skin = [this] { return std::string("Skin: ") + kSkinNames[skin_] + " (next)"; };
         if (on_player()) {
-            a.push_back({"Play / pause", 0, "Enter", nullptr});
-            a.push_back({"Next", 'n', "N", [this] { next(); }});
-            a.push_back({"Previous", 'p', "P", [this] { previous(); }});
+            // The track keys are the keyboard's media keys, Fn + Q / W / E,
+            // which work on every screen; no letters of the Player's own.
+            // Short labels, so the bar keeps room for Tab Menu.
+            a.push_back({"Pause", 0, "Enter", nullptr});
+            a.push_back({"Track", 0, "Fn W E", nullptr});
             a.push_back({"Library", 0, "Esc", nullptr});
+            a.push_back({"Play / pause", 0, "Fn Q", nullptr});
             a.push_back({"Play / pause", 0, "Space", nullptr});
             a.push_back({"Previous / next", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+            a.push_back({"Next track", 'n', nullptr, [this] { next(); }});
+            a.push_back({"Previous track", 'p', nullptr, [this] { previous(); }});
             a.push_back({"Volume", 0, "+ -", nullptr});
             a.push_back({"Stop", 's', "S", [this] { stop(); }});
             a.push_back({shuffle(), 'h', "H", [this] { toggle_shuffle(); }});
@@ -545,6 +552,8 @@ private:
                              play_focused();
                          }});
             a.push_back({"Pause", 'u', "Space", [this] { play_pause(); }});
+            a.push_back({"Play / pause", 0, "Fn Q", nullptr});
+            a.push_back({"Previous / next", 0, "Fn W E", nullptr});
             a.push_back({"Next track", 'n', nullptr, [this] { next(); }});
             a.push_back({"Previous track", 'p', nullptr, [this] { previous(); }});
             a.push_back({"Stop", 's', nullptr, [this] { stop(); }});
@@ -603,9 +612,7 @@ private:
             case LV_KEY_ENTER:
             case '\r':
             case ' ': play_pause(); return true;
-            case 'n': case 'N':
             case LV_KEY_RIGHT: next(); return true;
-            case 'p': case 'P':
             case LV_KEY_LEFT: previous(); return true;
             case 's': case 'S': stop(); return true;
             case 'h': case 'H': toggle_shuffle(); return true;

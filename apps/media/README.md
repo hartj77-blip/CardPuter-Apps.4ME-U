@@ -108,18 +108,17 @@ The Library is a list, so typing searches it:
 | Space | Pause / resume (with nothing playing, plays the row you're on). Once you've typed, a space in the search |
 | Backspace or Esc | Up a folder |
 | Left / Right | The Player tab |
-| Tab | The menu: Play all (A), Pause (U), Next (N), Previous (P), Stop (S), Shuffle (H), Skin (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
+| Tab | The menu: Play all (A), Pause (U), Next track (N), Previous track (P), Stop (S), Shuffle (H), Skin (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
 
 **Play all** plays everything in the folder you're on, folders under it
 included (up to 3000 tracks).
 
-The Player takes its letters as they are:
+Tracks are changed with the keyboard's media keys (below), not letters. The Player:
 
 | Key | Does |
 | --- | --- |
 | Enter or Space | Pause / resume |
-| N or Right | Next track |
-| P or Left | Previous track |
+| Fn + W / Fn + E, or Left / Right | Previous / next track |
 | S | Stop |
 | H | Shuffle on or off (from the next track you pick) |
 | T | The next skin |

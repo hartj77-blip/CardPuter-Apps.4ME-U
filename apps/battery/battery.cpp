@@ -1,5 +1,6 @@
 // Battery: fuel-gauge readings from the BQ27220, power draw, and the power
-// profile (P or Tab switches Saver / Balanced / Performance).
+// profile (P switches Saver / Balanced / Performance; the soft-key bar
+// says so, and it is in the menu too).
 #include "apps/common.h"
 #include "ui/power.h"
 
@@ -10,9 +11,10 @@ using namespace theme;
 class BatteryApp : public App {
 public:
     void build(lv_obj_t* root) override {
+        shell_set_actions({{"Power profile", 'p', "P", [this] { next_profile(); }}});
         arc_ = lv_arc_create(root);
         lv_obj_set_size(arc_, 110, 110);
-        lv_obj_set_pos(arc_, 8, 18);
+        lv_obj_set_pos(arc_, 8, 6);
         lv_arc_set_bg_angles(arc_, 135, 45);
         lv_arc_set_range(arc_, 0, 100);
         lv_obj_remove_style(arc_, nullptr, LV_PART_KNOB);
@@ -29,14 +31,15 @@ public:
         profile_ = label(root, "", &zs_font_12, kAccent);
         lv_obj_set_width(profile_, 120);
         lv_obj_set_style_text_align(profile_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(profile_, 3, 124);
+        lv_obj_set_pos(profile_, 3, 118);
 
         lv_obj_t* panel = lv_obj_create(root);
         style_panel(panel);
-        lv_obj_set_pos(panel, 128, 6);
-        lv_obj_set_size(panel, 184, 138);
+        lv_obj_set_pos(panel, 128, 4);
+        lv_obj_set_size(panel, 184, kBodyH - 8);
         lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_row(panel, 3, 0);
+        lv_obj_set_style_pad_row(panel, 0, 0);
+        lv_obj_set_style_pad_ver(panel, 4, 0);
         lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
         time_ = kv_row(panel, "Time left", "");
         draw_ = kv_row(panel, "Power draw", "");
@@ -49,10 +52,8 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (key == 'p' || key == 'P' || key == 9) {
-            power().cycle_profile();
-            shell_toast(std::string("Power profile: ") + Power::profile_name(power().profile()));
-            refresh();
+        if (key == 'p' || key == 'P') {
+            next_profile();
             return true;
         }
         return false;
@@ -63,6 +64,12 @@ public:
     }
 
 private:
+    void next_profile() {
+        power().cycle_profile();
+        shell_toast(std::string("Power profile: ") + Power::profile_name(power().profile()));
+        refresh();
+    }
+
     void refresh() {
         BatteryInfo b = hal().battery();
         lv_arc_set_value(arc_, b.percent < 0 ? 0 : b.percent);
@@ -79,7 +86,7 @@ private:
         lv_label_set_text(draw_, mw > 0 ? fmt("%.2f W", mw / 1000.0).c_str() : "--");
         Profile ep = power().effective_profile();
         bool forced = ep != power().profile();
-        lv_label_set_text(profile_, fmt(LV_SYMBOL_CHARGE " %s%s  [P]", Power::profile_name(ep), forced ? " (low)" : "").c_str());
+        lv_label_set_text(profile_, fmt(LV_SYMBOL_CHARGE " %s%s", Power::profile_name(ep), forced ? " (low)" : "").c_str());
         lv_label_set_text(volt_, fmt("%.2f V", b.voltage_mv / 1000.0).c_str());
         lv_label_set_text(curr_, fmt("%d mA", b.current_ma).c_str());
         lv_label_set_text(temp_, fmt("%.1f C", b.temp_c10 / 10.0).c_str());

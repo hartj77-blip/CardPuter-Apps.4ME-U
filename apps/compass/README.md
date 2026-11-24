@@ -8,7 +8,7 @@ them; the **Lite has none**, and the app says "No IMU".
 - **The level** is the small ring: the bubble moves as you tilt the device, and turns green when
   it's within 1° of level both ways. Pitch and roll are shown in degrees beside it.
 
-There are no keys besides **Esc** (home).
+There are no keys besides **Esc** (home); the bar along the bottom says so.
 
 Hold it flat for the compass: the heading is magnetic, not true north, and it's thrown off by
 magnets, speakers and steel nearby (a desk with a metal frame, a laptop).

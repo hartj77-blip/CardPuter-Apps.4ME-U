@@ -16,7 +16,7 @@ battery is. It's also where you switch the power profile.
 
 | Key | Does |
 | --- | --- |
-| P or Tab | Next power profile: Saver, Balanced, Performance |
+| P | Next power profile: Saver, Balanced, Performance (also in the menu on **Tab**) |
 | Esc | Home |
 
 The profile sets how fast the CPU may run. When the battery is at 15% or less and not charging,

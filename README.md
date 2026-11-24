@@ -163,7 +163,7 @@ the app. It all goes again when you remove the app.
 | [Terminal](apps/terminal/README.md) | `terminal` | A Linux terminal on the built-in screen (53 x 14), in tmux, so sessions keep running when you leave | nothing (tmux is in ZeroOS) |
 | [Files](apps/files/README.md) | `files` | Browse the device's files; rename, copy, move and delete them. Opens text in Notes, plays music, plays video on a monitor, sends a file with Taildrop | nothing |
 | [Notes](apps/notes/README.md) | `notes` | Plain-text notes in `~/Notes` that save as you type: a list of notes, find in a note, share with Taildrop | nothing |
-| [Browser](apps/browser/README.md) | `browser` | Read the web as text: the ZeroOS docs and READMEs (bookmarked on its home page), Markdown, simple HTML pages and local files. Keeps pages to read offline | nothing (pages are fetched with curl, which is in ZeroOS) |
+| [Browser](apps/browser/README.md) | `browser` | Browse the web on the small screen: pages with their pictures (PNG, JPEG, GIF), forms and sign-ins, DuckDuckGo search, bookmarks and history, the ZeroOS docs, Markdown and local files. Keeps pages to read offline. No JavaScript | nothing (pages are fetched with curl, which is in ZeroOS) |
 | [Clock](apps/clock/README.md) | `clock` | Time and date from the battery-backed clock, and a stopwatch with laps | nothing |
 | [Battery](apps/battery/README.md) | `battery` | Charge, time left, power draw, battery health, and the power profile | nothing |
 | [System](apps/sysmon/README.md) | `sysmon` | CPU, memory and what uses it, storage, temperature, versions | nothing |
@@ -234,7 +234,8 @@ Terminal, SSH, or another computer.
 | `~/Games/settings` | Games' border, picture, carry-on and TV settings | Games |
 | `~/Code/` | Your projects | Dev Tools |
 | `~/IR/` | Remotes you taught or saved | IR Remote |
-| `~/.cache/zeroos/browser/` | Pages you opened, to read offline. Safe to delete | Browser |
+| `~/.cache/zeroos/browser/` | Pages and pictures you opened, to read offline. Safe to delete | Browser |
+| `~/.config/zeroos/browser/` | Browser's bookmarks, history, settings and cookies (`cookies.txt` holds your sign-ins; mode 600) | Browser |
 | `~/.config/zeroos/ai.conf` | AI's settings and API keys (mode 600) | AI |
 | `~/.config/zeroos/desktop-hosts` | Computers you saved in Desktop | Desktop |
 | `~/.config/zeroos/rf-memories.tsv` | Saved frequencies | RF Tools |
@@ -546,7 +547,7 @@ curl through a private temporary file so they never appear in the process list. 
 password once to get a sign-in token, keeps the token, and doesn't keep the password.
 Sync shares only the three folders it names. Nothing in these apps sends usage data anywhere.
 AI sends what you type to the provider you picked, and Browser fetches the pages you open (its
-home page links point at GitHub); nothing else talks to a service you didn't set up.
+home page links point at GitHub, and its searches go to DuckDuckGo); nothing else talks to a service you didn't set up.
 
 **Use the network tools on your own networks.** Net Tools' port scanner and packet capture, and
 RF Tools' receivers, are for networks and radio you're allowed to look at. The rules on
@@ -564,7 +565,7 @@ shows here before the OS is released.
 | --- | --- | --- |
 | Every changed app has a new version | `tools/check-versions.sh`: compares each app folder with `main`; a change to a kit file counts for every app that uses it. README and test changes don't count | An app that changed without a new version, which devices would never be offered |
 | Simulator and headless builds | Builds every app into the SDL and headless ZeroShell | Code that doesn't compile |
-| Unit tests | `ctest`: AI's requests, replies and settings (no network); Browser's Markdown and HTML parsing, layout and addresses; Desktop's host list; Grove's LED effects; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
+| Unit tests | `ctest`: AI's requests, replies and settings (no network); Browser's Markdown and HTML parsing, forms, pictures, layout and addresses; Desktop's host list; Grove's LED effects; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
 | App script tests | `apps/<id>/tests/*-test.sh`: Router's routing script against stand-ins | A broken helper script |
 | Open every app | `tools/screenshots.sh`: drives the headless build through the home screen and every app, and every tool inside Net Tools and RF Tools, and saves a screenshot of each (uploaded as an artifact). Games plays a test-pattern core; AI gets a canned answer; RF Tools runs against a simulated radio | An app that crashes or hangs when opened |
 | Apps as modules | Builds every app as a module and loads each into a ZeroShell that has none built in | A module with a missing symbol or the wrong app level |

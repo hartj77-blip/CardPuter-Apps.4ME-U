@@ -1,5 +1,5 @@
-# Browser (README.md): a text web browser, first for reading the ZeroOS docs.
+# Browser (README.md): a web browser for the small screen, without CSS or JavaScript.
 # Pages are fetched with curl, which is part of ZeroOS: nothing else to install.
 NAME="Browser"
-SUMMARY="Read the web as text: docs, READMEs, Markdown and simple pages"
-APP_VERSION="0.2.1"
+SUMMARY="Browse the web on the small screen: pages, pictures, forms, search and bookmarks"
+APP_VERSION="0.3.0"

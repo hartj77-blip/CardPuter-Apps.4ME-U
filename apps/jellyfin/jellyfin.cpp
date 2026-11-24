@@ -1,23 +1,21 @@
 // Jellyfin: music and video from your Jellyfin server, dressed like
 // Jellyfin's own apps: the near-black dark theme, the purple-to-blue logo,
-// a home screen of card rows (My Media, Continue Watching, Music), lists in
-// Jellyfin blue, and a now-playing bar along the bottom.
+// a home screen of card rows (My Media, Continue Watching, Music), lists,
+// and a now-playing bar along the bottom.
 //
-//   Home         arrows move between cards   Enter opens
-//   Lists        Up/Down choose   Enter play / open   Esc or Left back
-//   /            search the server            Space pause / resume
-//   N / P        next / previous track        + / -  volume
-//   Fn+Q/W/E     the keyboard's media keys: play/pause, previous, next
-//   Tab          the menu (search, stop, refresh, sign out)
+// The kinds of screen (docs/UX.md in the OS), each with its keys in the
+// soft-key bar and all its actions in the Tab menu:
+//   Home     Control: arrows move between cards, Enter opens, F search,
+//            Space pause, N / P next / previous, + / - volume
+//   Lists    List (ui/list_view.h): typing narrows the list, 1 to 9 pick,
+//            Enter plays or opens, Space pauses, Backspace or Esc go back
+//   Video    Control: Enter or Space pause, Left / Right -/+10 s, Up / Down
+//            +/-1 min, R from the start, M on the monitor, S or Esc stop
+// Fn + Q / W / E, the keyboard's media keys, work everywhere.
 //
 // Music goes through the shell's queue (ui/player.h), so it carries on to
-// the next track after you leave the app or the screen turns off.
-//
-// A movie or episode plays full width in the app (README.md):
-//   Space pause   Left/Right -/+10 s   Up/Down +/-1 min   0 from the start
-//   Fn+Q pause    Fn+W/E -10/+30 s     + / - volume   M on the monitor
-//   Esc or S stop
-// Video belongs to the app: it stops when you leave Jellyfin.
+// the next track after you leave the app or the screen turns off. Video
+// belongs to the app: it stops when you leave Jellyfin.
 //
 // The sign-in (jellyfin.* in prefs) is the one the Media app used to keep,
 // so a device that was signed in there stays signed in.
@@ -29,6 +27,7 @@
 
 #include "apps/common.h"
 #include "platform/keys.h"
+#include "ui/list_view.h"
 #include "ui/player.h"
 #include "ui/power.h"
 #include "ui/prefs.h"
@@ -52,9 +51,10 @@ constexpr int kH = kBodyH;            // the soft-key bar takes the bottom
 constexpr int kHeadH = 20;
 constexpr int kNowH = 18;             // the now-playing bar
 
-// The video picture: the whole content area. 16:9 fills it at 267 x 150.
+// The video picture: the app area above the soft-key bar. 16:9 fills it
+// at 242 x 136.
 constexpr int kVidW = kScreenW;
-constexpr int kVidH = kContentH;
+constexpr int kVidH = kBodyH;
 // What we ask the server for: a picture about the size of the screen (it
 // scales down, never up) at a bitrate Wi-Fi on a Pi Zero 2 keeps up with.
 constexpr int kStreamW = 427, kStreamH = 240, kStreamKbps = 700;
@@ -146,43 +146,20 @@ public:
     bool on_key(uint32_t key) override {
         if (vid_) return video_key(key);
         if (input_) return false;   // typing in the text box
-        auto& h = hal();
-        if (!jf_.signed_in() && (key == LV_KEY_ENTER || key == '\r')) {
-            sign_in();
-            return true;
-        }
-        if (stack_.empty() && jf_.signed_in() && home_key(key)) return true;
-        switch (key) {
-            case LV_KEY_LEFT:
-                if (!stack_.empty()) {
-                    back();
-                    return true;
-                }
-                return false;
-            case kKeyPlayPause:
-            case ' ': {
-                PlaybackState pb = h.playback();
-                if (!pb.path.empty()) h.set_paused(!pb.paused);
-                else if (!stack_.empty()) activate(focused_index());
+        if (!jf_.signed_in()) {
+            if (key == LV_KEY_ENTER || key == '\r') {
+                sign_in();
                 return true;
             }
-            case kKeyNextTrack:
-            case 'n': case 'N':
-                player_step(+1);
-                return true;
-            case kKeyPrevTrack:
-            case 'p': case 'P':
-                player_step(-1);
-                return true;
-            case '+': case '=':
-                h.set_volume(std::min(100, h.volume() + 5));
-                return true;
-            case '-': case '_':
-                h.set_volume(std::max(0, h.volume() - 5));
-                return true;
-            case '/': search(); return true;
+            return false;
         }
-        return false;
+        // The keyboard's media keys, on every screen.
+        switch (key) {
+            case kKeyPlayPause: pause(); return true;
+            case kKeyNextTrack: player_step(+1); return true;
+            case kKeyPrevTrack: player_step(-1); return true;
+        }
+        return stack_.empty() ? home_key(key) : list_key(key);
     }
 
     bool on_back() override {
@@ -202,6 +179,27 @@ public:
     }
 
 private:
+    // A list: a List screen, so letters narrow it and its other actions are
+    // in the menu. Space pauses while nothing is typed.
+    bool list_key(uint32_t key) {
+        if (list_built_ && list_.key(key)) return true;
+        switch (key) {
+            case LV_KEY_BACKSPACE:
+            case LV_KEY_DEL:
+                back();   // nothing typed: back a step, as Esc
+                return true;
+            case ' ': pause(); return true;
+        }
+        return false;
+    }
+
+    // Space: pause or resume the music; with none, play the row you're on.
+    void pause() {
+        PlaybackState pb = hal().playback();
+        if (!pb.path.empty()) hal().set_paused(!pb.paused);
+        else if (!stack_.empty()) activate(focused_index());
+    }
+
     static constexpr int kMoreRow = -2;   // "More..." at the end of a long list
 
     // One screen of results; the stack of them is where you are. Empty: home.
@@ -287,6 +285,11 @@ private:
             else lv_obj_add_flag(now_, LV_OBJ_FLAG_HIDDEN);
             if (page_) lv_obj_set_height(page_, page_h());
             if (page_ && stack_.empty() && focused_obj_) focus_card();
+            // A list's rows are laid out for its height: draw it again.
+            if (page_ && !stack_.empty() && !input_) {
+                keep_row_ = focused_index();
+                show();
+            }
         }
         if (on) {
             const QueueItem* q = player_current();
@@ -326,30 +329,52 @@ private:
         lv_obj_center(initial_);
     }
 
+    // The actions of the screen on show (docs/UX.md): Home is a Control
+    // screen, so its letters work as they are and the bar shows them; a list
+    // is a List screen, so the same actions are in the menu only.
     void set_actions() {
+        std::vector<Action> a;
         if (vid_) {
-            shell_set_actions({});   // the picture takes the whole area
+            a.push_back({"Pause", 0, "Enter", nullptr});
+            a.push_back({"Seek 10 s", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+            a.push_back({"Stop", 's', "S", [this] { close_video(true); }});
+            a.push_back({"On the monitor", 'm', "M", [this] { video_to_monitor(); }});
+            a.push_back({"Pause", 0, "Space", nullptr});
+            a.push_back({"Seek 1 min", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr});
+            a.push_back({"From the start", 'r', "R", [this] { video_restart(); }});
+            a.push_back({"Volume", 0, "+ -", nullptr});
+            shell_set_actions(std::move(a));
             return;
         }
-        std::vector<Action> a;
         if (!jf_.signed_in()) {
             a.push_back({"Sign in", 'i', "Enter", [this] { sign_in(); }});
             shell_set_actions(std::move(a));
             return;
         }
+        bool home = stack_.empty();
         a.push_back({"Open", 0, "Enter", nullptr});
-        a.push_back({"Search", 'f', "/", [this] { search(); }});
-        a.push_back({"Pause", 0, "Space", nullptr});
-        a.push_back({"Next", 0, "N", nullptr});
-        a.push_back({"Previous", 0, "P", nullptr});
-        a.push_back({"Volume", 0, "+ -", nullptr});
+        if (home) {
+            a.push_back({"Search", 'f', "F", [this] { search(); }});
+            a.push_back({"Pause", 0, "Space", nullptr});
+            a.push_back({"Next", 'n', "N", [this] { player_step(+1); }});
+            a.push_back({"Previous", 'p', "P", [this] { player_step(-1); }});
+            a.push_back({"Volume", 0, "+ -", nullptr});
+        } else {
+            a.push_back({"Back", 0, "Esc", nullptr});
+            a.push_back({"Pause", 'u', "Space", [this] { pause(); }});
+            a.push_back({"Search", 'f', nullptr, [this] { search(); }});
+            a.push_back({"Next track", 'n', nullptr, [this] { player_step(+1); }});
+            a.push_back({"Previous track", 'p', nullptr, [this] { player_step(-1); }});
+            a.push_back({"Home", 'h', nullptr, [this] {
+                             stack_.clear();
+                             back_rows_.clear();
+                             show();
+                         }});
+        }
         a.push_back({"Stop music", 't', nullptr, [this] { player_stop(); }});
-        a.push_back({"Home", 'h', nullptr, [this] {
-                         stack_.clear();
-                         show();
-                     }});
         a.push_back({"Refresh", 'r', nullptr, [this] {
                          stack_.clear();
+                         back_rows_.clear();
                          home_loaded_ = false;
                          load_home();
                          show();
@@ -366,6 +391,9 @@ private:
             page_ = nullptr;
             focused_obj_ = nullptr;
         }
+        list_.reset();   // its widgets went with the page
+        list_built_ = false;
+        if (!input_) set_actions();   // a text box keeps its own (OK, Cancel)
         update_header();
         listed_playing_ = hal().playback().path;
         if (!jf_.signed_in()) build_welcome();
@@ -567,17 +595,19 @@ private:
     }
 
     bool home_key(uint32_t key) {
-        if (home_.empty()) return false;
         switch (key) {
             case LV_KEY_LEFT:
+                if (home_.empty()) return false;
                 if (sel_col_ > 0) --sel_col_;
                 focus_card();
                 return true;
             case LV_KEY_RIGHT:
+                if (home_.empty()) return false;
                 if (sel_col_ + 1 < int(home_[size_t(sel_row_)].cards.size())) ++sel_col_;
                 focus_card();
                 return true;
             case LV_KEY_UP:
+                if (home_.empty()) return false;
                 if (sel_row_ > 0) {
                     --sel_row_;
                     sel_col_ = std::min(sel_col_, int(home_[size_t(sel_row_)].cards.size()) - 1);
@@ -585,6 +615,7 @@ private:
                 focus_card();
                 return true;
             case LV_KEY_DOWN:
+                if (home_.empty()) return false;
                 if (sel_row_ + 1 < int(home_.size())) {
                     ++sel_row_;
                     sel_col_ = std::min(sel_col_, int(home_[size_t(sel_row_)].cards.size()) - 1);
@@ -593,7 +624,22 @@ private:
                 return true;
             case LV_KEY_ENTER:
             case '\r':
+                if (home_.empty()) return false;
                 open_card(home_[size_t(sel_row_)].cards[size_t(sel_col_)]);
+                return true;
+        }
+        // Home is a Control screen: these letters are in its action list.
+        auto& h = hal();
+        switch (key) {
+            case ' ': pause(); return true;
+            case 'n': case 'N': player_step(+1); return true;
+            case 'p': case 'P': player_step(-1); return true;
+            case 'f': case 'F': search(); return true;
+            case '+': case '=':
+                h.set_volume(std::min(100, h.volume() + 5));
+                return true;
+            case '-': case '_':
+                h.set_volume(std::max(0, h.volume() - 5));
                 return true;
         }
         return false;
@@ -619,50 +665,6 @@ private:
 
     // ---- Lists --------------------------------------------------------------
 
-    lv_obj_t* add_row(const char* symbol, const std::string& text, const std::string& right, int index,
-                      bool now = false) {
-        lv_obj_t* b = list_button(list_, symbol, text.c_str(), on_click, this);
-        lv_obj_set_user_data(b, (void*)(intptr_t)index);
-        lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
-        for (lv_style_selector_t st : {lv_style_selector_t(LV_STATE_FOCUSED), lv_style_selector_t(LV_STATE_FOCUS_KEY),
-                                       lv_style_selector_t(LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY)}) {
-            lv_obj_set_style_bg_color(b, c(kJfBlue), st);
-            lv_obj_set_style_bg_opa(b, LV_OPA_COVER, st);
-            lv_obj_set_style_text_color(b, c(kJfText), st);
-        }
-        lv_obj_set_style_text_color(b, c(now ? kJfBlue : kJfText), 0);
-        lv_obj_set_style_radius(b, 4, 0);
-        lv_obj_set_style_border_width(b, 0, 0);
-        lv_obj_set_style_outline_width(b, 0, LV_STATE_FOCUS_KEY);
-        lv_obj_set_style_pad_ver(b, 2, 0);
-        lv_obj_set_style_pad_hor(b, 5, 0);
-        lv_obj_set_style_pad_column(b, 6, 0);
-        lv_obj_set_style_min_height(b, 0, 0);
-        lv_obj_set_style_text_font(b, &zs_font_12, 0);
-        lv_obj_t* lbl = lv_obj_get_child(b, symbol ? 1 : 0);
-        if (lbl) lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-        if (symbol) {
-            lv_obj_t* ic = lv_obj_get_child(b, 0);
-            if (ic && !now) lv_obj_set_style_text_color(ic, c(kJfDim), 0);
-        }
-        if (!right.empty()) {
-            lv_obj_t* r = lv_label_create(b);
-            lv_label_set_text(r, right.c_str());
-            lv_obj_set_style_text_font(r, &zs_font_12, 0);
-            lv_obj_set_style_text_color(r, c(kJfDim), 0);
-        }
-        return b;
-    }
-
-    void note(const std::string& text) {
-        lv_obj_t* t = lv_list_add_text(list_, text.c_str());
-        lv_obj_set_style_bg_opa(t, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_text_color(t, c(kJfDim), 0);
-        lv_obj_set_style_text_font(t, &zs_font_12, 0);
-        lv_obj_set_style_pad_ver(t, 2, 0);
-        lv_obj_set_style_pad_hor(t, 5, 0);
-    }
-
     // A list row: episodes say which, movies their year, and anything
     // half-watched how much is left.
     static std::string row_text(const JfItem& it, JfView view) {
@@ -683,68 +685,42 @@ private:
         int keep = keep_row_;
         keep_row_ = -1;
         new_page(false);
-        list_ = lv_list_create(page_);
-        lv_obj_set_pos(list_, 0, 0);
-        lv_obj_set_size(list_, kScreenW, LV_PCT(100));
-        lv_obj_set_style_bg_color(list_, c(kJfBg), 0);
-        lv_obj_set_style_bg_opa(list_, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(list_, 0, 0);
-        lv_obj_set_style_radius(list_, 0, 0);
-        lv_obj_set_style_pad_hor(list_, 4, 0);
-        lv_obj_set_style_pad_ver(list_, 1, 0);
-        lv_obj_set_style_pad_row(list_, 1, 0);
-        lv_obj_set_scrollbar_mode(list_, LV_SCROLLBAR_MODE_ACTIVE);
-        lv_obj_set_style_bg_color(list_, c(kJfBlue), LV_PART_SCROLLBAR);
-
-        lv_obj_t* focus = nullptr;
+        list_.build(page_, 4, 2, kScreenW - 8, page_h() - 4);
+        list_built_ = true;
+        list_.set_empty_text("Nothing here");
         const Level& lv = stack_.back();
-        if (lv.items.empty()) note("Nothing here");
-        int track_no = 0;
+        int now_row = -1;
         for (size_t i = 0; i < lv.items.size(); ++i) {
             const JfItem& it = lv.items[i];
             bool track = it.kind == JfItem::Track;
             bool now = track && jf::stream_url(jf_, it.id) == listed_playing_;
-            const char* icon = track ? (now ? LV_SYMBOL_VOLUME_MAX : nullptr)
+            const char* icon = track ? (now ? LV_SYMBOL_VOLUME_MAX : LV_SYMBOL_AUDIO)
                                : it.playable_video() ? LV_SYMBOL_PLAY
                                : it.kind == JfItem::Playlist ? LV_SYMBOL_LIST
                                : it.kind == JfItem::Album ? LV_SYMBOL_AUDIO
                                : it.kind == kFolder ? folder_icon(it.detail)
                                                     : LV_SYMBOL_DIRECTORY;
-            std::string text = row_text(it, lv.view);
-            if (track && !now) text = fmt("%d  ", ++track_no) + text;
-            else if (track) ++track_no;
             std::string right;
             if (it.playable_video() && it.resume_s > 0) right = left_text(it.duration_s - it.resume_s);
             else if ((track || it.playable_video()) && it.duration_s > 0) right = mmss(it.duration_s * 1000);
-            lv_obj_t* b = add_row(icon, text, right, int(i), now);
-            if (int(i) == keep) focus = b;
-            if (!focus && now && keep < 0) focus = b;
+            int i_ = int(i);
+            list_.add(icon, row_text(it, lv.view), right, [this, i_] { activate(i_); });
+            if (now) now_row = i_;
         }
-        if (lv.more) add_row(LV_SYMBOL_DOWN, "More...", fmt("%zu shown", lv.items.size()), kMoreRow);
-        if (!focus && lv_obj_get_child_count(list_) > 0) {
-            for (uint32_t k = 0; k < lv_obj_get_child_count(list_); ++k) {
-                lv_obj_t* ch = lv_obj_get_child(list_, int32_t(k));
-                if (lv_obj_check_type(ch, &lv_list_button_class)) {
-                    focus = ch;
-                    break;
-                }
-            }
-        }
-        if (focus) {
-            lv_group_focus_obj(focus);
-            lv_obj_scroll_to_view(focus, LV_ANIM_OFF);
-        }
+        if (lv.more) list_.add(LV_SYMBOL_DOWN, "More...", fmt("%zu shown", lv.items.size()), [this] { load_more(); });
+        list_.finish();
+        if (keep >= 0) list_.focus(keep);
+        else if (now_row >= 0) list_.focus(now_row);
     }
 
-    int focused_index() {
-        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
-        if (!f || !list_ || stack_.empty() || lv_obj_get_parent(f) != list_) return -1;
-        return int((intptr_t)lv_obj_get_user_data(f));
+    int focused_index() const {
+        if (!list_built_ || stack_.empty()) return -1;
+        int i = list_.focused();
+        return i < int(stack_.back().items.size()) ? i : kMoreRow;
     }
 
     void back() {
         stack_.pop_back();
-        list_ = nullptr;
         keep_row_ = back_rows_.empty() ? -1 : back_rows_.back();
         if (!back_rows_.empty()) back_rows_.pop_back();
         show();
@@ -906,11 +882,13 @@ private:
         });
     }
 
-    // A Jellyfin-style dialog: a dark card, the question, a blue-edged box.
-    // Enter accepts, Esc cancels.
+    // A Jellyfin-style dialog: a dark card, the question, a blue-edged box
+    // (a Text screen while it is up).
     using Done = std::function<void(const std::string&)>;
     void ask(const char* title, const std::string& initial, bool password, Done done) {
         done_ = std::move(done);
+        ask_row_ = focused_index();
+        shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = panel(root_, 0, 0, 300, 54, kJfRaised, 6);
         lv_obj_align(input_, LV_ALIGN_TOP_MID, 0, 28);
         lv_obj_set_style_pad_all(input_, 6, 0);
@@ -950,26 +928,9 @@ private:
         input_ = nullptr;
         lv_obj_delete_async(in);
         lv_group_remove_obj(lv_obj_get_child(in, 1));
+        set_actions();
         // Focus goes back to the list, if there is one.
-        if (!list_ || stack_.empty() || !page_) return;
-        int n = int(lv_obj_get_child_count(list_));
-        for (int i = 0; i < n; ++i) {
-            lv_obj_t* ch = lv_obj_get_child(list_, i);
-            if (lv_obj_check_type(ch, &lv_list_button_class)) {
-                lv_group_focus_obj(ch);
-                break;
-            }
-        }
-    }
-
-    static void on_click(lv_event_t* e) {
-        auto* self = static_cast<JellyfinApp*>(lv_event_get_user_data(e));
-        self->pending_ = int((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
-        // Deferred: activating rebuilds the list, which deletes the clicked button.
-        lv_async_call([](void* p) {
-            auto* s = static_cast<JellyfinApp*>(p);
-            s->activate(s->pending_);
-        }, self);
+        if (list_built_ && !stack_.empty()) list_.focus(ask_row_ >= 0 ? ask_row_ : 0);
     }
 
     // ---- Video ----------------------------------------------------------
@@ -1008,7 +969,7 @@ private:
         build_video_view();
         set_actions();
         show_osd();
-        if (start > 0) shell_toast("Resuming at " + mmss(start * 1000) + "   0: from the start");
+        if (start > 0) shell_toast("Resuming at " + mmss(start * 1000));
     }
 
     void build_video_view() {
@@ -1049,9 +1010,6 @@ private:
         lv_obj_set_pos(vid_bar_, 6, 21);
         vid_time_ = label(vid_osd_, "", &zs_font_12, kJfDim);
         lv_obj_set_pos(vid_time_, 6, 26);
-        lv_obj_t* hint = label(vid_osd_, "Space pause  " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " seek  Esc stop",
-                               &zs_font_12, kJfDim);
-        lv_obj_align(hint, LV_ALIGN_TOP_RIGHT, -6, 26);
         std::string t = vid_item_.kind == JfItem::Episode
                             ? vid_item_.detail + " " + vid_item_.episode_code() + " " + vid_item_.name
                             : vid_item_.name;
@@ -1164,7 +1122,7 @@ private:
             case LV_KEY_DOWN: h.video_seek(-60, false); return true;
             case kKeyPrevTrack: h.video_seek(-10, false); return true;
             case kKeyNextTrack: h.video_seek(+30, false); return true;
-            case '0': h.video_seek(0, true); return true;
+            case 'r': case 'R': video_restart(); return true;
             case '+': case '=':
                 h.set_volume(std::min(100, h.volume() + 5));
                 return true;
@@ -1175,9 +1133,15 @@ private:
             case 'm': case 'M': video_to_monitor(); return true;
             case LV_KEY_ESC: return false;   // on_back() closes it
         }
-        // The shell's own keys (volume, brightness) still work; the page
-        // underneath gets nothing.
-        return !is_shell_key(key);
+        // The shell's own keys (volume, brightness, Tab for the menu, 0 for
+        // the key sheet, Ctrl + a letter) still work; the page underneath
+        // gets nothing (1 to 9 would pick a row of the list behind).
+        return !(is_shell_key(key) || is_ctrl_key(key) || key == kKeyNext || key == '0');
+    }
+
+    void video_restart() {
+        show_osd();
+        hal().video_seek(0, true);
     }
 
     // Dock mode: hand the video to the monitor's player, from where we are.
@@ -1248,9 +1212,10 @@ private:
     bool now_shown_ = false;
     std::string now_text_;
     lv_obj_t* page_ = nullptr;   // home, a list, or the welcome
-    lv_obj_t* list_ = nullptr;
+    ListView list_;
+    bool list_built_ = false;    // list_ has widgets (a list is on show)
+    int ask_row_ = -1;           // the row in focus when a text box opened
     std::string listed_playing_;
-    int pending_ = -1;
     int keep_row_ = -1;          // the row to select when the list is drawn
 
     // Home

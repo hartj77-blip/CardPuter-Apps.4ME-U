@@ -3,8 +3,9 @@
 The **Jellyfin** app plays music and video (movies, shows, home videos...)
 from every library on your [Jellyfin](https://jellyfin.org) server, and looks
 like Jellyfin's own apps: the near-black dark theme, the purple-to-blue logo,
-Jellyfin blue for what's selected, a home screen of card rows, and a
-now-playing bar along the bottom.
+a home screen of card rows with Jellyfin blue for the one selected, and a
+now-playing bar along the bottom. Lists are ZeroOS lists, so you can type to
+narrow them, as everywhere else.
 
 It used to be the Jellyfin tab of [Media](../media/README.md). Media is now
 for your own files (the SD card, USB drives, server shares). If you signed in
@@ -63,21 +64,41 @@ Live TV libraries aren't listed: there's no tuner support.
 
 ## Keys
 
+The soft-key bar along the bottom shows the keys for the screen you're on;
+**Tab** opens the menu with everything (Ctrl + a letter runs one straight
+away), **0** the key sheet.
+
+On the home screen, letters are shortcuts:
+
 | Key | Does |
 | --- | --- |
-| Arrows | Home: move between cards and rows. Lists: Up / Down |
+| Arrows | Move between cards and rows |
 | Enter | Open, or play |
-| Esc or Left | Back (in a list) |
-| / | Search the whole server: tracks, albums, artists, playlists, movies, shows, episodes, music videos, audiobooks |
-| Space or Fn + Q | Pause / resume the music |
-| N / P, Fn + E / Fn + W | Next / previous track |
+| F | Search the whole server: tracks, albums, artists, playlists, movies, shows, episodes, music videos, audiobooks |
+| Space | Pause / resume the music |
+| N / P | Next / previous track |
 | + / - | Volume |
-| Tab | The menu: search, stop the music, home, refresh, sign out |
+
+Lists (albums, tracks, episodes, search results) are ZeroOS lists, so letters
+narrow them instead:
+
+| Key | Does |
+| --- | --- |
+| Up / Down | Move |
+| Enter | Open, or play |
+| 1 to 9 | Open or play the row with that number |
+| Letters | Narrow the list to the rows that match (Backspace takes a letter off) |
+| Space | Pause / resume the music (while nothing is typed) |
+| Backspace or Esc | Back |
+| Tab | The menu: Pause (U), Search (F), Next (N), Previous (P), Home (H), Stop music (T), Refresh (R), Sign out (O) |
+
+Everywhere: Fn + Q pauses or resumes, Fn + E / Fn + W skip to the next or
+previous track.
 
 ## Playing music
 
 Playing a track queues the rest of the album or playlist after it. The playing
-track is marked in blue with a speaker, and the bar along the bottom shows it
+track is marked with a speaker, and the bar along the bottom shows it
 with its time and a blue progress line. The queue belongs to ZeroShell, not
 the app, so music carries on to the next track after you leave the app and
 while the screen is off. Wi-Fi stays on while something is playing. The
@@ -91,7 +112,7 @@ the bottom fetches the next 200.
 ## Watching video
 
 Pick a movie, or a show, then a season, then an episode, or a card under **Continue Watching**. It plays across the
-whole app area (16:9 fills 267 x 150 pixels), with the sound on the speaker,
+app area above the soft-key bar (16:9 fills 242 x 136 pixels), with the sound on the speaker,
 the headphone jack or Bluetooth, whichever music would use.
 
 | Key | Does |
@@ -100,7 +121,7 @@ the headphone jack or Bluetooth, whichever music would use.
 | Left / Right | Back / forward 10 seconds |
 | Fn + W / Fn + E | Back 10 / forward 30 seconds |
 | Down / Up | Back / forward a minute |
-| 0 | From the start |
+| R | From the start |
 | + / - | Volume |
 | M | Play it on the monitor instead (Dock mode must be running) |
 | Esc or S | Stop |
@@ -110,7 +131,7 @@ while paused or loading.
 
 - **Continue Watching** on the home screen lists what you started on any
   device, with a blue bar for how far you got, and picks up where you
-  stopped. **0** goes back to the start. In lists, movies and episodes you
+  stopped. **R** goes back to the start. In lists, movies and episodes you
   left part-way say how much is left, e.g. `38m left`.
 - The Cardputer tells the server what it is playing: it shows in Jellyfin's
   dashboard, and the place you stopped is saved for every device.

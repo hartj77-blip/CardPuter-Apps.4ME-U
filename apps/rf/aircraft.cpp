@@ -1,5 +1,5 @@
 // Aircraft: ADS-B position reports from aircraft overhead (1090 MHz), one row
-// per aircraft. Up/Down scroll, C clears.
+// per aircraft. A Control screen: Up/Down scroll, C clears.
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -14,7 +14,7 @@ namespace zs {
 namespace {
 using namespace theme;
 
-const int kRows = 7;
+const int kRows = 6;   // above the soft-key bar
 const int kRowH = 16;
 const int kTopH = 18;
 // Column left edges: flight, altitude, speed, heading, position.
@@ -28,6 +28,10 @@ public:
 
     void build(lv_obj_t* root) override {
         BackgroundRadio::get().stop();   // this app needs the receiver
+        std::vector<Action> a;
+        a.push_back({"Scroll", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr});
+        a.push_back({"Clear", 'c', "C", [this] { clear(); }});
+        shell_set_actions(std::move(a));
         title_ = label(root, "1090 MHz", &zs_font_14, kAccent);
         lv_obj_set_pos(title_, 4, 0);
         count_ = label(root, "", &zs_font_12, kMuted);
@@ -64,13 +68,20 @@ public:
         switch (key) {
         case LV_KEY_DOWN: top_ = std::min(top_ + 1, std::max(0, n - kRows)); refresh(); return true;
         case LV_KEY_UP: top_ = std::max(top_ - 1, 0); refresh(); return true;
-        case 'c': case 'C': tracker_ = zrf::AdsbTracker(); frames_ = 0; top_ = 0; refresh(); return true;
+        case 'c': case 'C': clear(); return true;
         case LV_KEY_ENTER: case LV_KEY_LEFT: case LV_KEY_RIGHT: return true;
         default: return false;
         }
     }
 
 private:
+    void clear() {
+        tracker_ = zrf::AdsbTracker();
+        frames_ = 0;
+        top_ = 0;
+        refresh();
+    }
+
     static double now() { return lv_tick_get() / 1000.0; }
 
     void pump() {

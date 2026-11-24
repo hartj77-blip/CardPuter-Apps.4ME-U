@@ -1,5 +1,6 @@
 // GPS: where you are, from the Cap LoRa-1262's GPS or a GPS unit on the
-// Grove port (through gpsd; see docs/EXPANSION.md).
+// Grove port (through gpsd; see docs/EXPANSION.md). A Control screen
+// (docs/UX.md in the OS); the soft-key bar shows its keys:
 //   Enter  save this spot to ~/Documents/waypoints.txt (synced by Sync)
 //   R      start or stop recording a track (GPX, in ~/Documents/Tracks);
 //          it keeps recording with the app closed and the screen off
@@ -27,18 +28,20 @@ public:
     void build(lv_obj_t* root) override {
         hal().set_ext_power(true);
         opened_ = std::time(nullptr);
+        set_actions();   // first: the screen is laid out above the bar
 
         status_ = label(root, "", &zs_font_12, kMuted);
         lv_obj_set_pos(status_, 8, 4);
         lat_ = label(root, "", &zs_font_16, kText);
-        lv_obj_set_pos(lat_, 8, 22);
+        lv_obj_set_pos(lat_, 8, 20);
         lon_ = label(root, "", &zs_font_16, kText);
-        lv_obj_set_pos(lon_, 8, 42);
+        lv_obj_set_pos(lon_, 8, 38);
 
         lv_obj_t* panel = lv_obj_create(root);
         style_panel(panel);
-        lv_obj_set_pos(panel, 6, 66);
-        lv_obj_set_size(panel, kScreenW - 12, kContentH - 72);
+        lv_obj_set_pos(panel, 6, 58);
+        lv_obj_set_size(panel, kScreenW - 12, kBodyH - 60);
+        lv_obj_set_style_pad_ver(panel, 6, 0);
         lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN_WRAP);
         lv_obj_set_style_pad_row(panel, 2, 0);
@@ -75,39 +78,54 @@ public:
 
     bool on_key(uint32_t key) override {
         if (key == 'r' || key == 'R') {
-            if (track_state().recording) {
-                track_stop();
-                const TrackState& t = track_state();
-                shell_toast(t.points ? "Saved " + t.name + " (" + length(t.meters) + ")"
-                                     : "Stopped. No fix, so the track is empty.");
-            } else if (track_start()) {
-                shell_toast("Recording to Documents/Tracks");
-            } else {
-                shell_toast("Couldn't save to ~/Documents");
-            }
-            update();
+            toggle_track();
             return true;
         }
         if (key != LV_KEY_ENTER) return false;
+        mark_spot();
+        return true;
+    }
+
+private:
+    void set_actions() {
+        recording_shown_ = track_state().recording;
+        shell_set_actions({{"Mark spot", 'm', "Enter", [this] { mark_spot(); }},
+                           {recording_shown_ ? "Stop track" : "Record track", 'r', "R", [this] { toggle_track(); }}});
+    }
+
+    void toggle_track() {
+        if (track_state().recording) {
+            track_stop();
+            const TrackState& t = track_state();
+            shell_toast(t.points ? "Saved " + t.name + " (" + length(t.meters) + ")"
+                                 : "Stopped. No fix, so the track is empty.");
+        } else if (track_start()) {
+            shell_toast("Recording to Documents/Tracks");
+        } else {
+            shell_toast("Couldn't save to ~/Documents");
+        }
+        update();
+    }
+
+    // A line in ~/Documents/waypoints.txt: time, position and altitude.
+    void mark_spot() {
         if (fix_.mode < 2) {
             shell_toast("No fix yet");
-            return true;
+            return;
         }
         std::string dir = home_dir() + "/Documents";
         std::ofstream f(dir + "/waypoints.txt", std::ios::app);
         if (!f) {
             shell_toast("Couldn't save to ~/Documents");
-            return true;
+            return;
         }
         char line[160];
         std::snprintf(line, sizeof line, "%s  %.6f, %.6f  %.0f m\n",
                       fix_.time.empty() ? "?" : fix_.time.substr(0, 19).c_str(), fix_.lat, fix_.lon, fix_.alt_m);
         f << line;
         shell_toast("Saved to waypoints.txt");
-        return true;
     }
 
-private:
     static std::string length(double m) { return m < 1000 ? fmt("%.0f m", m) : fmt("%.2f km", m / 1000); }
 
     void update() {
@@ -117,8 +135,9 @@ private:
                                                : fmt("%ld:%02ld:%02ld", t.seconds / 3600, t.seconds / 60 % 60, t.seconds % 60);
             lv_label_set_text(hint_, (LV_SYMBOL_STOP " REC  " + length(t.meters) + "  " + dur).c_str());
         } else {
-            lv_label_set_text(hint_, "Enter spot   R track");
+            lv_label_set_text(hint_, "");
         }
+        if (t.recording != recording_shown_) set_actions();
         lv_obj_set_style_text_color(hint_, c(t.recording ? kBad : kMuted), 0);
         fix_ = hal().gps();
         long waited = long(std::time(nullptr) - opened_);
@@ -154,6 +173,7 @@ private:
     lv_obj_t *status_ = nullptr, *lat_ = nullptr, *lon_ = nullptr, *hint_ = nullptr;
     lv_obj_t *alt_ = nullptr, *speed_ = nullptr, *head_ = nullptr, *acc_ = nullptr, *sats_ = nullptr, *time_ = nullptr;
     GpsFix fix_;
+    bool recording_shown_ = false;   // what the R action's label says
     std::time_t opened_ = 0;
     int n_ = 0;
 };

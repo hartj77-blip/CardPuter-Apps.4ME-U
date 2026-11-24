@@ -22,21 +22,22 @@ The home page has bookmarks to the ZeroOS and Apps READMEs and every guide in `d
 
 ## Keys
 
+The soft-key bar along the bottom shows the main keys; **Tab** opens the menu (Ctrl + its letter
+runs one straight away) and **0** shows every key. On a page, letters are shortcuts:
+
 | Key | |
 | --- | --- |
-| Up / Down | Scroll a line |
+| Up / Down, J / K | Scroll a line |
 | Space / Backspace | Page down / up |
 | Left / Right | Previous / next link on the screen. At the edge, turns the page |
 | Enter | Open the link |
 | Esc | Back. While a page is loading: stop |
 | G | Type an address: `example.com`, `owner/repo`, `~/Notes`, `/etc/os-release` |
-| C | Contents: the page's headings. Enter jumps to one |
+| C | Contents: the page's headings, as a list. Type to narrow it, Enter (or 1 to 9) jumps to one |
 | F | Find on the page. Enter again finds the next one |
 | R | Reload |
 | H | Home (bookmarks) |
 | Home / End (Fn layer) | Top / bottom of the page |
-
-Tab shows all of these on the device.
 
 ## Offline
 

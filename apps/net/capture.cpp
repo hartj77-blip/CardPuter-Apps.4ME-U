@@ -2,8 +2,8 @@
 // live one-line-per-packet summary and, at the same time, writing a .pcap to
 // ~/Recordings that you can open in Wireshark on a PC (Sync copies it off).
 //
-//   Space  start / stop        F  interface (auto / eth0 / wlan0)
-//   R      clear the view
+// A Control screen: Space starts and stops, F picks the interface (auto,
+// eth0, wlan0) and R clears the view; the soft-key bar shows them.
 #include <sys/stat.h>
 
 #include <ctime>
@@ -13,7 +13,7 @@
 #include "apps/common.h"
 #include "net_run.h"
 #include "net_sim.h"
-#include "net_ui.h"
+#include "apps/kit/ui.h"
 
 namespace zs {
 namespace {
@@ -23,12 +23,11 @@ class CaptureApp : public App {
 public:
     void build(lv_obj_t* root) override {
         root_ = root;
+        set_actions();
         header_ = label(root_, "", &zs_font_14, kText);
         lv_obj_set_pos(header_, 4, 1);
-        hint_ = label(root_, "Space start  F iface  R clear", &zs_font_12, kMuted);
-        lv_obj_align(hint_, LV_ALIGN_TOP_RIGHT, -4, 3);
         out_.build(root_, 18);
-        out_.set_placeholder("Press Space to start capturing.\nPackets are saved to ~/Recordings.");
+        out_.set_placeholder("Not capturing.\nPackets are saved to ~/Recordings.");
         update_header();
     }
 
@@ -51,17 +50,39 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (key == ' ') { capturing_ ? stop() : start(); return true; }
-        if (key == 'r' || key == 'R') { out_.clear(); packets_ = 0; update_header(); return true; }
-        if ((key == 'f' || key == 'F') && !capturing_) {
-            iface_ = (iface_ + 1) % 3;
-            update_header();
-            return true;
-        }
+        if (key == ' ') { toggle(); return true; }
+        if (key == 'r' || key == 'R') { clear(); return true; }
+        if (key == 'f' || key == 'F') { next_iface(); return true; }
         return false;
     }
 
 private:
+    void set_actions() {
+        std::vector<Action> a;
+        a.push_back({capturing_ ? "Stop" : "Start", 's', "Space", [this] { toggle(); }});
+        Action f{fmt("Interface: %s", iface_name()), 'f', "F", [this] { next_iface(); }};
+        f.enabled = !capturing_;
+        a.push_back(f);
+        a.push_back({"Clear", 'r', "R", [this] { clear(); }});
+        shell_set_actions(std::move(a));
+    }
+
+    void toggle() { capturing_ ? stop() : start(); }
+
+    void clear() {
+        out_.clear();
+        packets_ = 0;
+        update_header();
+    }
+
+    // Not while capturing: tcpdump is already listening on one.
+    void next_iface() {
+        if (capturing_) return;
+        iface_ = (iface_ + 1) % 3;
+        set_actions();
+        update_header();
+    }
+
     const char* iface_name() const { return iface_ == 1 ? "eth0" : iface_ == 2 ? "wlan0" : "auto"; }
 
     std::string new_pcap_path() {
@@ -87,12 +108,14 @@ private:
         std::vector<std::string> argv = {"tcpdump", "-n", "-U", "-l", "--print", "-w", pcap_};
         if (iface_ != 0) { argv.push_back("-i"); argv.push_back(iface_name()); }
         job_.start(argv, net::sim::tcpdump());
+        set_actions();
         update_header();
     }
 
     void stop() {
         job_.cancel();
         capturing_ = false;
+        set_actions();
         update_header();
         if (packets_ > 0) shell_toast(fmt("Saved %d packets", packets_));
     }
@@ -108,8 +131,7 @@ private:
 
     lv_obj_t* root_ = nullptr;
     lv_obj_t* header_ = nullptr;
-    lv_obj_t* hint_ = nullptr;
-    net::OutputView out_;
+    kit::OutputView out_;
     net::Job job_;
     std::string pcap_;
     int packets_ = 0;

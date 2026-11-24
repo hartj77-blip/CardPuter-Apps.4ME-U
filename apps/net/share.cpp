@@ -3,7 +3,7 @@
 // Cardputer is online through (Wi-Fi, a tethered phone). With nothing to share
 // the laptop still gets an address, so it can reach the Cardputer (SSH).
 //
-//   Enter  sharing on / off      R  refresh
+// A Control screen: Enter turns sharing on or off, R refreshes.
 //
 // The work is done by /usr/bin/zeroos-share (files/zeroos-share), a
 // NetworkManager "shared" connection; this screen runs it and shows its
@@ -14,7 +14,7 @@
 #include "apps/common.h"
 #include "net_run.h"
 #include "net_sim.h"
-#include "net_ui.h"
+#include "apps/kit/ui.h"
 
 namespace zs {
 namespace {
@@ -57,10 +57,9 @@ class ShareApp : public App {
 public:
     void build(lv_obj_t* root) override {
         root_ = root;
+        set_actions();
         head_ = label(root_, "", &zs_font_14, kMuted);
         lv_obj_set_pos(head_, 4, 1);
-        lv_obj_t* hint = label(root_, "Enter on/off  R refresh", &zs_font_12, kMuted);
-        lv_obj_align(hint, LV_ALIGN_TOP_RIGHT, -4, 3);
         out_.build(root_, 18);
         run("status");
         render();
@@ -97,23 +96,36 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (key == LV_KEY_ENTER) {
-            if (busy()) return true;
-            bool on = st_.state != "off";
-            if (net::simulated()) sim_on_ = !on;
-            err_.clear();
-            run(on ? "off" : "on");
-            render();
-            return true;
-        }
-        if (key == 'r' || key == 'R') {
-            if (!busy()) { run("status"); render(); }
-            return true;
-        }
+        if (key == LV_KEY_ENTER) { toggle(); return true; }
+        if (key == 'r' || key == 'R') { refresh(); return true; }
         return false;
     }
 
 private:
+    void set_actions() {
+        bool on = st_.state != "off";
+        if (on == actions_on_ && actions_set_) return;
+        actions_on_ = on;
+        actions_set_ = true;
+        std::vector<Action> a;
+        a.push_back({on ? "Sharing off" : "Sharing on", 0, "Enter", [this] { toggle(); }});
+        a.push_back({"Refresh", 'r', "R", [this] { refresh(); }});
+        shell_set_actions(std::move(a));
+    }
+
+    void toggle() {
+        if (busy()) return;
+        bool on = st_.state != "off";
+        if (net::simulated()) sim_on_ = !on;
+        err_.clear();
+        run(on ? "off" : "on");
+        render();
+    }
+
+    void refresh() {
+        if (!busy()) { run("status"); render(); }
+    }
+
     bool busy() const { return action_ == "on" || action_ == "off"; }
 
     void run(const std::string& what) {
@@ -161,6 +173,7 @@ private:
     }
 
     void render() {
+        set_actions();
         bool on = st_.state == "on";
         const char* head = action_ == "on"         ? "Turning sharing on..."
                            : action_ == "off"      ? "Turning sharing off..."
@@ -192,9 +205,9 @@ private:
             if (!ip.empty()) out_.append("From the laptop: ssh pi@" + ip);
         } else {
             out_.append("");
-            out_.append("Plug a laptop into the Ethernet port and press");
-            out_.append("Enter: it gets an address and goes online through");
-            out_.append("this Cardputer.");
+            out_.append("Plug a laptop into the Ethernet port and turn");
+            out_.append("sharing on: it gets an address and goes online");
+            out_.append("through this Cardputer.");
             if (st_.cable_online) {
                 out_.append("");
                 out_.append("Note: this Cardputer is online through the cable");
@@ -205,7 +218,7 @@ private:
 
     lv_obj_t* root_ = nullptr;
     lv_obj_t* head_ = nullptr;
-    net::OutputView out_;
+    kit::OutputView out_;
     net::Job job_;
     std::vector<std::string> raw_;
     ShareStatus st_;
@@ -213,6 +226,7 @@ private:
     std::string err_;
     uint32_t last_ = 0;
     bool sim_on_ = false;
+    bool actions_on_ = false, actions_set_ = false;   // what the bar shows now
 };
 }  // namespace
 

@@ -36,7 +36,7 @@ Job::~Job() {
     if (thread_.joinable()) thread_.join();
 }
 
-void Job::start(std::vector<std::string> argv, bool root, std::vector<std::string> sim, int sim_ms) {
+void Job::start(std::vector<std::string> argv, std::vector<std::string> sim, int sim_ms) {
     (void)sim_ms;
     if (started_) return;
     started_ = true;
@@ -48,7 +48,7 @@ void Job::start(std::vector<std::string> argv, bool root, std::vector<std::strin
         sim_at_ = 0;
         if (sim_lines_.empty()) { done_ = Done::Ok; running_ = false; }
     } else {
-        thread_ = std::thread([this, argv = std::move(argv), root] { run_real(argv, root); });
+        thread_ = std::thread([this, argv = std::move(argv)] { run_real(argv); });
     }
 }
 
@@ -80,12 +80,11 @@ size_t Job::drain(std::vector<std::string>& out) {
     return n;
 }
 
-void Job::run_real(const std::vector<std::string>& argv, bool root) {
+void Job::run_real(const std::vector<std::string>& argv) {
 #ifdef __EMSCRIPTEN__
     // The browser demo has no processes (and no posix_spawn); it is always
     // simulated, so this path is never taken, but it still has to link.
     (void)argv;
-    (void)root;
     done_ = Done::Failed;
     running_ = false;
 #else
@@ -100,13 +99,6 @@ void Job::run_real(const std::vector<std::string>& argv, bool root) {
         return;
     }
 
-    std::vector<std::string> words;
-    if (root) {
-        words.push_back("sudo");
-        words.push_back("-n");
-    }
-    for (auto& a : argv) words.push_back(a);
-
     int fds[2];
     if (pipe(fds) != 0) {
         done_ = Done::Failed;
@@ -115,8 +107,8 @@ void Job::run_real(const std::vector<std::string>& argv, bool root) {
     }
 
     std::vector<char*> cargv;
-    cargv.reserve(words.size() + 1);
-    for (auto& w : words) cargv.push_back(const_cast<char*>(w.c_str()));
+    cargv.reserve(argv.size() + 1);
+    for (auto& w : argv) cargv.push_back(const_cast<char*>(w.c_str()));
     cargv.push_back(nullptr);
 
     posix_spawn_file_actions_t fa;

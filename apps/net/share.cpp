@@ -121,7 +121,7 @@ private:
         job_.reset();
         raw_.clear();
         action_ = what;
-        job_.start({"zeroos-share", what}, /*root=*/false, net::sim::share(sim_on_), 0);
+        job_.start({"zeroos-share", what}, net::sim::share(sim_on_), 0);
     }
 
     void parse() {

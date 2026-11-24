@@ -1,0 +1,14 @@
+# An upgrade of arp-scan or tcpdump replaces the binary, which loses its
+# capabilities (it is then just root-only again): put them back.
+[Unit]
+Description=Net Tools: watch arp-scan and tcpdump for upgrades
+
+[Path]
+PathChanged=/usr/sbin/arp-scan
+PathChanged=/usr/bin/arp-scan
+PathChanged=/usr/bin/tcpdump
+PathChanged=/usr/sbin/tcpdump
+Unit=zeroos-net-caps-refresh.service
+
+[Install]
+WantedBy=multi-user.target

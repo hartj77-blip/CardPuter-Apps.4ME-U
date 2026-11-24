@@ -62,7 +62,6 @@ protected:
     virtual const char* hint() const { return "R run again"; }
     virtual std::vector<std::string> command(const std::string& target) const = 0;
     virtual std::vector<std::string> sim(const std::string& target) const = 0;
-    virtual bool needs_root() const { return false; }
     virtual const char* waiting_text() const { return "Working..."; }
     // Optional extra keys (e.g. DNS record type). Return true if handled.
     virtual bool extra_key(uint32_t) { return false; }
@@ -113,7 +112,7 @@ protected:
         out_.set_placeholder(waiting_text());
 
         running_ = true;
-        job_.start(command(target_), needs_root(), sim(target_));
+        job_.start(command(target_), sim(target_));
     }
 
     lv_obj_t* root_ = nullptr;

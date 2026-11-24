@@ -106,7 +106,7 @@ private:
         std::vector<std::string> argv = {"arp-scan", "--quiet", "--ignoredups", "--retry=2"};
         if (iface_ == 0) argv.push_back("--localnet");
         else { argv.push_back("--localnet"); argv.push_back(std::string("--interface=") + iface_name()); }
-        job_.start(argv, /*root=*/true, net::sim::arp_scan());
+        job_.start(argv, net::sim::arp_scan());
     }
 
     void add(const std::string& line) {

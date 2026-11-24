@@ -112,12 +112,43 @@ phone.
 
 ## Permissions
 
-Finding devices (arp-scan) and capturing packets (tcpdump) need root. The pack
-installs a small `sudoers` rule (`/etc/sudoers.d/zeroos-net`) that lets the
-home-screen user run just those two tools without a password, which is how Net Tools
-runs them. Everything else — nmap's connect scan, mtr, dig, ip, ss — runs as
-you, with no extra privileges, and so does Share (through NetworkManager, which
-ZeroOS already lets you manage). Removing the pack removes the rule.
+Nothing in Net Tools runs as root, and the pack adds no `sudo` rule.
+
+Finding devices (arp-scan) and capturing packets (tcpdump) need raw access to
+the network, which normally means root. Instead of root, the pack gives those
+two programs just the Linux capabilities they need, set on the files
+themselves:
+
+| Program | Capabilities | Why |
+|---|---|---|
+| `arp-scan` | `cap_net_raw` | send and read ARP frames |
+| `tcpdump` | `cap_net_raw`, `cap_net_admin` | capture, and put the interface in promiscuous mode |
+
+Only the `netdev` group (the home-screen user and ZeroShell are in it) can run
+them now: they become `root:netdev`, mode `0750`. They still run as you, so a
+capture file belongs to you. A program tcpdump starts for you (its `-z`
+option) gets none of the capabilities.
+
+What this still allows: anyone in `netdev` can watch all the traffic on the
+device's interfaces, and can see every device on the local network. That is
+what the two tools are for. It is not a route to root.
+
+How it is kept up: `zeroos-net-caps.service` sets the capabilities at boot and
+when the pack is installed, and `zeroos-net-caps.path` sets them again after
+an upgrade of arp-scan or tcpdump (an upgrade replaces the file, which loses
+them; until they are back, the tool just doesn't work without root).
+Removing the pack puts both files back the way their packages ship them
+(`root:root`, `0755`, no capabilities). The script is
+`/usr/lib/zeroos/net-caps`.
+
+Everything else — nmap's connect scan, mtr, dig, ip, ss — runs as you, with
+no extra privileges, and so does Share (through NetworkManager, which ZeroOS
+already lets you manage).
+
+Net Tools 2.0 used a passwordless `sudo` rule for arp-scan and tcpdump
+(`/etc/sudoers.d/zeroos-net`). That was a mistake: tcpdump's `-z` option runs
+any program, so the rule amounted to passwordless root for the home-screen user.
+Updating to 2.1 removes the rule.
 
 ## A note on use
 

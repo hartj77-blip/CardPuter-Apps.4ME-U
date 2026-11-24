@@ -9,7 +9,9 @@
 //   Keyboard: W A S D or the arrows move, K = A, J = B, I = X, U = Y,
 //             Q = L, E = R, Enter = Start, Space = Select (Tab too)
 //             (X and Z also work as A and B on a full-size keyboard)
-//   Gamepad:  as labelled; the Home/Guide button opens the menu
+//             Hold Backspace (Del) to fast forward
+//   Gamepad:  as labelled; the Home/Guide button opens the menu, hold the
+//             right stick in to fast forward
 #pragma once
 
 #include <atomic>
@@ -34,6 +36,8 @@ public:
     bool take_menu() { return menu_.exchange(false); }
     // Any input since the last call (keeps the screen awake for gamepads).
     bool take_activity() { return activity_.exchange(false); }
+    // Fast forward is held: Backspace (Del), or a gamepad's right stick click.
+    bool fast_forward() const;
     bool has_devices() const { return !devs_.empty(); }
     int gamepads() const;
 
@@ -58,6 +62,7 @@ private:
     std::atomic<bool> menu_{false}, activity_{false};
     // No devices: held until this lv_tick time (per joypad bit).
     std::atomic<uint32_t> sim_until_[16] = {};
+    std::atomic<uint32_t> sim_fast_until_{0};
 };
 
 }  // namespace zs::games

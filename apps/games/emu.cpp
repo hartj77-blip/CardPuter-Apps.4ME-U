@@ -233,10 +233,12 @@ void Emulator::start(bool threaded) {
 #endif
 }
 
-// One frame: read the controls, run the core, send the sound on.
-void Emulator::run_frame() {
+// One frame: read the controls, run the core, send the sound on. show =
+// false (fast forward) skips scaling the picture and drops the sound.
+void Emulator::run_frame(bool show) {
     pad_.poll();
     uint16_t b = pad_.buttons();
+    fast_ = pad_.fast_forward();
     if (hold_.load()) {
         if (b == 0) hold_ = false;
         else b = 0;
@@ -245,9 +247,12 @@ void Emulator::run_frame() {
     if (paused_.load()) return;
     {
         std::lock_guard<std::mutex> lock(core_mu_);
+        skip_video_ = !show;
         api_.run();
+        skip_video_ = false;
     }
-    flush_audio();
+    if (show) flush_audio();
+    else abuf_.clear();
 }
 
 void Emulator::step(uint32_t now_ms) {
@@ -277,6 +282,11 @@ void Emulator::loop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(30));
             next = Clock::now();
             continue;
+        }
+        // Fast forward: three frames in the time of one, only the last shown.
+        if (fast_.load()) {
+            run_frame(false);
+            run_frame(false);
         }
         run_frame();
         if (Clock::now() - sram_at > std::chrono::seconds(10)) {   // battery saves, as they happen
@@ -320,7 +330,7 @@ void Emulator::reset() {
     api_.reset();
 }
 
-bool Emulator::save_state() {
+bool Emulator::save_state(const char* ext) {
     if (!game_loaded_) return false;
     std::vector<uint8_t> buf;
     {
@@ -330,18 +340,20 @@ bool Emulator::save_state() {
         buf.resize(n);
         if (!api_.serialize(buf.data(), n)) return false;
     }
-    return write_all(base_path(states_dir(), ".state"), buf.data(), buf.size());
+    return write_all(base_path(states_dir(), ext), buf.data(), buf.size());
 }
 
-bool Emulator::load_state() {
+bool Emulator::load_state(const char* ext) {
     if (!game_loaded_) return false;
-    auto buf = read_all(base_path(states_dir(), ".state"), size_t(64) << 20);
+    auto buf = read_all(base_path(states_dir(), ext), size_t(64) << 20);
     if (buf.empty()) return false;
     std::lock_guard<std::mutex> lock(core_mu_);
     return api_.unserialize(buf.data(), buf.size());
 }
 
-bool Emulator::has_state() const { return kit::exists(base_path(states_dir(), ".state")); }
+bool Emulator::has_state(const char* ext) const { return kit::exists(base_path(states_dir(), ext)); }
+
+void Emulator::remove_state(const char* ext) { std::remove(base_path(states_dir(), ext).c_str()); }
 
 void Emulator::write_sram(bool force) {
     if (!game_loaded_) return;
@@ -451,8 +463,14 @@ bool Emulator::env(unsigned cmd, void* data) {
 }
 
 void Emulator::video(const void* data, unsigned w, unsigned h, size_t pitch) {
-    if (!data || !w || !h || dst_w_ <= 0) return;   // a repeated frame
-    if (w != map_src_w_ || h != map_src_h_ || int(xmap_.size()) != dst_w_ || int(ymap_.size()) != dst_h_) {
+    if (!data || !w || !h || dst_w_ <= 0 || skip_video_) return;   // a repeated frame, or fast forward
+    bool smooth = smooth_.load() && (int(w) > dst_w_ || int(h) > dst_h_);
+    if (smooth) {
+        video_smooth(data, w, h, pitch);
+        return;
+    }
+    if (w != map_src_w_ || h != map_src_h_ || int(xmap_.size()) != dst_w_ || int(ymap_.size()) != dst_h_ ||
+        !xw_.empty()) {
         xmap_.resize(size_t(dst_w_));
         ymap_.resize(size_t(dst_h_));
         // Nearest pixel, sampled at each output pixel's centre.
@@ -462,6 +480,8 @@ void Emulator::video(const void* data, unsigned w, unsigned h, size_t pitch) {
             ymap_[size_t(y)] = std::min(int(h) - 1, int((uint64_t(2 * y + 1) * h) / (2u * unsigned(dst_h_))));
         map_src_w_ = w;
         map_src_h_ = h;
+        xw_.clear();   // these are the sharp tables, not the smooth ones
+        yw_.clear();
     }
     back_.resize(size_t(dst_w_) * size_t(dst_h_));
     const auto* base = static_cast<const uint8_t*>(data);
@@ -486,11 +506,97 @@ void Emulator::video(const void* data, unsigned w, unsigned h, size_t pitch) {
             }
         }
     }
+    publish();
+}
+
+void Emulator::publish() {
     std::lock_guard<std::mutex> lock(frame_mu_);
     ready_.swap(back_);
     ready_w_ = dst_w_;
     ready_h_ = dst_h_;
     new_frame_ = true;
+}
+
+namespace {
+// Blend two RGB565 colours: w/32 of b. The channels are spread out in a
+// 32-bit word with room between them, so one multiply does all three.
+inline uint16_t blend565(uint16_t a, uint16_t b, unsigned w) {
+    uint32_t A = (a | (uint32_t(a) << 16)) & 0x07e0f81fu;
+    uint32_t B = (b | (uint32_t(b) << 16)) & 0x07e0f81fu;
+    uint32_t r = ((A * (32 - w) + B * w) >> 5) & 0x07e0f81fu;
+    return uint16_t(r | (r >> 16));
+}
+
+// Each output pixel's position in the source, in 32ths: the pixel to its
+// left/top, the next one, and how much of the next one.
+void smooth_map(int dst, unsigned src, std::vector<int>& p0, std::vector<int>& p1, std::vector<uint8_t>& wt) {
+    p0.resize(size_t(dst));
+    p1.resize(size_t(dst));
+    wt.resize(size_t(dst));
+    for (int i = 0; i < dst; ++i) {
+        int64_t pos = (int64_t(2 * i + 1) * src * 32) / (2 * int64_t(dst)) - 16;
+        if (pos < 0) pos = 0;
+        int a = int(pos >> 5);
+        if (a > int(src) - 1) a = int(src) - 1;
+        p0[size_t(i)] = a;
+        p1[size_t(i)] = std::min(a + 1, int(src) - 1);
+        wt[size_t(i)] = uint8_t(pos & 31);
+    }
+}
+}  // namespace
+
+void Emulator::video_smooth(const void* data, unsigned w, unsigned h, size_t pitch) {
+    if (w != map_src_w_ || h != map_src_h_ || int(xmap_.size()) != dst_w_ || int(ymap_.size()) != dst_h_ ||
+        xw_.size() != xmap_.size() || yw_.size() != ymap_.size()) {
+        smooth_map(dst_w_, w, xmap_, xmap1_, xw_);
+        smooth_map(dst_h_, h, ymap_, ymap1_, yw_);
+        map_src_w_ = w;
+        map_src_h_ = h;
+    }
+    // Two source rows as RGB565, for the columns needed.
+    line0_.resize(size_t(w));
+    line1_.resize(size_t(w));
+    auto to565 = [&](const uint8_t* row, std::vector<uint16_t>& line) {
+        if (fmt_ == kRGB565) {
+            std::memcpy(line.data(), row, size_t(w) * 2);
+        } else if (fmt_ == kXRGB8888) {
+            auto* p = reinterpret_cast<const uint32_t*>(row);
+            for (unsigned x = 0; x < w; ++x) {
+                uint32_t c = p[x];
+                line[x] = uint16_t(((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f));
+            }
+        } else {
+            auto* p = reinterpret_cast<const uint16_t*>(row);
+            for (unsigned x = 0; x < w; ++x) {
+                uint16_t c = p[x];
+                uint16_t r = (c >> 10) & 31, g = (c >> 5) & 31, b = c & 31;
+                line[x] = uint16_t((r << 11) | (g << 6) | ((g >> 4) << 5) | b);
+            }
+        }
+    };
+    back_.resize(size_t(dst_w_) * size_t(dst_h_));
+    const auto* base = static_cast<const uint8_t*>(data);
+    uint16_t* out = back_.data();
+    int have0 = -1, have1 = -1;
+    for (int y = 0; y < dst_h_; ++y) {
+        int r0 = ymap_[size_t(y)], r1 = ymap1_[size_t(y)];
+        if (r0 == have1) {   // moving down: the old next row is this row
+            line0_.swap(line1_);
+            have0 = have1;
+            have1 = -1;
+        }
+        if (r0 != have0) to565(base + size_t(r0) * pitch, line0_), have0 = r0;
+        if (r1 != have1) to565(base + size_t(r1) * pitch, line1_), have1 = r1;
+        unsigned wy = yw_[size_t(y)];
+        for (int x = 0; x < dst_w_; ++x) {
+            int a = xmap_[size_t(x)], b = xmap1_[size_t(x)];
+            unsigned wx = xw_[size_t(x)];
+            uint16_t top = blend565(line0_[size_t(a)], line0_[size_t(b)], wx);
+            uint16_t bot = blend565(line1_[size_t(a)], line1_[size_t(b)], wx);
+            *out++ = blend565(top, bot, wy);
+        }
+    }
+    publish();
 }
 
 void Emulator::audio(const int16_t* data, size_t frames) {

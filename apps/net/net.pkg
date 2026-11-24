@@ -2,16 +2,25 @@
 # Capture, Netinfo, Share), front-ends for the standard Linux network tools.
 NAME="Net Tools"
 SUMMARY="Discover devices, scan ports, trace routes, DNS, packet capture, interface info and Ethernet sharing"
-APP_VERSION="2.0.1"
+APP_VERSION="2.1.0"
 # arp-scan + nmap (Discover, Ports), mtr-tiny (Trace), dnsutils (DNS, dig),
 # tcpdump (Capture), iproute2 (Netinfo: ip, ss). Share uses NetworkManager,
 # which is part of ZeroOS; its "shared" mode needs dnsmasq-base (DHCP and DNS
-# for the laptop) and nftables (the NAT rule).
-DEPENDS="arp-scan, nmap, mtr-tiny, dnsutils, tcpdump, iproute2, dnsmasq-base, nftables"
+# for the laptop) and nftables (the NAT rule). libcap2-bin: setcap, for the
+# capabilities below.
+DEPENDS="arp-scan, nmap, mtr-tiny, dnsutils, tcpdump, iproute2, dnsmasq-base, nftables, libcap2-bin"
+# The path unit first: removing the app stops these in this order, so nothing
+# puts the capabilities back while the service takes them away.
+ENABLE="zeroos-net-caps.path zeroos-net-caps.service"
 payload() {
-    # Lets the UI user run the root-only tools (arp-scan, tcpdump) through
-    # sudo -n with no password. Removing the app removes the rule.
-    install -D -m 0440 "$F/zeroos-net.sudoers" "$D/etc/sudoers.d/zeroos-net"
+    # No sudo rule: arp-scan and tcpdump get just the network capabilities
+    # they need, runnable by the netdev group only (files/zeroos-net-caps).
+    # Removing the app takes them away. Upgrading from 2.0 drops the old
+    # /etc/sudoers.d/zeroos-net, which this package no longer ships.
+    install -D -m 0755 "$F/zeroos-net-caps" "$D/usr/lib/zeroos/net-caps"
+    for u in zeroos-net-caps.service zeroos-net-caps.path zeroos-net-caps-refresh.service; do
+        install -D -m 0644 "$F/$u" "$D/etc/systemd/system/$u"
+    done
     # Share's helper: runs as pi, through NetworkManager (polkit allows it).
     install -D -m 0755 "$F/zeroos-share" "$D/usr/bin/zeroos-share"
 }

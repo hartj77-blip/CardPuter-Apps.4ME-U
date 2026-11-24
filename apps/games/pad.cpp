@@ -20,7 +20,7 @@ using namespace retro;
 
 // Linux key codes (linux/input-event-codes.h), kept here so this builds anywhere.
 enum : uint16_t {
-    E_TAB = 15, E_Q = 16, E_W = 17, E_E = 18, E_U = 22, E_I = 23, E_ENTER = 28, E_A = 30, E_S = 31,
+    E_BACKSPACE = 14, E_TAB = 15, E_Q = 16, E_W = 17, E_E = 18, E_U = 22, E_I = 23, E_ENTER = 28, E_A = 30, E_S = 31,
     E_D = 32, E_J = 36, E_K = 37, E_Z = 44, E_X = 45, E_SPACE = 57, E_KPENTER = 96, E_UP = 103,
     E_LEFT = 105, E_RIGHT = 106, E_DOWN = 108,
     B_SOUTH = 0x130, B_EAST = 0x131, B_NORTH = 0x133, B_WEST = 0x134, B_TL = 0x136, B_TR = 0x137,
@@ -184,7 +184,17 @@ uint16_t Pad::buttons() {
     return m;
 }
 
+bool Pad::fast_forward() const {
+    if (keys_[E_BACKSPACE] || keys_[B_THUMBR]) return true;
+    uint32_t until = sim_fast_until_.load();
+    return until && int32_t(until - lv_tick_get()) > 0;
+}
+
 void Pad::press_key(uint32_t key) {
+    if (key == LV_KEY_BACKSPACE) {
+        sim_fast_until_ = lv_tick_get() + 500;
+        return;
+    }
     int b = -1;
     switch (key) {
         case 'w': case 'W': case LV_KEY_UP: b = kUp; break;

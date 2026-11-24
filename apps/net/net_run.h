@@ -33,11 +33,12 @@ public:
     Job(const Job&) = delete;
     Job& operator=(const Job&) = delete;
 
-    // Run argv[0] (found on PATH) with the rest as arguments. With root, it is
-    // run through `sudo -n` (the net pack ships a sudoers rule for the exact
-    // tools). When simulated(), `sim` lines are emitted one every sim_ms ms
-    // instead, and argv is ignored. stderr is merged into the output.
-    void start(std::vector<std::string> argv, bool root,
+    // Run argv[0] (found on PATH) with the rest as arguments, as the UI user.
+    // Nothing runs as root: arp-scan and tcpdump get the network capabilities
+    // they need from the files themselves (files/zeroos-net-caps). When
+    // simulated(), `sim` lines are emitted one every sim_ms ms instead, and
+    // argv is ignored. stderr is merged into the output.
+    void start(std::vector<std::string> argv,
                std::vector<std::string> sim, int sim_ms = 150);
 
     // Append any new output lines to `out`. Returns how many were added.
@@ -51,7 +52,7 @@ public:
     int lines_seen() const { return seen_.load(); }
 
 private:
-    void run_real(const std::vector<std::string>& argv, bool root);
+    void run_real(const std::vector<std::string>& argv);
     void push(const std::string& line);
 
     std::thread thread_;

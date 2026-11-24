@@ -3,6 +3,7 @@
 // says so, and it is in the menu too).
 #include "apps/common.h"
 #include "ui/power.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {

@@ -8,6 +8,7 @@ here compiles it in (listing it in its `app.cmake`, or including the header).
 | `suite.h` | Net Tools, RF Tools | One app holding several tools |
 | `run.h`, `run.cpp` | Dev Tools, Files, Games, Net Tools, Notes | Run programs in the background; small file helpers |
 | `ui.h`, `ui.cpp` | Dev Tools, Files, Games, Net Tools, Notes | A text-input screen, a title row, running a command in the Terminal |
+| `look.h` | Every app with its own colours | The UI 3 Monochrome palette and helpers |
 
 **A change here is a change to every app that uses it.** `tools/check-versions.sh` asks for the
 version of each app whose code names the changed file (`kit/run.` for `run.cpp` and `run.h`) to
@@ -34,6 +35,26 @@ std::unique_ptr<App> make_net_app() {
 - Another app opens a suite straight at a tool: `shell_open_app("net", "ports:192.168.1.10")`.
 
 It's header-only, so an app using it needs nothing added to its sources.
+
+## look.h
+
+The OS's UI 3 look, "Monochrome" (docs/UX.md in the OS repo): black, white and greys, the item in
+focus lit white with black text, pop-ups as lifted sheets, square corners. Colour only says what
+something is: `kGood` on, `kWarn` needs attention, `kInfo` in progress, `kBad` destructive or
+recording.
+
+Include it after `ui/theme.h`. In code inside `namespace zs { namespace { using namespace theme;`
+the role names (`kAccent`, `kSurface`, `kMuted`, `style_panel` ...) then mean this look's values;
+anywhere else write `look::kMuted`. Helpers: `look::button()`, `look::field()` (a text box),
+`look::raised()` (a pop-up), `look::focus_fill()`.
+
+The values are a copy of the OS's `ui/theme.h` from UI 3, so an app looks the same whichever OS
+headers it was built against. It's header-only and calls nothing new in ZeroShell, so it doesn't
+change the app level. When the OS drops the UI 2 names (UI 3 step 5), this goes and apps use
+`theme.h` directly.
+
+Not changed: Media's skins and Jellyfin's colours are those apps' own look, like an app icon, and
+content keeps its colours (camera picture, radio spectrum, LED colours, game borders, QR codes).
 
 ## run.h
 

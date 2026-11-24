@@ -38,6 +38,7 @@
 #include "platform/keys.h"
 #include "ui/list_view.h"
 #include "ui/fileio.h"
+#include "apps/kit/look.h"
 
 extern char** environ;
 
@@ -335,14 +336,14 @@ const lv_font_t* font_for(Style s) {
 
 uint32_t color_for(Style s) {
     switch (s) {
-        case Style::Strong: return 0xffffff;
+        case Style::Strong: return kText;
         case Style::Code: return kInfo;
         case Style::Muted:
         case Style::Quote: return kMuted;
-        case Style::H3: return kAccent;
         case Style::H1:
-        case Style::H2: return 0xffffff;
-        default: return 0xdedede;
+        case Style::H2:
+        case Style::H3: return kText;
+        default: return kGrey7;
     }
 }
 
@@ -747,10 +748,11 @@ private:
                 lv_obj_set_style_text_font(l, font_for(p.style), 0);
                 lv_obj_set_style_text_color(l, c(focused ? kOnAccent : is_link ? kAccent : color_for(p.style)), 0);
                 if (is_link && !focused) lv_obj_set_style_text_decor(l, LV_TEXT_DECOR_UNDERLINE, 0);
-                if (focused || p.style == Style::Code) {
-                    lv_obj_set_style_bg_color(l, c(focused ? kAccent : kSurface), 0);
+                if (focused) {
+                    look::focus_fill(l, 0);
+                } else if (p.style == Style::Code) {
+                    lv_obj_set_style_bg_color(l, c(kSurface), 0);
                     lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
-                    lv_obj_set_style_radius(l, 2, 0);
                 }
                 // headings sit on the baseline of their (taller) line
                 lv_obj_set_pos(l, kPad + p.x, y + ln.th - int(lv_font_get_line_height(font_for(p.style))));
@@ -773,13 +775,12 @@ private:
         done_ = std::move(done);
         shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
-        style_panel(input_);
+        look::raised(input_);
         lv_obj_set_size(input_, 300, 64);
         lv_obj_align(input_, LV_ALIGN_TOP_MID, 0, 18);
-        lv_obj_set_style_border_color(input_, c(kAccent), 0);
-        lv_obj_set_style_border_width(input_, 1, 0);
         label(input_, title, &zs_font_12, kMuted);
         lv_obj_t* ta = lv_textarea_create(input_);
+        look::field(ta);
         lv_textarea_set_one_line(ta, true);
         lv_textarea_set_text(ta, initial.c_str());
         if (!hint.empty()) lv_textarea_set_placeholder_text(ta, hint.c_str());

@@ -20,6 +20,7 @@
 #include "ir/db.h"
 #include "platform/keys.h"
 #include "ui/list_view.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {
@@ -345,13 +346,10 @@ private:
         for (size_t i = 0; i < sigs_.size(); ++i) {
             lv_obj_t* b = lv_button_create(grid);
             lv_obj_set_size(b, 68, 30);
-            lv_obj_set_style_radius(b, 8, 0);
-            lv_obj_set_style_shadow_width(b, 0, 0);
+            look::button(b);
+            // Power keys: red, the colour of a key you can't take back.
             bool power = ir::contains(sigs_[i].name, "power") || ir::contains(sigs_[i].name, "off");
-            lv_obj_set_style_bg_color(b, c(power ? 0x5a1d1d : kSurface), 0);
-            lv_obj_set_style_bg_color(b, c(kAccent), LV_STATE_FOCUSED);
-            lv_obj_set_style_text_color(b, c(kText), 0);
-            lv_obj_set_style_text_color(b, c(kOnAccent), LV_STATE_FOCUSED);
+            if (power) lv_obj_set_style_text_color(b, c(kBad), 0);
             lv_obj_set_style_pad_hor(b, 3, 0);
             lv_obj_t* l = lv_label_create(b);
             lv_label_set_text(l, ir::pretty_name(sigs_[i].name).c_str());
@@ -621,13 +619,12 @@ private:
         // A Text screen while it's open: the bar says so.
         shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
-        style_panel(input_);
+        look::raised(input_);
         lv_obj_set_size(input_, 300, 74);
         lv_obj_center(input_);
-        lv_obj_set_style_border_color(input_, c(kAccent), 0);
-        lv_obj_set_style_border_width(input_, 1, 0);
         label(input_, title, &zs_font_12, kMuted);
         lv_obj_t* ta = ta_ = lv_textarea_create(input_);
+        look::field(ta_);
         lv_textarea_set_one_line(ta, true);
         lv_textarea_set_max_length(ta, 40);
         lv_textarea_set_text(ta, initial.c_str());

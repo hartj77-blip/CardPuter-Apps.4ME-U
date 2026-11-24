@@ -22,6 +22,7 @@
 #include "apps/kit/run.h"
 #include "apps/kit/ui.h"
 #include "ui/list_view.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {
@@ -168,13 +169,11 @@ private:
         out_.build(root_, 18, 30);
 
         ta_ = lv_textarea_create(root_);
+        look::field(ta_);
         lv_textarea_set_one_line(ta_, true);
         lv_textarea_set_placeholder_text(ta_, "Type a line to send");
         lv_obj_set_size(ta_, kScreenW - 8, 26);
         lv_obj_align(ta_, LV_ALIGN_BOTTOM_LEFT, 4, -2);
-        lv_obj_set_style_bg_color(ta_, c(kSurface), 0);
-        lv_obj_set_style_border_color(ta_, c(kAccent), 0);
-        lv_obj_set_style_border_width(ta_, 1, 0);
         lv_obj_set_style_pad_ver(ta_, 4, 0);
         lv_obj_add_event_cb(ta_, [](lv_event_t* e) {
             auto* self = static_cast<SerialApp*>(lv_event_get_user_data(e));

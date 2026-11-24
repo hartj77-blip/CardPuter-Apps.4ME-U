@@ -38,6 +38,7 @@
 #include "ui/power.h"
 #include "ui/prefs.h"
 #include "ui/remote.h"
+#include "apps/kit/look.h"
 
 extern char** environ;
 
@@ -108,7 +109,7 @@ public:
         lv_obj_set_pos(box_, 0, 0);
         lv_obj_set_size(box_, kViewW, kViewH);
         lv_obj_remove_flag(box_, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_style_bg_color(box_, c(0x000000), 0);
+        lv_obj_set_style_bg_color(box_, c(kBg), 0);
         lv_obj_set_style_bg_opa(box_, LV_OPA_COVER, 0);
 
         canvas_ = lv_canvas_create(box_);
@@ -124,7 +125,7 @@ public:
         hint_ = label(box_, "", &zs_font_12, kText);
         lv_obj_set_width(hint_, kViewW);
         lv_label_set_long_mode(hint_, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_bg_color(hint_, c(0x000000), 0);
+        lv_obj_set_style_bg_color(hint_, c(kBg), 0);
         lv_obj_set_style_bg_opa(hint_, LV_OPA_80, 0);
         lv_obj_set_style_pad_all(hint_, 3, 0);
         lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -1101,15 +1102,14 @@ private:
         // A Text screen while it's open: letters and digits type.
         shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
-        style_panel(input_);
+        look::raised(input_);
         lv_obj_set_size(input_, 300, 74);
         lv_obj_center(input_);
-        lv_obj_set_style_border_color(input_, c(kAccent), 0);
-        lv_obj_set_style_border_width(input_, 1, 0);
         lv_obj_t* t = label(input_, title.c_str(), &zs_font_12, kMuted);
         lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
         lv_obj_set_width(t, 280);
         lv_obj_t* ta = lv_textarea_create(input_);
+        look::field(ta);
         lv_textarea_set_one_line(ta, true);
         lv_textarea_set_password_mode(ta, secret);
         lv_textarea_set_text(ta, initial.c_str());

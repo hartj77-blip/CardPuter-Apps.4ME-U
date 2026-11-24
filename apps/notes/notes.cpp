@@ -20,6 +20,7 @@
 #include "ui/fileio.h"
 #include "ui/list_view.h"
 #include "ui/remote.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 
@@ -272,6 +273,7 @@ private:
         lv_obj_align(status_, LV_ALIGN_TOP_RIGHT, -8, 3);
 
         ta_ = lv_textarea_create(root_);
+        look::field(ta_);
         lv_obj_set_pos(ta_, 4, 20);
         lv_obj_set_size(ta_, kScreenW - 8, kBodyH - 22);
         lv_obj_set_style_bg_color(ta_, c(kSurface), 0);

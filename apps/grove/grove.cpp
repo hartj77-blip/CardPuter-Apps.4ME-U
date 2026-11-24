@@ -24,6 +24,7 @@
 #include "ui/list_view.h"
 #include "ui/prefs.h"
 #include "ui/tracker.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {

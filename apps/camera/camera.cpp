@@ -26,6 +26,7 @@
 #include "hal/qr.h"
 #include "platform/keys.h"
 #include "ui/power.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 
@@ -121,9 +122,7 @@ public:
             lv_obj_t* b = lv_button_create(row);
             lv_obj_set_size(b, w, 26);
             lv_obj_set_pos(b, x, 0);
-            lv_obj_set_style_bg_color(b, c(kSurface2), 0);
-            lv_obj_set_style_bg_color(b, c(kAccent), LV_STATE_FOCUSED);
-            lv_obj_set_style_text_color(b, c(kOnAccent), LV_STATE_FOCUSED);
+            look::button(b);
             lv_obj_t* l = lv_label_create(b);
             lv_label_set_text(l, text);
             lv_obj_center(l);

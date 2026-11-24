@@ -14,6 +14,7 @@
 #include "ui/list_view.h"
 #include "ui/power.h"
 #include "ui/tracker.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {
@@ -200,6 +201,7 @@ private:
         fill_messages();
 
         ta_ = lv_textarea_create(root_);
+        look::field(ta_);
         lv_textarea_set_one_line(ta_, true);
         lv_textarea_set_placeholder_text(ta_, "Message everyone");
         lv_textarea_set_max_length(ta_, 200);
@@ -258,7 +260,7 @@ private:
             lv_obj_t* l = lv_label_create(chat_);
             lv_label_set_text(l, (who + ": " + m.text).c_str());
             lv_obj_set_style_text_font(l, &zs_font_12, 0);
-            lv_obj_set_style_text_color(l, c(m.mine ? kGood : m.direct ? kAccent : kText), 0);
+            lv_obj_set_style_text_color(l, c(m.mine ? kMuted : m.direct ? kWarn : kText), 0);
             lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(l, kScreenW - 24);
         }

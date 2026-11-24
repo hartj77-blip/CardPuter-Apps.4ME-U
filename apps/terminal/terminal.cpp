@@ -6,6 +6,7 @@
 // Other apps open it with shell_open_app("terminal", "<command>") to run a
 // command in a new tmux window (Remote: "ssh desktop"); "shell" opens a shell.
 #include "apps/common.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 
@@ -41,9 +42,7 @@ public:
         lv_obj_set_width(help, 290);
         lv_obj_t* b = lv_button_create(panel);
         lv_obj_set_size(b, 160, 26);
-        lv_obj_set_style_bg_color(b, c(kSurface2), 0);
-        lv_obj_set_style_bg_color(b, c(kAccent), LV_STATE_FOCUSED);
-        lv_obj_set_style_text_color(b, c(kOnAccent), LV_STATE_FOCUSED);
+        look::button(b);
         lv_obj_t* l = lv_label_create(b);
         lv_label_set_text(l, LV_SYMBOL_PLAY "  Open terminal");
         lv_obj_center(l);

@@ -28,6 +28,7 @@
 #include "memories.h"
 #include "ui/list_view.h"
 #include "ui/prefs.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {
@@ -79,10 +80,8 @@ public:
         lv_obj_set_pos(canvas_, 0, kTopH);
 
         message_ = label(root, "", &zs_font_14, kText);
-        lv_obj_set_style_bg_color(message_, c(kSurface), 0);
-        lv_obj_set_style_bg_opa(message_, LV_OPA_COVER, 0);
+        look::raised(message_);
         lv_obj_set_style_pad_all(message_, 6, 0);
-        lv_obj_set_style_radius(message_, 6, 0);
         lv_obj_align(message_, LV_ALIGN_CENTER, 0, 10);
 
         low_label_ = label(root, "", &zs_font_12, kMuted);
@@ -465,11 +464,7 @@ private:
         close_pick();
         pick_box_ = lv_obj_create(root_);
         style_plain(pick_box_);
-        lv_obj_set_style_bg_color(pick_box_, c(kBg), 0);
-        lv_obj_set_style_bg_opa(pick_box_, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(pick_box_, 1, 0);
-        lv_obj_set_style_border_color(pick_box_, c(kAccent), 0);
-        lv_obj_set_style_radius(pick_box_, 4, 0);
+        look::raised(pick_box_);
         int h = kBodyH - kTopH - 2;
         lv_obj_set_pos(pick_box_, (kW - w) / 2, kTopH);
         lv_obj_set_size(pick_box_, w, h);

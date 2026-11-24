@@ -51,7 +51,8 @@ After that the phone is listed in Tether:
 | | |
 | --- | --- |
 | **Enter** on the phone | Go online through it, or offline |
-| **Del** twice | Forget the phone (unpair) |
+| **Tab > D** (or **Del**) | Forget the phone (unpair), after asking |
+| **Tab > N** | Add a phone (the same as the list's last row) |
 
 It doesn't connect by itself: Bluetooth turns off after ten minutes with
 nothing connected (Settings), so going online is one key when you want it.

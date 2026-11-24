@@ -43,7 +43,8 @@ In **Car**, under **Bluetooth**:
 - **Let the car find me**: for cars that search for a phone from their own
   screen. The Cardputer is visible as `cardputer` for 2 minutes; pick it on
   the car's screen.
-- Enter on a paired device connects or disconnects it. **X** forgets it.
+- Enter on a paired device connects or disconnects it. **Tab > D** (or **Del**) forgets it, after
+  asking. The bar along the bottom says what Enter does on the row in focus; typing filters the list.
 
 Once connected, sound from Media and Jellyfin goes to that device, and its play,
 pause, next and previous buttons drive the play queue, also with the screen

@@ -23,18 +23,19 @@ public:
         if (cmd == "shell") cmd.clear();
         if (shell_open_terminal(cmd)) return;
         // Simulator: a page with help and a button, and a stand-in console.
+        set_actions();
         lv_obj_t* panel = lv_obj_create(root);
         style_panel(panel);
         lv_obj_set_pos(panel, 6, 4);
-        lv_obj_set_size(panel, 308, kContentH - 10);
+        lv_obj_set_size(panel, 308, kBodyH - 8);
         lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_row(panel, 4, 0);
         label(panel, LV_SYMBOL_KEYBOARD "  Terminal", &zs_font_16, kAccent);
         lv_obj_t* help = label(panel,
-                               "Enter opens a terminal on this screen (53 x 14).\n"
-                               "Ctrl+Q  or  exit  comes back here. Sessions keep\n"
-                               "running in tmux; open it again to pick up.\n"
+                               "A terminal on this screen (53 x 14). Sessions keep\n"
+                               "running in tmux when you leave it (Ctrl+Q or exit\n"
+                               "there); open it again to pick up.\n"
                                "Remote has your devices, for one-key SSH.",
                                &zs_font_12, kMuted);
         lv_obj_set_width(help, 290);
@@ -58,12 +59,15 @@ public:
         if (fake_) {
             lv_obj_delete(fake_);
             fake_ = nullptr;
+            set_actions();
             return true;
         }
         return false;
     }
 
 private:
+    void set_actions() { shell_set_actions({{"Open terminal", 0, "Enter", nullptr}, {"Back", 0, "Esc", nullptr}}); }
+
     void open(const std::string& cmd) {
         if (shell_open_terminal(cmd)) return;
         show_fake(cmd);
@@ -72,9 +76,10 @@ private:
     // Simulator: what the console would show.
     void show_fake(const std::string& cmd) {
         if (fake_) lv_obj_delete(fake_);
+        shell_set_actions({{"Close preview", 0, "Esc", nullptr}});
         fake_ = lv_obj_create(root_);
         style_plain(fake_);
-        lv_obj_set_size(fake_, kScreenW, kContentH);
+        lv_obj_set_size(fake_, kScreenW, kBodyH);
         lv_obj_set_style_bg_color(fake_, c(kTerminalBg), 0);
         lv_obj_set_style_bg_opa(fake_, LV_OPA_COVER, 0);
         lv_obj_set_style_pad_all(fake_, 6, 0);
@@ -91,7 +96,7 @@ private:
         lv_obj_t* l = label(fake_,
                             "[simulator] On the Cardputer this is a real\n"
                             "Linux terminal running tmux. Ctrl+Q or exit\n"
-                            "comes back. Esc closes this preview.",
+                            "comes back.",
                             &zs_font_12, 0xffffff);
         lv_obj_set_pos(l, 0, 30);
         lv_obj_set_width(l, 300);

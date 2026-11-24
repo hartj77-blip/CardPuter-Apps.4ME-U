@@ -14,6 +14,7 @@
 
 #include "apps/games/libretro_api.h"
 #include "apps/games/pad.h"
+#include "apps/games/tv.h"
 
 namespace zs::games {
 
@@ -61,6 +62,10 @@ public:
     const std::string& core_name() const { return core_name_; }
 
     Pad& pad() { return pad_; }
+    // Send the pictures to the TV (open) instead of the built-in screen;
+    // nullptr: back to the built-in screen.
+    void set_tv(Tv* tv);
+    bool on_tv() const { return tv_ != nullptr; }
 
     // libretro callbacks (static, one emulator at a time).
     bool env(unsigned cmd, void* data);
@@ -109,7 +114,7 @@ private:
     std::mutex core_mu_;                // held while the core runs a frame
     std::thread thread_;
     std::atomic<bool> stop_{false}, paused_{false}, quit_req_{false}, hold_{false};
-    std::atomic<uint16_t> buttons_{0};
+    std::atomic<uint16_t> buttons_[Pad::kPlayers] = {};   // per player
     double fps_ = 60;
 
     std::vector<int16_t> abuf_;
@@ -121,6 +126,7 @@ private:
     std::string message_;
 
     Pad pad_;
+    Tv* tv_ = nullptr;                  // changed with core_mu_ held
 };
 
 }  // namespace zs::games

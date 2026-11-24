@@ -6,15 +6,21 @@
 //   Cores     Enter download (from libretro)      Del remove a download
 //   Playing   W A S D / arrows, K = A, J = B, I = X, U = Y, Q/E = L/R,
 //             Enter = Start, Space = Select, hold Backspace = fast forward,
-//             Esc = menu (save, load, border, picture, quit)
+//             Esc = menu (save, load, players, TV, border, picture, quit)
+//   Gamepads  up to four players, in the order they connect; Home = menu,
+//             and the d-pad, A (choose) and B (back) work the menu
+//   TV        with a monitor on the HDMI port, the game plays on it (tv.h)
 //
-// Settings (border, smooth picture, carry on where you left off) are kept
+// Settings (border, smooth picture, carry on where you left off, TV) are kept
 // in ~/Games/settings. Quitting a game keeps its moment in
 // ~/Games/states/<game>.resume.state, and the next start carries on from it.
 //
 // Games go in ~/Games/<system>/ (nes, gb, gbc, gba, snes, md...): copy them
 // with Files, Sync, Taildrop or scp. Only use games you own.
+#include <unistd.h>
+
 #include <cctype>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -24,6 +30,7 @@
 #include "apps/games/systems.h"
 #include "apps/kit/run.h"
 #include "apps/kit/ui.h"
+#include "hal/hal.h"
 #include "ui/power.h"
 
 namespace zs {
@@ -31,12 +38,26 @@ namespace {
 using namespace theme;
 using namespace games;
 
+// While Games is open it looks after the HDMI port itself: a monitor plugged
+// in then is for the game, so ZeroShell mustn't open Dock over it. ZeroShell
+// (newer than 0.5.1) reads this file and leaves HDMI alone while it names its
+// own process; apps run inside ZeroShell, so that's our pid. A file left by a
+// crash names a process that's gone and is ignored.
+std::string hdmi_claim_file() {
+    const char* run = std::getenv("XDG_RUNTIME_DIR");
+    return std::string(run && *run ? run : "/tmp") + "/zeroos-hdmi-app";
+}
+
 class GamesApp : public App {
 public:
-    ~GamesApp() override { stop_game(); }
+    ~GamesApp() override {
+        stop_game();
+        if (!kit::simulated()) std::remove(hdmi_claim_file().c_str());
+    }
 
     void build(lv_obj_t* root) override {
         root_ = root;
+        if (!kit::simulated()) kit::write_file(hdmi_claim_file(), std::to_string(getpid()) + " games\n");
         load_settings();
         kit::make_dirs(games_dir());
         kit::make_dirs(borders_dir());
@@ -59,12 +80,15 @@ public:
         }
         if (page_ == Page::Playing) {
             if (emu_.quit_requested()) { stop_game(); return; }
-            // Face down, or the screen went off: pause, so nothing runs unseen.
-            if (!menu_ && power().screen_off()) open_menu();
+            // Face down, or the screen went off: pause, so nothing runs unseen
+            // (on a TV the game is still seen).
+            if (!menu_ && power().screen_off() && !emu_.on_tv()) open_menu();
             if (emu_.pad().take_menu()) {
                 if (menu_) close_menu();
                 else open_menu();
             }
+            if (int p = emu_.pad().take_joined()) hint(fmt("Gamepad connected: player %d", p));
+            watch_tv();
         }
         if (page_ == Page::Cores && dl_.started()) {
             std::vector<std::string> lines;
@@ -128,6 +152,7 @@ private:
             if (k == "border") border_ = border_from_name(v);
             else if (k == "smooth") smooth_ = v == "1";
             else if (k == "resume") resume_ = v != "0";
+            else if (k == "tv") tv_wanted_ = v != "0";
         }
     }
 
@@ -135,7 +160,8 @@ private:
         std::string b = border_name(border_);
         for (auto& ch : b) ch = char(std::tolower(static_cast<unsigned char>(ch)));
         kit::write_file(games_dir() + "/settings", "border=" + b + "\nsmooth=" + (smooth_ ? "1" : "0") +
-                                                        "\nresume=" + (resume_ ? "1" : "0") + "\n");
+                                                        "\nresume=" + (resume_ ? "1" : "0") +
+                                                        "\ntv=" + (tv_wanted_ ? "1" : "0") + "\n");
     }
 
     void clear() {
@@ -341,10 +367,82 @@ private:
         if (lv_timer_t* r = lv_display_get_refr_timer(lv_display_get_default())) lv_timer_set_period(r, 16);
         // On the device the emulator keeps its own time; the simulator's clock
         // can be virtual (headless), so there it runs in step with LVGL.
+        tv_note_ = label(stage_, "", &zs_font_12, kMuted);
+        lv_obj_center(tv_note_);
+        lv_obj_add_flag(tv_note_, LV_OBJ_FLAG_HIDDEN);
+        tv_failed_ = false;
+        tv_check_at_ = lv_tick_get();
+        if (tv_wanted_ && tv_plugged()) use_tv();
         emu_.start(!kit::simulated());
         frame_timer_ = lv_timer_create(on_frame, 5, this);   // pick each new picture up quickly
         if (resumed) hint("Carrying on where you left off (Esc > Reset to restart)");
-        else hint(emu_.pad().gamepads() ? "Esc or Home: menu" : "Esc menu   WASD move   K/J A/B   Enter start");
+        else if (int n = emu_.pad().gamepads(); n > 1) hint(fmt("%d players: Home for the menu", n));
+        else hint(n ? "Esc or Home: menu" : "Esc menu   WASD move   K/J A/B   Enter start");
+    }
+
+    // ---- The TV (tv.h): on when a monitor is plugged in (and Play on TV is on)
+    // Not in the simulator: the PC's own monitor isn't ours to take.
+    static bool tv_plugged() { return !kit::simulated() && Tv::plugged(); }
+
+    void watch_tv() {
+        if (lv_tick_elaps(tv_check_at_) < 1000) return;
+        tv_check_at_ = lv_tick_get();
+        bool plugged = tv_plugged();
+        if (!plugged) tv_failed_ = false;   // try again on the next plug-in
+        if (emu_.on_tv() && !plugged) leave_tv("TV unplugged: playing on this screen");
+        else if (!emu_.on_tv() && plugged && tv_wanted_ && !tv_failed_) use_tv();
+    }
+
+    void use_tv() {
+        if (!stage_ || emu_.on_tv()) return;
+        std::string error;
+        if (hal().display().dock_running) error = "Leave Dock mode to play on the TV";
+        else if (!tv_.open(error) && error.empty()) error = "The TV can't be used";
+        if (!error.empty()) {
+            tv_failed_ = true;
+            hint(error);
+            return;
+        }
+        emu_.set_tv(&tv_);
+        lv_obj_add_flag(img_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(border_img_, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(tv_note_, fmt(LV_SYMBOL_VIDEO "  Playing on the TV (%dx%d)\n\nEsc: menu", tv_.width(),
+                                        tv_.height()).c_str());
+        lv_obj_set_style_text_align(tv_note_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_center(tv_note_);
+        lv_obj_remove_flag(tv_note_, LV_OBJ_FLAG_HIDDEN);
+        if (menu_) tv_menu_at_ = 0;   // put the menu on the TV now
+        hint("Playing on the TV");
+    }
+
+    void leave_tv(const std::string& why) {
+        if (!emu_.on_tv()) return;
+        emu_.set_tv(nullptr);
+        tv_.close();
+        if (tv_note_) lv_obj_add_flag(tv_note_, LV_OBJ_FLAG_HIDDEN);
+        if (img_) lv_obj_remove_flag(img_, LV_OBJ_FLAG_HIDDEN);
+        img_w_ = img_h_ = 0;   // the next picture sets the screen up again (and its border)
+        if (!why.empty()) hint(why);
+    }
+
+    // A snapshot of an LVGL object (the menu, a note), onto the TV.
+    void tv_overlay(Tv::Place where, lv_obj_t* obj) {
+        if (!emu_.on_tv()) return;
+        lv_draw_buf_t* snap = obj ? lv_snapshot_take(obj, LV_COLOR_FORMAT_RGB565) : nullptr;
+        if (snap) {
+            tv_.overlay(where, reinterpret_cast<const uint16_t*>(snap->data), int(snap->header.w),
+                        int(snap->header.h), int(snap->header.stride / 2));
+            lv_draw_buf_destroy(snap);
+        } else {
+            tv_.overlay(where, nullptr, 0, 0, 0);
+        }
+        if (emu_.paused()) tv_.redraw();   // else the next picture shows it
+    }
+
+    void hide_hint() {
+        if (!toast_ || lv_obj_has_flag(toast_, LV_OBJ_FLAG_HIDDEN)) return;
+        lv_obj_add_flag(toast_, LV_OBJ_FLAG_HIDDEN);
+        tv_overlay(Tv::Place::Bottom, nullptr);
     }
 
     void hint(const std::string& text) {
@@ -362,6 +460,10 @@ private:
         lv_obj_remove_flag(toast_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_move_foreground(toast_);
         toast_at_ = lv_tick_get();
+        if (emu_.on_tv()) {
+            lv_obj_update_layout(toast_);
+            tv_overlay(Tv::Place::Bottom, toast_);
+        }
     }
 
     static void on_frame(lv_timer_t* t) { static_cast<GamesApp*>(lv_timer_get_user_data(t))->frame(); }
@@ -399,12 +501,17 @@ private:
         if (emu_.fast() != fast_shown_) {
             fast_shown_ = emu_.fast();
             if (fast_shown_) hint(LV_SYMBOL_NEXT " Fast forward");
-            else if (toast_) lv_obj_add_flag(toast_, LV_OBJ_FLAG_HIDDEN);
+            else hide_hint();
         }
         std::string m = emu_.take_message();
         if (!m.empty()) hint(m);
-        if (toast_ && !lv_obj_has_flag(toast_, LV_OBJ_FLAG_HIDDEN) && lv_tick_elaps(toast_at_) > 2500)
-            lv_obj_add_flag(toast_, LV_OBJ_FLAG_HIDDEN);
+        if (toast_ && !lv_obj_has_flag(toast_, LV_OBJ_FLAG_HIDDEN) && lv_tick_elaps(toast_at_) > 2500) hide_hint();
+        if (menu_) menu_by_gamepad();
+        // The menu on the TV too, as it changes (a few times a second).
+        if (menu_ && emu_.on_tv() && lv_tick_elaps(tv_menu_at_) > 100) {
+            tv_menu_at_ = lv_tick_get();
+            tv_overlay(Tv::Place::Middle, menu_);
+        }
         // A gamepad isn't a ZeroShell key: tell the power manager someone is playing.
         if (emu_.pad().take_activity() && lv_tick_elaps(active_at_) > 1000) {
             active_at_ = lv_tick_get();
@@ -462,6 +569,14 @@ private:
             border_image_ = BorderImage{};
     }
     std::string picture_item() const { return smooth_ ? "Picture: Smooth" : "Picture: Sharp"; }
+    std::string players_item() {
+        int n = emu_.pad().gamepads();
+        return n ? fmt("Swap players 1 and 2 (%d pad%s)", n, n == 1 ? "" : "s") : std::string("Swap players 1 and 2");
+    }
+    std::string tv_item() const {
+        if (!tv_wanted_) return "Play on TV: Off";
+        return emu_.on_tv() ? "Play on TV: On" : "Play on TV: On (no TV)";
+    }
     std::string resume_item() const { return resume_ ? "Carry on next time: On" : "Carry on next time: Off"; }
 
     static void on_menu(lv_event_t* e) {
@@ -485,40 +600,78 @@ private:
         list_button(list, LV_SYMBOL_SAVE, "Save state", on_menu, this);
         lv_obj_t* l = list_button(list, LV_SYMBOL_UPLOAD, "Load state", on_menu, this);
         if (!emu_.has_state()) lv_obj_set_style_text_color(l, c(kMuted), 0);
+        list_button(list, LV_SYMBOL_SHUFFLE, players_item().c_str(), on_menu, this);
+        list_button(list, LV_SYMBOL_VIDEO, tv_item().c_str(), on_menu, this);
         list_button(list, LV_SYMBOL_IMAGE, border_item().c_str(), on_menu, this);
         list_button(list, LV_SYMBOL_EYE_OPEN, picture_item().c_str(), on_menu, this);
         list_button(list, LV_SYMBOL_LOOP, resume_item().c_str(), on_menu, this);
         list_button(list, LV_SYMBOL_REFRESH, "Reset", on_menu, this);
         list_button(list, LV_SYMBOL_CLOSE, "Quit game", on_menu, this);
         finish_list(list);
+        pad_prev_ = emu_.pad().gamepad_buttons();   // the Home press isn't a menu key
+        tv_menu_at_ = 0;
+    }
+
+    // The d-pad moves in the menu, A or Start chooses, B goes back to the game.
+    void menu_by_gamepad() {
+        uint16_t now = emu_.pad().gamepad_buttons();
+        uint16_t pressed = now & ~pad_prev_;
+        pad_prev_ = now;
+        if (!pressed || !group) return;
+        auto down = [&](unsigned b) { return (pressed >> b) & 1; };
+        if (down(retro::kUp)) lv_group_focus_prev(group);
+        else if (down(retro::kDown)) lv_group_focus_next(group);
+        else if (down(retro::kB)) close_menu();
+        else if (down(retro::kA) || down(retro::kStart)) {
+            if (lv_obj_t* f = lv_group_get_focused(group)) lv_obj_send_event(f, LV_EVENT_CLICKED, nullptr);
+        }
+        tv_menu_at_ = 0;
     }
 
     void close_menu() {
         if (!menu_) return;
         lv_obj_delete(menu_);
         menu_ = nullptr;
+        tv_overlay(Tv::Place::Middle, nullptr);
         if (group) lv_group_remove_all_objs(group);
         emu_.hold_until_release();   // the Enter that chose Resume is not Start
         emu_.set_paused(false);
     }
 
+    // The menu's rows, in order (open_menu).
+    enum MenuRow { kRowResume, kRowSave, kRowLoad, kRowPlayers, kRowTv, kRowBorder, kRowPicture, kRowCarryOn, kRowReset, kRowQuit };
+
     void menu_action() {
         if (!menu_) return;
         switch (menu_pick_) {
-            case 0: close_menu(); break;
-            case 1:
+            case kRowResume: close_menu(); break;
+            case kRowSave:
                 close_menu();
                 hint(emu_.save_state() ? "State saved" : "This core can't save states");
                 break;
-            case 2:
+            case kRowLoad:
                 close_menu();
                 hint(emu_.load_state() ? "State loaded" : "No saved state");
                 break;
-            case 3:   // the settings change in place: the menu stays open
-            case 4:
-            case 5: {
+            case kRowPlayers:   // the settings change in place: the menu stays open
+            case kRowTv:
+            case kRowBorder:
+            case kRowPicture:
+            case kRowCarryOn: {
                 std::string text;
-                if (menu_pick_ == 3) {
+                if (menu_pick_ == kRowPlayers) {
+                    emu_.pad().swap_players();
+                    text = players_item();
+                    hint(emu_.pad().gamepads() ? "Players: " + emu_.pad().players_text()
+                                               : std::string("No gamepads yet: the keyboard is player 1"));
+                } else if (menu_pick_ == kRowTv) {
+                    tv_wanted_ = !tv_wanted_;
+                    tv_failed_ = false;
+                    if (!tv_wanted_) leave_tv("");
+                    else if (tv_plugged()) use_tv();
+                    else hint("Plug a TV into the HDMI port");
+                    text = tv_item();
+                } else if (menu_pick_ == kRowBorder) {
                     border_ = next_border(border_);
                     draw_border(true);
                     text = border_item();
@@ -526,7 +679,7 @@ private:
                         hint(border_image_error_.empty()
                                  ? "No PNG in ~/Games/borders yet"
                                  : border_image_error_);
-                } else if (menu_pick_ == 4) {
+                } else if (menu_pick_ == kRowPicture) {
                     smooth_ = !smooth_;
                     emu_.set_smooth(smooth_);
                     text = picture_item();
@@ -538,10 +691,11 @@ private:
                 save_settings();
                 lv_obj_t* b = lv_obj_get_child(menu_list_, menu_pick_);
                 if (b) lv_list_set_button_text(menu_list_, b, text.c_str());
+                tv_menu_at_ = 0;
                 break;
             }
-            case 6: close_menu(); emu_.reset(); hint("Reset"); break;
-            case 7: stop_game(); break;
+            case kRowReset: close_menu(); emu_.reset(); hint("Reset"); break;
+            case kRowQuit: stop_game(); break;
             default: break;
         }
     }
@@ -551,8 +705,10 @@ private:
         frame_timer_ = nullptr;
         if (lv_timer_t* r = lv_display_get_refr_timer(lv_display_get_default()))
             lv_timer_set_period(r, LV_DEF_REFR_PERIOD);
+        emu_.set_tv(nullptr);   // (the emulator has stopped)
+        tv_.close();
         if (stage_) lv_obj_delete(stage_);
-        stage_ = img_ = border_img_ = note_ = menu_ = menu_list_ = toast_ = nullptr;
+        stage_ = img_ = border_img_ = note_ = menu_ = menu_list_ = toast_ = tv_note_ = nullptr;
         fast_shown_ = false;
     }
 
@@ -573,6 +729,11 @@ private:
     bool pending_load_ = false;
 
     Emulator emu_;
+    Tv tv_;
+    lv_obj_t* tv_note_ = nullptr;      // "Playing on the TV" on the built-in screen
+    bool tv_wanted_ = true, tv_failed_ = false;
+    uint32_t tv_check_at_ = 0, tv_menu_at_ = 0;
+    uint16_t pad_prev_ = 0;            // gamepad buttons last time (the menu)
     static constexpr const char* kResume = ".resume.state";
     lv_obj_t *stage_ = nullptr, *img_ = nullptr, *note_ = nullptr, *menu_ = nullptr, *toast_ = nullptr;
     lv_obj_t *border_img_ = nullptr, *menu_list_ = nullptr;

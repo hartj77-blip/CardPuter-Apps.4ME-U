@@ -183,7 +183,9 @@ bool Emulator::load(const std::string& core_path, const std::string& game, int m
     api_.get_system_av_info(&av_);
     fps_ = av_.timing.fps > 1 ? av_.timing.fps : 60;
     fit(av_.geometry.aspect_ratio);
+    // Players 1 and 2 have a joypad (more need a multitap, which each core sets up its own way).
     api_.set_controller_port_device(0, kDeviceJoypad);
+    api_.set_controller_port_device(1, kDeviceJoypad);
 
     // The game's battery save.
     if (size_t n = api_.get_memory_size(kMemorySaveRam); n > 0) {
@@ -237,13 +239,15 @@ void Emulator::start(bool threaded) {
 // false (fast forward) skips scaling the picture and drops the sound.
 void Emulator::run_frame(bool show) {
     pad_.poll();
-    uint16_t b = pad_.buttons();
+    uint16_t b[Pad::kPlayers];
+    uint16_t any = 0;
+    for (int p = 0; p < Pad::kPlayers; ++p) any |= b[p] = pad_.buttons(p);
     fast_ = pad_.fast_forward();
     if (hold_.load()) {
-        if (b == 0) hold_ = false;
-        else b = 0;
+        if (any == 0) hold_ = false;
+        else std::fill(b, b + Pad::kPlayers, uint16_t(0));
     }
-    buttons_ = b;
+    for (int p = 0; p < Pad::kPlayers; ++p) buttons_[p] = b[p];
     if (paused_.load()) return;
     {
         std::lock_guard<std::mutex> lock(core_mu_);
@@ -322,6 +326,12 @@ void Emulator::stop() {
     rom_.clear();
     sram_copy_.clear();
 #endif
+}
+
+void Emulator::set_tv(Tv* tv) {
+    std::lock_guard<std::mutex> lock(core_mu_);
+    tv_ = tv;
+    map_src_w_ = map_src_h_ = 0;   // the built-in screen's tables: rebuilt on its next picture
 }
 
 void Emulator::reset() {
@@ -455,7 +465,7 @@ bool Emulator::env(unsigned cmd, void* data) {
         case kEnvGetInputBitmasks:
             return true;
         case kEnvGetInputMaxUsers:
-            if (data) *static_cast<unsigned*>(data) = 1;
+            if (data) *static_cast<unsigned*>(data) = Pad::kPlayers;
             return true;
         default:
             return false;   // includes hardware (OpenGL) rendering: this screen has no GPU
@@ -464,6 +474,10 @@ bool Emulator::env(unsigned cmd, void* data) {
 
 void Emulator::video(const void* data, unsigned w, unsigned h, size_t pitch) {
     if (!data || !w || !h || dst_w_ <= 0 || skip_video_) return;   // a repeated frame, or fast forward
+    if (tv_) {   // on the TV, scaled up there; the built-in screen gets nothing
+        tv_->show(data, w, h, pitch, fmt_, av_.geometry.aspect_ratio);
+        return;
+    }
     bool smooth = smooth_.load() && (int(w) > dst_w_ || int(h) > dst_h_);
     if (smooth) {
         video_smooth(data, w, h, pitch);
@@ -606,8 +620,8 @@ void Emulator::audio(const int16_t* data, size_t frames) {
 
 int16_t Emulator::input(unsigned port, unsigned device, unsigned index, unsigned id) {
     (void)index;
-    if (port != 0 || (device & 0xff) != kDeviceJoypad) return 0;
-    uint16_t b = buttons_.load();
+    if (port >= unsigned(Pad::kPlayers) || (device & 0xff) != kDeviceJoypad) return 0;
+    uint16_t b = buttons_[port].load();
     if (id == kJoypadMask) return int16_t(b);
     return id < 16 ? int16_t((b >> id) & 1) : 0;
 }

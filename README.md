@@ -177,7 +177,7 @@ the app. It all goes again when you remove the app.
 | [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: home screen cards, Continue Watching, a now-playing bar | mpv, libmpv |
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
-| [Games](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
+| [Games](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen or a TV on the HDMI port; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Two (up to four) players with USB or Bluetooth gamepads. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
 | [Car](apps/car/README.md) | `car` | Music in the car: the Cardputer as a USB stick of your music, or Bluetooth audio with the car's buttons | mtools, dosfstools, fdisk |
 
 ### Networks and other computers
@@ -231,7 +231,7 @@ Terminal, SSH, or another computer.
 | `~/Games/` | Your games (a folder per console), saves, downloaded cores | you, Games |
 | `~/Games/states/` | Save states, and `<game>.resume.state` to carry on where you left off | Games |
 | `~/Games/borders/` | PNG border pictures (`<game>.png`, `<console>.png` or `default.png`) | you; Games reads it |
-| `~/Games/settings` | Games' border, picture and carry-on settings | Games |
+| `~/Games/settings` | Games' border, picture, carry-on and TV settings | Games |
 | `~/Code/` | Your projects | Dev Tools |
 | `~/IR/` | Remotes you taught or saved | IR Remote |
 | `~/.cache/zeroos/browser/` | Pages you opened, to read offline. Safe to delete | Browser |

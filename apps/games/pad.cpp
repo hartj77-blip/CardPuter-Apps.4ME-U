@@ -57,24 +57,36 @@ Pad::~Pad() { close(); }
 
 bool Pad::open() {
     close();
-    scan();
-    return !devs_.empty();
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        scan();
+        update();
+    }
+    joined_ = 0;   // the ones there at the start aren't news
+    return has_devices();
 }
 
 void Pad::close() {
+    std::lock_guard<std::mutex> lock(mu_);
 #ifdef ZS_EVDEV
     for (auto& d : devs_)
         if (d.fd >= 0) ::close(d.fd);
 #endif
     devs_.clear();
-    std::fill(keys_.begin(), keys_.end(), 0);
-    hat_x_ = hat_y_ = stick_x_ = stick_y_ = 0;
+    update();
 }
 
-int Pad::gamepads() const {
-    int n = 0;
-    for (auto& d : devs_) n += d.gamepad;
-    return n;
+// The player for a gamepad that just connected: the one it had before if
+// that's free, else the first free one (player 4 if all are taken).
+int Pad::free_player(const std::string& uniq) const {
+    bool taken[kPlayers] = {};
+    for (auto& d : devs_)
+        if (d.gamepad) taken[d.player] = true;
+    if (!uniq.empty())
+        if (auto it = last_player_.find(uniq); it != last_player_.end() && !taken[it->second]) return it->second;
+    for (int p = 0; p < kPlayers; ++p)
+        if (!taken[p]) return p;
+    return kPlayers - 1;
 }
 
 void Pad::scan() {
@@ -95,27 +107,47 @@ void Pad::scan() {
             ::close(fd);
             continue;
         }
-        Dev d;
-        d.fd = fd;
-        d.path = path;
-        d.gamepad = gamepad && !keyboard;
-        for (int a = 0; a < 2; ++a) {
-            input_absinfo ai{};
-            if (ioctl(fd, EVIOCGABS(a), &ai) == 0) {
-                d.abs_min[a] = ai.minimum;
-                d.abs_max[a] = ai.maximum;
-            }
-        }
-        devs_.push_back(d);
+        char uniq[64] = {0};
+        if (ioctl(fd, EVIOCGUNIQ(sizeof uniq - 1), uniq) <= 0) uniq[0] = 0;
+        attach(fd, path, gamepad && !keyboard, uniq);
     }
 #endif
+}
+
+void Pad::attach(int fd, const std::string& path, bool gamepad, const std::string& uniq) {
+    Dev d;
+    d.fd = fd;
+    d.path = path;
+    d.gamepad = gamepad;
+    d.uniq = uniq;
+#ifdef ZS_EVDEV
+    for (int a = 0; a < 2; ++a) {
+        input_absinfo ai{};
+        if (ioctl(fd, EVIOCGABS(a), &ai) == 0) {
+            d.abs_min[a] = ai.minimum;
+            d.abs_max[a] = ai.maximum;
+        }
+    }
+#endif
+    if (d.gamepad) {
+        d.player = free_player(d.uniq);
+        if (!d.uniq.empty()) last_player_[d.uniq] = d.player;
+        joined_ = d.player + 1;
+    }
+    devs_.push_back(std::move(d));
+}
+
+void Pad::add_device(int fd, bool gamepad, const std::string& uniq) {
+    std::lock_guard<std::mutex> lock(mu_);
+    attach(fd, "test:" + std::to_string(fd), gamepad, uniq);
+    update();
 }
 
 void Pad::handle(Dev& d, uint16_t type, uint16_t code, int32_t value) {
 #ifdef ZS_EVDEV
     if (type == EV_KEY) {
         if (value == 2) return;   // kernel auto-repeat
-        if (code < keys_.size()) keys_[code] = value ? 1 : 0;
+        if (code < d.keys.size()) d.keys[code] = value ? 1 : 0;
         if (code == B_MODE && value) menu_ = true;
         activity_ = true;
     } else if (type == EV_ABS) {
@@ -124,10 +156,10 @@ void Pad::handle(Dev& d, uint16_t type, uint16_t code, int32_t value) {
             int mid = (lo + hi) / 2, dead = (hi - lo) / 4;   // a quarter of the way out
             return v < mid - dead ? -1 : v > mid + dead ? 1 : 0;
         };
-        if (code == A_HAT0X) hat_x_ = value < 0 ? -1 : value > 0 ? 1 : 0;
-        else if (code == A_HAT0Y) hat_y_ = value < 0 ? -1 : value > 0 ? 1 : 0;
-        else if (code == A_X && d.gamepad) stick_x_ = dir(value, d.abs_min[0], d.abs_max[0]);
-        else if (code == A_Y && d.gamepad) stick_y_ = dir(value, d.abs_min[1], d.abs_max[1]);
+        if (code == A_HAT0X) d.hat_x = value < 0 ? -1 : value > 0 ? 1 : 0;
+        else if (code == A_HAT0Y) d.hat_y = value < 0 ? -1 : value > 0 ? 1 : 0;
+        else if (code == A_X && d.gamepad) d.stick_x = dir(value, d.abs_min[0], d.abs_max[0]);
+        else if (code == A_Y && d.gamepad) d.stick_y = dir(value, d.abs_min[1], d.abs_max[1]);
         else return;
         activity_ = true;
     }
@@ -140,24 +172,25 @@ void Pad::handle(Dev& d, uint16_t type, uint16_t code, int32_t value) {
 }
 
 void Pad::poll() {
+    std::lock_guard<std::mutex> lock(mu_);
 #ifdef ZS_EVDEV
     for (size_t i = 0; i < devs_.size();) {
         Dev& d = devs_[i];
         input_event ev[32];
         ssize_t n;
-        bool gone = false;
         while ((n = read(d.fd, ev, sizeof ev)) > 0) {
             for (size_t k = 0; k < size_t(n) / sizeof(input_event); ++k) {
-                if (ev[k].type == EV_SYN && ev[k].code == SYN_DROPPED) std::fill(keys_.begin(), keys_.end(), 0);
-                else handle(d, ev[k].type, ev[k].code, ev[k].value);
+                if (ev[k].type == EV_SYN && ev[k].code == SYN_DROPPED) {
+                    std::fill(d.keys.begin(), d.keys.end(), 0);
+                    d.hat_x = d.hat_y = d.stick_x = d.stick_y = 0;
+                } else {
+                    handle(d, ev[k].type, ev[k].code, ev[k].value);
+                }
             }
         }
-        if (n < 0 && errno == ENODEV) gone = true;   // unplugged, or Bluetooth went away
-        if (gone) {
+        if (n == 0 || (n < 0 && errno == ENODEV)) {   // unplugged, or Bluetooth went away
             ::close(d.fd);
             devs_.erase(devs_.begin() + long(i));
-            std::fill(keys_.begin(), keys_.end(), 0);
-            hat_x_ = hat_y_ = stick_x_ = stick_y_ = 0;
             continue;
         }
         ++i;
@@ -165,29 +198,86 @@ void Pad::poll() {
     // A Bluetooth gamepad that connects mid-game.
     if (lv_tick_elaps(last_scan_) > 2000) scan();
 #endif
+    update();
 }
 
-uint16_t Pad::buttons() {
+uint16_t Pad::dev_buttons(const Dev& d) {
     uint16_t m = 0;
     for (const Map& k : kMap)
-        if (k.code < keys_.size() && keys_[k.code]) m |= uint16_t(1u << k.button);
-    int x = hat_x_ ? hat_x_ : stick_x_, y = hat_y_ ? hat_y_ : stick_y_;
+        if (k.code < d.keys.size() && d.keys[k.code]) m |= uint16_t(1u << k.button);
+    int x = d.hat_x ? d.hat_x : d.stick_x, y = d.hat_y ? d.hat_y : d.stick_y;
     if (x < 0) m |= 1u << kLeft;
     if (x > 0) m |= 1u << kRight;
     if (y < 0) m |= 1u << kUp;
     if (y > 0) m |= 1u << kDown;
-    uint32_t now = lv_tick_get();
-    for (unsigned b = 0; b < 16; ++b) {
-        uint32_t until = sim_until_[b].load();
-        if (until && int32_t(until - now) > 0) m |= uint16_t(1u << b);
+    return m;
+}
+
+void Pad::update() {
+    uint16_t held[kPlayers] = {};
+    uint16_t any_pad = 0;
+    bool fast = false;
+    int pads = 0, kb = 0;   // keyboards: player 1
+    for (auto& d : devs_) {
+        uint16_t b = dev_buttons(d);
+        held[d.gamepad ? d.player : kb] |= b;
+        if (d.gamepad) {
+            any_pad |= b;
+            ++pads;
+        }
+        fast |= d.keys[E_BACKSPACE] || d.keys[B_THUMBR];
+    }
+    for (int p = 0; p < kPlayers; ++p) held_[p] = held[p];
+    pad_any_ = any_pad;
+    fast_ = fast;
+    devices_ = int(devs_.size());
+    gamepads_ = pads;
+}
+
+uint16_t Pad::buttons(int player) const {
+    if (player < 0 || player >= kPlayers) return 0;
+    uint16_t m = held_[player].load();
+    if (player == 0) {   // the simulator's keys: the keyboard's
+        uint32_t now = lv_tick_get();
+        for (unsigned b = 0; b < 16; ++b) {
+            uint32_t until = sim_until_[b].load();
+            if (until && int32_t(until - now) > 0) m |= uint16_t(1u << b);
+        }
     }
     return m;
 }
 
 bool Pad::fast_forward() const {
-    if (keys_[E_BACKSPACE] || keys_[B_THUMBR]) return true;
+    if (fast_.load()) return true;
     uint32_t until = sim_fast_until_.load();
     return until && int32_t(until - lv_tick_get()) > 0;
+}
+
+void Pad::swap_players() {
+    std::lock_guard<std::mutex> lock(mu_);
+    for (auto& d : devs_) {
+        if (!d.gamepad || d.player > 1) continue;
+        d.player = 1 - d.player;
+        if (!d.uniq.empty()) last_player_[d.uniq] = d.player;
+    }
+    update();
+}
+
+std::string Pad::players_text() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    int pads[kPlayers] = {};
+    for (auto& d : devs_)
+        if (d.gamepad) ++pads[d.player];
+    int kb = 0;
+    std::string s;
+    for (int p = 0; p < kPlayers; ++p) {
+        std::string who;
+        if (p == kb) who = "keys";
+        if (pads[p]) who += std::string(who.empty() ? "" : "+") + (pads[p] > 1 ? std::to_string(pads[p]) + " pads" : "pad");
+        if (who.empty()) continue;
+        s += (s.empty() ? "" : ", ") + std::string("P") + std::to_string(p + 1) + " " + who;
+    }
+    return s;
 }
 
 void Pad::press_key(uint32_t key) {

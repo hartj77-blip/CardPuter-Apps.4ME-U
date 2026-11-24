@@ -58,7 +58,8 @@ shell_open_app("browser", "/home/pi/Documents/notes.md");
   code, table rows), then lays them out into lines that fit the 320 px screen. It has no LVGL in it,
   so it's unit tested on any PC (`tests/page_test.cpp`).
 - `browser.cpp` draws only the lines on screen, so a long README uses a few dozen labels, not
-  thousands. LVGL's memory for the whole UI is a fixed 512 KB.
+  thousands. ZeroShell gives LVGL the C library's `malloc` (it used a fixed 512 KB pool up to
+  ZeroOS 0.4.0), but every label still costs memory and drawing time.
 - Pages are fetched with `curl` (part of ZeroOS) on a worker thread, so the screen never freezes.
   Downloads stop at 4 MB.
 - The UI font only has Latin characters, so arrows and box drawing become ASCII (`->`, `+--+`) and

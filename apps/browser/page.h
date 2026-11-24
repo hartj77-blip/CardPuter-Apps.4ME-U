@@ -5,8 +5,8 @@
 //   Doc   --layout(width, metrics)-->                    Lines (pieces at x positions)
 //
 // The screen only ever draws the handful of lines that are visible, so a
-// long README costs a few dozen LVGL labels, not thousands: LVGL's memory
-// pool is fixed at 512 KB for the whole UI.
+// long README costs a few dozen LVGL labels, not thousands. (LVGL now uses
+// malloc in ZeroShell, but up to ZeroOS 0.4.0 it had a fixed 512 KB pool.)
 #pragma once
 
 #include <cstdint>

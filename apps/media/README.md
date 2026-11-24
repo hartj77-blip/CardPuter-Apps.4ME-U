@@ -100,10 +100,11 @@ The Library is a list, so typing searches it:
 | Up / Down | Move |
 | Enter | Open a folder; play a track (and the rest of the folder after it) or a playlist |
 | 1 to 9 | Open or play the row with that number |
-| Letters, space | Search the folder you're in by name (Backspace takes a letter off, Esc clears it) |
+| Letters | Search the folder you're in by name (Backspace takes a letter off, Esc clears it) |
+| Space | Pause / resume (with nothing playing, plays the row you're on). Once you've typed, a space in the search |
 | Backspace or Esc | Up a folder |
 | Left / Right | The Player tab |
-| Tab | The menu: Play all (A), Pause / resume (U), Next (N), Previous (P), Stop (S), Shuffle (H), Theme (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
+| Tab | The menu: Play all (A), Pause (U), Next (N), Previous (P), Stop (S), Shuffle (H), Theme (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
 
 **Play all** plays everything in the folder you're on, folders under it
 included (up to 3000 tracks).

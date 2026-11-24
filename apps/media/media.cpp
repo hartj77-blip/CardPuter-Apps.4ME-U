@@ -7,7 +7,8 @@
 //
 // Two tabs, Left / Right between them (docs/UX.md in the OS):
 //   Library   the explorer, a List screen: typing narrows the folder, 1 to 9
-//             pick a row, Enter opens or plays, Backspace goes up a folder.
+//             pick a row, Enter opens or plays, Backspace goes up a folder,
+//             Space pauses while nothing is typed.
 //             Everything else is in the Tab menu (Ctrl + its letter).
 //   Player    a Control screen in the explorer's place: Enter or Space
 //             pause, N next, P previous (Left / Right too), S stop,
@@ -524,7 +525,7 @@ private:
                              flash(kPlay);
                              play_focused();
                          }});
-            a.push_back({"Pause / resume", 'u', nullptr, [this] { play_pause(); }});
+            a.push_back({"Pause", 'u', "Space", [this] { play_pause(); }});
             a.push_back({"Next track", 'n', nullptr, [this] { next(); }});
             a.push_back({"Previous track", 'p', nullptr, [this] { previous(); }});
             a.push_back({"Stop", 's', nullptr, [this] { stop(); }});
@@ -550,6 +551,10 @@ private:
             case LV_KEY_LEFT:
             case LV_KEY_RIGHT:
                 show_player();
+                return true;
+            case ' ':
+                if (!filter_.empty()) break;   // a space in the search
+                play_pause();                  // as in every ZeroOS list (ui/list_view.h)
                 return true;
             case LV_KEY_BACKSPACE:
                 if (!filter_.empty()) {

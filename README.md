@@ -106,7 +106,7 @@ sudo zeroos-apps remove media
 sudo zeroos-apps upgrade                  # every app with a newer version
 zeroos-apps sources                       # where apps come from, most trusted first
 sudo zeroos-apps source-up <owner/repo>   # move a source up the list (source-down: down)
-sudo zeroos-apps install-file zeroos-app-media_2.0.0-abi3_arm64.deb   # a package you copied over
+sudo zeroos-apps install-file zeroos-app-media_2.0.0-abi4_arm64.deb   # a package you copied over
 ```
 
 The id of each app is in the tables below (the folder name).
@@ -439,9 +439,9 @@ reads. One block per package:
 app=media
 name=Media
 summary=Music player with a classic look, music and video from every Jellyfin library
-version=2.0.0-abi3
-abi=3
-file=zeroos-app-media_2.0.0-abi3_arm64.deb
+version=2.0.0-abi4
+abi=4
+file=zeroos-app-media_2.0.0-abi4_arm64.deb
 sha256=<64 hex characters>
 size=<bytes>
 needs=mpv
@@ -455,11 +455,11 @@ is checked against its `sha256` before apt sees it.
 
 A module is compiled against the OS's headers, so it has to match the ZeroShell on the device.
 ZeroOS numbers that with an **app level**: `ZS_APP_ABI` in the OS's `shell/src/ui/app.h`
-(currently 3). The OS raises it, in the same change, whenever it changes a header in a way that
+(currently 4). The OS raises it, in the same change, whenever it changes a header in a way that
 would break already-built apps. The rules:
 
-1. **One package, one level.** A package's version ends in its level: `1.2.0-abi3` is version
-   1.2.0 built for level 3. It depends on `zeroos-app-abi-3`, which only a matching ZeroOS
+1. **One package, one level.** A package's version ends in its level: `1.2.0-abi4` is version
+   1.2.0 built for level 4. It depends on `zeroos-app-abi-4`, which only a matching ZeroOS
    provides, so apt itself won't install it anywhere else.
 2. **The index can list an app once per level.** A device only sees the builds for its own level.
 3. **This repository follows the OS by itself.** Every 3 hours the Release workflow looks at the
@@ -795,12 +795,12 @@ All a device needs is the index and the packages. The OS has the tool that makes
 
 ```sh
 # Your module, built against the OS's headers for the device's app level (here, 3)
-ZEROOS_APP_ABI=3 ZEROOS_FILES=myapp/files \
-  base/image/apps/make-app-deb.sh myapp/jo-weather.pkg out 1.0.0-abi3 build/jo-weather.so \
+ZEROOS_APP_ABI=4 ZEROOS_FILES=myapp/files \
+  base/image/apps/make-app-deb.sh myapp/jo-weather.pkg out 1.0.0-abi4 build/jo-weather.so \
   >> out/zeroos-apps.index
 ```
 
-It writes `out/zeroos-app-jo-weather_1.0.0-abi3_arm64.deb` and prints the package's block for the
+It writes `out/zeroos-app-jo-weather_1.0.0-abi4_arm64.deb` and prints the package's block for the
 index, which you append. Do that for each app, then publish everything in `out/` as a GitHub
 release (or on a web server). Things to get right:
 

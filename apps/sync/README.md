@@ -31,12 +31,16 @@ In **Sync**:
 | | |
 | --- | --- |
 | Top left | Up to date, Syncing *n*%, Waiting for devices, or Problem |
-| *device* asks / *device*: *folder* | Enter accepts, Del ignores. A folder someone shares with you goes into `~/Sync/<name>`. |
+| *device* asks / *device*: *folder* | Enter (or **Tab > A**) accepts; **Tab > D** or Del ignores. A folder someone shares with you goes into `~/Sync/<name>`. |
 | A folder | Enter looks for changes now (it also notices changes by itself) |
-| A device | Del twice stops syncing with it |
-| Sync now | Runs until everything is up to date, then stops |
-| Show my device ID | QR code and ID, to add this Cardputer on another device |
-| Runs: ... | When Sync runs (below) |
+| A device | **Tab > D** (or Del) stops syncing with it, after asking |
+| Sync now | Runs until everything is up to date, then stops (also **Tab > R**) |
+| My device ID | QR code and ID, to add this Cardputer on another device (also **Tab > I**) |
+| Add device by ID | Type another device's ID (also **Tab > N**) |
+| Runs | When Sync runs (below): Left / Right change it |
+
+The list is a List screen: typing filters it, and the bar along the bottom says what Enter does on
+the row in focus. Ctrl + a letter runs that menu action without opening the menu.
 
 The status bar shows the sync arrows while Syncthing is running.
 

@@ -43,7 +43,8 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | GPS | [apps/gps](apps/gps) | Position, saved spots and GPX tracks |
 | Grove | [apps/grove](apps/grove/README.md) | Light a NeoPixel LED strip on the Grove port, with effects |
 | IR Remote | [apps/ir](apps/ir/README.md) | A universal remote, and remotes you teach it |
-| Media | [apps/media](apps/media/README.md) | Music player with a classic look, music and video from Jellyfin |
+| Jellyfin | [apps/jellyfin](apps/jellyfin/README.md) | Music, movies and shows from your Jellyfin server, in Jellyfin's own look |
+| Media | [apps/media](apps/media/README.md) | Classic MP3 player over a file explorer: music and video on the SD card, USB drives and server shares |
 | Mesh | [apps/mesh](apps/mesh) | Meshtastic text messages over LoRa |
 | Net Tools | [apps/net](apps/net/README.md) | Discover devices, scan ports, trace routes, DNS, packet capture, share Ethernet |
 | Notes | [apps/notes](apps/notes) | Quick text notes |

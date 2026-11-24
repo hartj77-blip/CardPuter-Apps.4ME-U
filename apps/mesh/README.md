@@ -37,15 +37,27 @@ The package installs `meshtasticd`, Meshtastic's Linux node, from Meshtastic's o
 repository on openSUSE's Build Service; `prepare.sh` fetches that repository's key at build time
 and checks it against a pinned fingerprint. It also installs:
 
-- `files/meshtasticd-cap-lora-1262.yaml`: the radio (an SX1262 on SPI, `/dev/spidev0.1`, with its
-  reset, busy and interrupt pins), the web client on port 9443, and at most 100 nodes;
-- `files/meshtasticd-zeroos.conf`: never start at boot (the app starts it), run at a lower
-  priority, and be the first thing stopped if memory runs out.
+- `files/meshtasticd-cap-lora-1262.yaml`: the radio (an SX1262 on SPI, `/dev/spidev0.1` at 1 MHz,
+  with its reset, busy and interrupt pins, DIO2 as the RF switch and a 3.0 V TCXO on DIO3), the
+  web client on port 9443, and at most 100 nodes. The radio settings are the ones in Meshtastic's
+  own config for this board (`lora-cardputer-zero.yaml`) and in M5's LoRa app;
+- `files/zeroos-mesh-cap-power` (as `/usr/lib/zeroos/mesh-cap-power`): run as root before every
+  start of meshtasticd. It turns on the expansion port's 5 V and drives P0 of the cap's IO
+  expander (a PI4IOE5V6408 at I2C 0x43 on `/dev/i2c-1`) high: that pin is the antenna switch.
+  The expander forgets this whenever the 5 V goes off, which is why it runs every time. An older
+  cap with no expander just gets the 5 V;
+- `files/meshtasticd-zeroos.conf`: run that script first, never start at boot (the app starts
+  it), run at a lower priority, and be the first thing stopped if memory runs out.
+
+Up to Mesh 1.0.1 the radio couldn't work: the config set the TCXO to 1.8 V (`DIO3_TCXO_VOLTAGE:
+true`) instead of 3.0 V, and nothing switched the antenna in. Mesh 1.0.2 fixes both.
 
 ZeroShell talks to meshtasticd through its API (`hal().mesh()`), so the chat is drawn by the app,
 not the web client.
 
 ## To confirm on hardware
 
-- The Cap LoRa-1262's pins in the config file, taken from M5's pin map: they haven't been tried.
+- The radio settings now match Meshtastic's and M5's own configs for this cap, but ZeroOS hasn't
+  run them yet. If the app says **No radio** or **Radio error**, `journalctl -u meshtasticd -b`
+  shows `zeroos-mesh:` lines from the power-up step, then meshtasticd's own errors.
 - Range and battery use with the mesh on.

@@ -31,12 +31,15 @@ The LCD shows play, pause or stop, and the time (it blinks while paused). The
 strip on the right scrolls the track; under it are the format (MP3, FLAC,
 OGG..., NET for a stream), where you are in the queue, whether shuffle is on,
 and the volume. The title bar says where you are. The explorer marks the
-track that's playing and the row you're on; folders have their own colour.
+track that's playing and the row you're on, and numbers the first nine rows;
+folders have their own colour. On the Player tab, the explorer's place shows
+the track in big letters, where it is in the queue and what comes next.
 
 ## Themes
 
-Press **T** (or pick **Theme** in the Tab menu) to go to the next theme.
-Media remembers the one you leave it on.
+Press **T** on the Player tab, or pick **Theme** in the Tab menu (Ctrl + T
+anywhere in Media), to go to the next theme. Media remembers the one you
+leave it on.
 
 | Theme | Look |
 | --- | --- |
@@ -84,26 +87,49 @@ ends (see [Remote](../remote/README.md)), a share at home works from anywhere.
 
 ## Keys
 
+Media has two tabs: the **Library** (the explorer) and the **Player** (what's
+playing, where the explorer was). **Left / Right** go from the Library to the
+Player, **Esc** comes back. The soft-key bar along the bottom shows the keys
+for the tab you're on; **Tab** opens the menu with everything, **0** the key
+sheet.
+
+The Library is a list, so typing searches it:
+
 | Key | Does |
 | --- | --- |
 | Up / Down | Move |
 | Enter | Open a folder; play a track (and the rest of the folder after it) or a playlist |
-| Right | Open the folder you're on |
-| Left, Del or Esc | Up a folder (Esc first clears a search) |
-| X | Play everything in the folder you're on, folders under it included (up to 3000 tracks) |
-| / | Search the folder you're in by name |
-| C V B N M | The five buttons, left to right: previous, play, pause, stop, next |
-| Space | Pause / resume (with nothing playing, plays the row you're on) |
-| S | Shuffle on or off (from the next track you pick) |
+| 1 to 9 | Open or play the row with that number |
+| Letters, space | Search the folder you're in by name (Backspace takes a letter off, Esc clears it) |
+| Backspace or Esc | Up a folder |
+| Left / Right | The Player tab |
+| Tab | The menu: Play all (A), Pause / resume (U), Next (N), Previous (P), Stop (S), Shuffle (H), Theme (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
+
+**Play all** plays everything in the folder you're on, folders under it
+included (up to 3000 tracks).
+
+The Player takes its letters as they are:
+
+| Key | Does |
+| --- | --- |
+| Enter or Space | Pause / resume |
+| N or Right | Next track |
+| P or Left | Previous track |
+| S | Stop |
+| H | Shuffle on or off (from the next track you pick) |
 | T | The next theme |
 | + / - | Volume |
-| **Fn + Q** | Play / pause. With nothing playing, plays the row you're on |
-| **Fn + W / Fn + E** | Previous / next track |
-| Fn + S / Fn + D, Fn + A | Volume down / up, sound off (anywhere) |
-| Tab | The menu: search, shuffle, stop, theme, open an address, places, rescan |
+| Esc | Back to the Library |
 
-The media keys (Fn + Q, W, E) work in every app, not only this one, and so do a
-Bluetooth headset's or car's buttons. The queue belongs to ZeroShell, not the
+Anywhere in Media, and in every other app:
+
+| Key | Does |
+| --- | --- |
+| **Fn + Q** | Play / pause. With nothing playing, plays the Library row you're on |
+| **Fn + W / Fn + E** | Previous / next track |
+| Fn + S / Fn + D, Fn + A | Volume down / up, sound off |
+
+A Bluetooth headset's or car's buttons work as the media keys do. The queue belongs to ZeroShell, not the
 Media app, so music carries on to the next track after you leave the app and
 while the screen is off.
 
@@ -114,6 +140,8 @@ The marquee shows the artist as the folder two up from the track
 
 - The spectrum analyser is for the look: the player doesn't hand the sound to
   the app, so it dances to the beat of a random number generator.
+- No seeking within a track: ZeroOS's music player can't do it yet, so Left /
+  Right on the Player skip tracks.
 - No tags: titles come from file names, artists from folder names. Track
   lengths show once a track plays.
 - Media doesn't mount shares itself; mount them as above.

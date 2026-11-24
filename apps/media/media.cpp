@@ -5,15 +5,14 @@
 // share is mounted (SMB, NFS, SSHFS), and http(s) addresses. Jellyfin has its
 // own app. Voice notes are in Recorder. Music only: video files aren't listed.
 //
-//   Up/Down      choose                   Enter        open / play
-//   Left         up a folder              Right        open a folder
-//   X            play the focused file, or everything in a folder
-//   C V B N M    the five buttons: previous, play, pause, stop, next
-//   Space        pause / resume           S            shuffle on or off
-//   T            the next theme           + / -        volume
-//   Fn+Q/W/E     the keyboard's media keys: play/pause, previous, next
-//   /            search this folder       Esc / Del    up a folder, or clear the search
-//   Tab          the menu (themes, open an address, shuffle, stop, rescan)
+// Two tabs, Left / Right between them (docs/UX.md in the OS):
+//   Library   the explorer, a List screen: typing narrows the folder, 1 to 9
+//             pick a row, Enter opens or plays, Backspace goes up a folder.
+//             Everything else is in the Tab menu (Ctrl + its letter).
+//   Player    a Control screen in the explorer's place: Enter or Space
+//             pause, N next, P previous (Left / Right too), S stop,
+//             H shuffle, T the next theme, + / - volume. Esc: the Library.
+// The keyboard's media keys (Fn + Q / W / E) work on both, and in every app.
 //
 // Playing goes through the shell's queue (ui/player.h), so it carries on to
 // the next track after you leave the app or the screen turns off.
@@ -261,7 +260,7 @@ public:
             if (queue_paths_[i] == pb.path) at = int(i);
         std::string marquee;
         if (pb.path.empty()) {
-            marquee = "ZeroOS Media  ***  Enter plays, X plays a whole folder, T changes the look  ***  ";
+            marquee = std::string("ZeroOS Media  ***  ") + T().name + "  ***  ";
         } else {
             std::string name = q ? q->title : stem(pb.path);
             std::string artist = q ? q->artist : "";
@@ -281,7 +280,8 @@ public:
 
         // The play mark follows the queue, but not under an open text box:
         // rebuilding the list takes the box out of the focus group.
-        if (pb.path != listed_playing_ && !input_) rebuild_list();
+        if (player_page_) update_now(pb, q, at);
+        else if (pb.path != listed_playing_ && !input_) rebuild_list();
 
         uint32_t now = lv_tick_get();
         for (int i = 0; i < 5; ++i)
@@ -294,78 +294,29 @@ public:
 
     bool on_key(uint32_t key) override {
         if (input_) return false;   // typing in the text box
-        auto& h = hal();
+        // The keyboard's media keys (Fn + Q / W / E), and a headset's when
+        // the shell passes them on: the same on both tabs.
         switch (key) {
-            case LV_KEY_LEFT:
-            case LV_KEY_BACKSPACE:
-                up();
-                return true;
-            case LV_KEY_RIGHT: {
-                int i = focused_index();
-                if (i >= 0 && i < int(entries_.size()) &&
-                    (entries_[size_t(i)].type == Entry::Dir || entries_[size_t(i)].type == Entry::Place))
-                    activate(i);
-                return true;
-            }
-            // The keyboard's media keys (Fn + Q / W / E), and a headset's
-            // when the shell passes them on: here they act on the list too.
-            case kKeyPlayPause:
-            case ' ': {
-                PlaybackState pb = h.playback();
-                flash(!pb.path.empty() && !pb.paused ? kPause : kPlay);
-                if (!pb.path.empty()) h.set_paused(!pb.paused);
-                else activate(focused_index());
-                return true;
-            }
-            // The bottom row, C V B N M: the five buttons, left to right.
-            case 'c': case 'C':
+            case kKeyPlayPause: play_pause(); return true;
             case kKeyPrevTrack:
                 flash(kPrev);
                 step(-1);
                 return true;
-            case 'v': case 'V': {
-                // Play: resume, or start the row you're on.
-                flash(kPlay);
-                PlaybackState pb = h.playback();
-                if (pb.path.empty()) activate(focused_index());
-                else if (pb.paused) h.set_paused(false);
-                return true;
-            }
-            case 'b': case 'B': {
-                flash(kPause);
-                PlaybackState pb = h.playback();
-                if (!pb.path.empty()) h.set_paused(!pb.paused);
-                return true;
-            }
-            case 'n': case 'N':
-                flash(kStop);
-                stop();
-                return true;
-            case 'm': case 'M':
             case kKeyNextTrack:
                 flash(kNext);
                 step(+1);
                 return true;
-            case 'x': case 'X':
-                flash(kPlay);
-                play_focused();
-                return true;
-            case 't': case 'T': next_theme(); return true;
-            case 's': case 'S': toggle_shuffle(); return true;
-            case '+': case '=':
-                h.set_volume(std::min(100, h.volume() + 5));
-                return true;
-            case '-': case '_':
-                h.set_volume(std::max(0, h.volume() - 5));
-                return true;
-            case '/': search(); return true;
         }
-        return false;
+        return player_page_ ? player_key(key) : library_key(key);
     }
 
     bool on_back() override {
         if (input_) {
             close_input();
+            return true;
+        }
+        if (player_page_) {
+            show_library();
             return true;
         }
         if (!filter_.empty()) {
@@ -406,12 +357,19 @@ private:
         lv_group_remove_all_objs(group);
         lv_obj_clean(root_);
         list_ = nullptr;
+        now_ = nullptr;
         for (int i = 0; i < kBars; ++i) level_[i] = peak_[i] = peak_hold_[i] = 0;
         for (auto& f : flash_at_) f = 0;
         shown_marquee_.clear();
         build_player();
         set_actions();
-        rebuild_list(keep_path, false);
+        if (player_page_) {
+            build_now();
+            lv_label_set_text(crumb_, "PLAYER");
+            lv_obj_align(crumb_, LV_ALIGN_TOP_RIGHT, -6, 0);
+        } else {
+            rebuild_list(keep_path, false);
+        }
         tick();
         shell_toast(std::string("Theme: ") + T().name);
     }
@@ -539,28 +497,210 @@ private:
         }
     }
 
+    // The Library is a List screen: letters narrow it, so its actions are
+    // in the menu only. The Player is a Control screen: its letters work as
+    // they are, and the bar shows them.
     void set_actions() {
         std::vector<Action> a;
-        a.push_back({"Open / play", 0, "Enter", nullptr});
-        a.push_back({"Up a folder", 0, LV_SYMBOL_LEFT, nullptr});
-        a.push_back({"Play folder", 0, "X", nullptr});
-        a.push_back({"Search folder", 'f', "/", [this] { search(); }});
-        a.push_back({"Play / pause", 0, "Space", nullptr});
-        a.push_back({"Previous", 0, "C", nullptr});
-        a.push_back({"Play", 0, "V", nullptr});
-        a.push_back({"Pause", 0, "B", nullptr});
-        a.push_back({"Stop", 't', "N", [this] { stop(); }});
-        a.push_back({"Next", 0, "M", nullptr});
-        a.push_back({shuffle_ ? "Shuffle off" : "Shuffle on", 's', "S", [this] { toggle_shuffle(); }});
-        a.push_back({"Volume", 0, "+ -", nullptr});
-        a.push_back({std::string("Theme: ") + T().name + " (next)", 'e', "T", [this] { next_theme(); }});
-        a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
-        a.push_back({"Places", 'h', nullptr, [this] { go_places(); }});
-        a.push_back({"Rescan", 'r', nullptr, [this] {
-                         int i = focused_index();
-                         load(i >= 0 && i < int(entries_.size()) ? entries_[size_t(i)].path : "");
-                     }});
+        auto shuffle = [this] { return std::string(shuffle_ ? "Shuffle off" : "Shuffle on"); };
+        auto theme = [this] { return std::string("Theme: ") + T().name + " (next)"; };
+        if (player_page_) {
+            a.push_back({"Play / pause", 0, "Enter", nullptr});
+            a.push_back({"Next", 'n', "N", [this] { next(); }});
+            a.push_back({"Previous", 'p', "P", [this] { previous(); }});
+            a.push_back({"Library", 0, "Esc", nullptr});
+            a.push_back({"Play / pause", 0, "Space", nullptr});
+            a.push_back({"Previous / next", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+            a.push_back({"Volume", 0, "+ -", nullptr});
+            a.push_back({"Stop", 's', "S", [this] { stop(); }});
+            a.push_back({shuffle(), 'h', "H", [this] { toggle_shuffle(); }});
+            a.push_back({theme(), 't', "T", [this] { next_theme(); }});
+            a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
+        } else {
+            a.push_back({"Open", 0, "Enter", nullptr});
+            a.push_back({"Player", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+            if (!cwd_.empty()) a.push_back({"Up", 0, "Bksp", nullptr});
+            a.push_back({"Play all", 'a', nullptr, [this] {
+                             flash(kPlay);
+                             play_focused();
+                         }});
+            a.push_back({"Pause / resume", 'u', nullptr, [this] { play_pause(); }});
+            a.push_back({"Next track", 'n', nullptr, [this] { next(); }});
+            a.push_back({"Previous track", 'p', nullptr, [this] { previous(); }});
+            a.push_back({"Stop", 's', nullptr, [this] { stop(); }});
+            a.push_back({shuffle(), 'h', nullptr, [this] { toggle_shuffle(); }});
+            a.push_back({theme(), 't', nullptr, [this] { next_theme(); }});
+            a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
+            a.push_back({"Go to places", 'g', nullptr, [this] { go_places(); }});
+            a.push_back({"Rescan", 'r', nullptr, [this] {
+                             int i = focused_index();
+                             load(i >= 0 && i < int(entries_.size()) ? entries_[size_t(i)].path : "");
+                         }});
+        }
         shell_set_actions(std::move(a));
+    }
+
+    // ---- Keys -------------------------------------------------------------
+
+    // The Library: a List screen. Letters, space and punctuation narrow the
+    // folder; 1 to 9 pick one of the first nine rows; Left / Right go to
+    // the Player tab.
+    bool library_key(uint32_t key) {
+        switch (key) {
+            case LV_KEY_LEFT:
+            case LV_KEY_RIGHT:
+                show_player();
+                return true;
+            case LV_KEY_BACKSPACE:
+                if (!filter_.empty()) {
+                    filter_.pop_back();
+                    rebuild_list("", false);
+                } else {
+                    up();
+                }
+                return true;
+        }
+        if (key >= '1' && key <= '9') {
+            pick(int(key - '1'));
+            return true;
+        }
+        if (key >= 32 && key < 127 && key != '0') {   // 0 is the shell's key sheet
+            filter_ += char(key);
+            rebuild_list("", false);
+            return true;
+        }
+        return false;
+    }
+
+    // The Player: a Control screen. Its letters are declared in set_actions().
+    bool player_key(uint32_t key) {
+        auto& h = hal();
+        switch (key) {
+            case LV_KEY_ENTER:
+            case '\r':
+            case ' ': play_pause(); return true;
+            case 'n': case 'N':
+            case LV_KEY_RIGHT: next(); return true;
+            case 'p': case 'P':
+            case LV_KEY_LEFT: previous(); return true;
+            case 's': case 'S': stop(); return true;
+            case 'h': case 'H': toggle_shuffle(); return true;
+            case 't': case 'T': next_theme(); return true;
+            case '+': case '=':
+                h.set_volume(std::min(100, h.volume() + 5));
+                return true;
+            case '-': case '_':
+                h.set_volume(std::max(0, h.volume() - 5));
+                return true;
+        }
+        return false;
+    }
+
+    // Pause or resume; with nothing playing, the Library's row plays (or,
+    // on the Player, the Library comes back to pick something).
+    void play_pause() {
+        auto& h = hal();
+        PlaybackState pb = h.playback();
+        flash(!pb.path.empty() && !pb.paused ? kPause : kPlay);
+        if (!pb.path.empty()) h.set_paused(!pb.paused);
+        else if (player_page_) show_library();
+        else activate(focused_index());
+    }
+
+    void next() {
+        flash(kNext);
+        step(+1);
+    }
+
+    void previous() {
+        flash(kPrev);
+        step(-1);
+    }
+
+    // The n-th row the search leaves (0 = the first): focus it, then as
+    // Enter on it.
+    void pick(int n) {
+        if (!list_) return;
+        int rows = int(lv_obj_get_child_count(list_));
+        for (int k = 0; k < rows; ++k) {
+            lv_obj_t* ch = lv_obj_get_child(list_, k);
+            if (!lv_obj_check_type(ch, &lv_list_button_class) || n-- > 0) continue;
+            lv_group_focus_obj(ch);
+            lv_obj_scroll_to_view(ch, LV_ANIM_OFF);
+            activate(int((intptr_t)lv_obj_get_user_data(ch)));
+            return;
+        }
+    }
+
+    // ---- The two tabs -------------------------------------------------------
+
+    void show_player() {
+        if (player_page_) return;
+        if (list_) {
+            int i = focused_index();
+            back_to_ = i >= 0 && i < int(entries_.size()) ? entries_[size_t(i)].path : "";
+            lv_group_remove_all_objs(group);
+            lv_obj_delete(list_);
+            list_ = nullptr;
+        }
+        player_page_ = true;
+        build_now();
+        lv_label_set_text(crumb_, "PLAYER");
+        lv_obj_align(crumb_, LV_ALIGN_TOP_RIGHT, -6, 0);
+        set_actions();
+        tick();
+    }
+
+    void show_library() {
+        if (!player_page_) return;
+        player_page_ = false;
+        if (now_) lv_obj_delete(now_);
+        now_ = nullptr;
+        set_actions();
+        rebuild_list(back_to_, false);
+    }
+
+    // The Player tab, where the explorer was: what is playing, in big
+    // letters, where it is in the queue, and what comes next.
+    void build_now() {
+        now_ = box(root_, 4, kListY, kScreenW - 8, kH - kListY - 2, T().lcd, T().chrome_hi);
+        lv_obj_set_style_border_side(now_, lv_border_side_t(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
+        auto line = [&](int y, const lv_font_t* font, uint32_t color) {
+            lv_obj_t* l = label(now_, "", font, color);
+            lv_obj_set_pos(l, 6, y);
+            lv_obj_set_width(l, kScreenW - 22);
+            lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+            return l;
+        };
+        now_title_ = line(2, &zs_font_14, T().text);
+        now_artist_ = line(20, &zs_font_12, T().text_dim);
+        now_info_ = line(34, &zs_font_12, T().text);
+        now_next_ = line(48, &zs_font_12, T().text_dim);
+        now_shown_.clear();
+    }
+
+    void update_now(const PlaybackState& pb, const QueueItem* q, int at) {
+        if (!now_) return;
+        std::string title, artist, info, next;
+        if (pb.path.empty()) {
+            title = "Nothing playing";
+            artist = "Pick some music in the Library";
+        } else {
+            title = q ? q->title : stem(pb.path);
+            artist = q ? q->artist : "";
+            info = mmss(pb.pos_ms) + " / " + mmss(pb.dur_ms) + "   " + format_of(pb.path);
+            if (at >= 0) info += fmt("   %d of %zu", at + 1, queue_paths_.size());
+            if (pb.paused) info += "   PAUSED";
+            if (at >= 0 && queue_paths_.size() > 1)
+                next = "Next: " + stem(queue_paths_[size_t(at + 1) % queue_paths_.size()]);
+        }
+        std::string all = title + '\n' + artist + '\n' + info + '\n' + next;
+        if (all == now_shown_) return;   // ten times a second: only redraw what changed
+        now_shown_ = all;
+        lv_label_set_text(now_title_, title.c_str());
+        lv_label_set_text(now_artist_, artist.c_str());
+        lv_label_set_text(now_info_, info.c_str());
+        lv_label_set_text(now_next_, next.c_str());
     }
 
     static std::string format_of(const std::string& path) {
@@ -638,6 +778,7 @@ private:
             prefs::set_str("media.place", place_);
             prefs::set_str("media.folder", cwd_);
         }
+        set_actions();   // Backspace goes up a folder only in a folder
         rebuild_list(focus, false);
     }
 
@@ -658,8 +799,10 @@ private:
         return filter_.empty() || lower(e.name).find(lower(filter_)) != std::string::npos;
     }
 
+    // pick: the row's place among those shown; the first nine show the
+    // number that picks them (docs/UX.md: number badges).
     lv_obj_t* add_row(const char* symbol, const std::string& text, const std::string& right, int index,
-                      uint32_t color, bool now = false) {
+                      int pick, uint32_t color, bool now = false) {
         lv_obj_t* b = list_button(list_, symbol, text.c_str(), on_click, this);
         lv_obj_set_user_data(b, (void*)(intptr_t)index);
         lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
@@ -680,6 +823,17 @@ private:
         lv_obj_set_style_text_font(b, &zs_font_12, 0);
         lv_obj_t* lbl = lv_obj_get_child(b, symbol ? 1 : 0);
         if (lbl) lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+        // The number, first in the row, in the row's colour like the rest.
+        // In a box of its own, so the row's name (the menu's title, for
+        // one) is still its first label.
+        lv_obj_t* badge = lv_obj_create(b);
+        style_plain(badge);
+        lv_obj_set_size(badge, 8, LV_SIZE_CONTENT);
+        lv_obj_remove_flag(badge, lv_obj_flag_t(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+        lv_obj_t* num = lv_label_create(badge);
+        lv_label_set_text(num, pick < 9 ? std::to_string(pick + 1).c_str() : "");
+        lv_obj_set_style_text_font(num, &zs_font_12, 0);
+        lv_obj_move_to_index(badge, 0);
         if (!right.empty()) {
             // No colour of its own: it follows the row's, white when selected.
             lv_obj_t* r = lv_label_create(b);
@@ -701,6 +855,7 @@ private:
     // focus_path: the row to select. Otherwise the one selected now stays
     // selected (keep), else what is playing, else the first row.
     void rebuild_list(const std::string& focus_path = "", bool keep_focus = true) {
+        if (player_page_) return;   // the Library rebuilds it on the way back
         int keep = keep_focus ? focused_index() : -1;
         std::string keep_path = !focus_path.empty() ? focus_path
                                 : keep >= 0 && keep < int(entries_.size()) ? entries_[size_t(keep)].path
@@ -726,7 +881,7 @@ private:
         listed_playing_ = hal().playback().path;
         lv_obj_t* focus = nullptr;
         lv_obj_t* now_row = nullptr;
-        int files = 0, shown_n = 0;
+        int shown_n = 0;
         if (!cwd_.empty() && entries_.empty()) {
             note(is_dir(cwd_) ? "No music here" : "Can't open this folder");
             if (place_ == home_dir() + "/Music") note("Copy music to ~/Music on the SD card");
@@ -734,18 +889,19 @@ private:
         for (size_t i = 0; i < entries_.size(); ++i) {
             const Entry& e = entries_[i];
             if (!shown(e)) continue;
-            ++shown_n;
+            int n = shown_n++;
             lv_obj_t* b = nullptr;
             switch (e.type) {
                 case Entry::Place:
                 case Entry::Address:
-                    b = add_row(e.icon, e.name, e.note, int(i), T().text);
+                    b = add_row(e.icon, e.name, e.note, int(i), n, T().text);
                     break;
-                case Entry::Dir: b = add_row(LV_SYMBOL_DIRECTORY, e.name, "", int(i), T().folder); break;
-                case Entry::List: b = add_row(LV_SYMBOL_LIST, stem(e.name), "M3U", int(i), T().text); break;
+                case Entry::Dir: b = add_row(LV_SYMBOL_DIRECTORY, e.name, "", int(i), n, T().folder); break;
+                case Entry::List: b = add_row(LV_SYMBOL_LIST, stem(e.name), "M3U", int(i), n, T().text); break;
                 case Entry::Audio: {
                     bool now = e.path == listed_playing_;
-                    b = add_row(nullptr, fmt("%d. ", ++files) + stem(e.name), format_of(e.name), int(i), T().text, now);
+                    b = add_row(now ? LV_SYMBOL_PLAY : nullptr, stem(e.name), format_of(e.name), int(i), n, T().text,
+                                now);
                     if (now) now_row = b;
                     break;
                 }
@@ -753,7 +909,7 @@ private:
             if (!keep_path.empty() && e.path == keep_path) focus = b;
             if (!focus && keep_path.empty() && int(i) == keep) focus = b;
         }
-        if (!entries_.empty() && shown_n == 0) note("Nothing matches \"" + filter_ + "\" (Esc clears)");
+        if (!entries_.empty() && shown_n == 0) note("Nothing matches \"" + filter_ + "\"");
         if (!focus) focus = now_row;
         if (!focus && lv_obj_get_child_count(list_) > 0) {
             for (uint32_t k = 0; k < lv_obj_get_child_count(list_); ++k) {
@@ -965,18 +1121,11 @@ private:
         });
     }
 
-    // '/': narrows the folder you are in.
-    void search() {
-        ask("Search this folder", filter_, false, [this](const std::string& text) {
-            filter_ = text;
-            rebuild_list();
-        });
-    }
-
-    // One-line text box over the screen. Enter accepts, Esc cancels.
+    // One-line text box over the screen (a Text screen while it is up).
     using Done = std::function<void(const std::string&)>;
     void ask(const char* title, const std::string& initial, bool password, Done done) {
         done_ = std::move(done);
+        shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = box(root_, 0, 0, 300, 50, T().chrome, T().accent);
         lv_obj_align(input_, LV_ALIGN_TOP_MID, 0, 30);
         lv_obj_set_style_pad_all(input_, 5, 0);
@@ -1014,6 +1163,8 @@ private:
         lv_obj_t* in = input_;
         input_ = nullptr;
         lv_obj_delete_async(in);
+        set_actions();
+        if (!list_) return;   // the Player tab has no list
         // Focus goes back to the list (its first row).
         int n = int(lv_obj_get_child_count(list_));
         for (int i = 0; i < n; ++i) {
@@ -1079,6 +1230,13 @@ private:
     int pending_ = -1;
     lv_obj_t* input_ = nullptr;
     Done done_;
+
+    // The Player tab, in the explorer's place while it is open.
+    bool player_page_ = false;
+    lv_obj_t* now_ = nullptr;
+    lv_obj_t *now_title_ = nullptr, *now_artist_ = nullptr, *now_info_ = nullptr, *now_next_ = nullptr;
+    std::string now_shown_;
+    std::string back_to_;              // the Library row to select on the way back
 
 };
 }  // namespace

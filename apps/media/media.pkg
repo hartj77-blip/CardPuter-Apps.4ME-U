@@ -4,6 +4,6 @@
 # Dock). Jellyfin moved to its own app; voice notes to the Recorder app.
 NAME="Media"
 SUMMARY="Classic MP3 player with a file explorer and eight themes: music from the SD card, USB drives and servers"
-APP_VERSION="3.1.0"
+APP_VERSION="3.2.0"
 DEPENDS="mpv"
 NEEDS="mpv"

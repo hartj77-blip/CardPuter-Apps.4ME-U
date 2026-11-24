@@ -4,7 +4,8 @@ The **Media** app plays your own music. On top it's a classic desktop MP3
 player: an LCD with the time and a spectrum analyser, the title scrolling
 past, transport buttons. Underneath, where the playlist used to be, is a file
 explorer: the music on the SD card, USB drives, and shares on a server. It
-comes in eight themes.
+comes in three skins: the classic look, a 1970s hi-fi receiver and a
+liquid-chrome player from 2001.
 
 Media is for music only. Up to 3.0 it also played video files; that's gone,
 so video files aren't listed any more.
@@ -35,22 +36,25 @@ track that's playing and the row you're on, and numbers the first nine rows;
 folders have their own colour. On the Player tab, the explorer's place shows
 the track in big letters, where it is in the queue and what comes next.
 
-## Themes
+## Skins
 
-Press **T** on the Player tab, or pick **Theme** in the Tab menu (Ctrl + T
-anywhere in Media), to go to the next theme. Media remembers the one you
+Press **T** on the Player tab, or pick **Skin** in the Tab menu (Ctrl + T
+anywhere in Media), to go to the next skin. Media remembers the one you
 leave it on.
 
-| Theme | Look |
+| Skin | Look |
 | --- | --- |
-| **Classic** | Gunmetal case, black LCD with green digits, a blue selection |
-| **Amber** | An old amber terminal |
-| **Ice** | A blue backlit LCD on dark steel |
-| **Cherry** | Pink on near-black |
-| **Vapor** | Purple with neon cyan and pink |
-| **Forest** | Deep green and lime |
-| **Silver** | Light: brushed silver, a grey-green LCD with dark digits |
-| **Mono** | Black and white |
+| **Classic** | The player above: gunmetal case, black LCD with green digits, the explorer underneath |
+| **Hi-Fi Receiver** | Walnut and brushed aluminium. The amber tuning dial is the seek bar: its red needle sweeps across the track's time, and a second scale shows your place in the queue. Two VU meters, the track name in a big amber window, latching piano keys, Shuffle and Mute switches, a volume knob |
+| **Liquid Chrome** | A molten-metal body whose reflections ripple, an oval screen with big digits, the title in large scrolling letters and an analyser, jelly buttons, and a glass tube that fills as the track plays |
+
+The two skins are pixel art at the screen's own size, and each has two
+screens, which are Media's two tabs: the player is the Player tab, and the
+playlist (the explorer) the Library. Left / Right on the playlist go to
+the player; on the player, Esc, **L**, Up or Down go to the playlist. On a
+skin's playlist the preset keys **1** to **6** open that row.
+
+Up to 3.1 Media had eight colour themes instead; they're gone.
 
 ## Places
 
@@ -104,7 +108,7 @@ The Library is a list, so typing searches it:
 | Space | Pause / resume (with nothing playing, plays the row you're on). Once you've typed, a space in the search |
 | Backspace or Esc | Up a folder |
 | Left / Right | The Player tab |
-| Tab | The menu: Play all (A), Pause (U), Next (N), Previous (P), Stop (S), Shuffle (H), Theme (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
+| Tab | The menu: Play all (A), Pause (U), Next (N), Previous (P), Stop (S), Shuffle (H), Skin (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
 
 **Play all** plays everything in the folder you're on, folders under it
 included (up to 3000 tracks).
@@ -118,7 +122,7 @@ The Player takes its letters as they are:
 | P or Left | Previous track |
 | S | Stop |
 | H | Shuffle on or off (from the next track you pick) |
-| T | The next theme |
+| T | The next skin |
 | + / - | Volume |
 | Esc | Back to the Library |
 
@@ -139,8 +143,8 @@ The marquee shows the artist as the folder two up from the track
 
 ## Limits
 
-- The spectrum analyser is for the look: the player doesn't hand the sound to
-  the app, so it dances to the beat of a random number generator.
+- The spectrum analyser, and the skins' VU meters, are for the look: the
+  player doesn't hand the sound to the app, so they dance to a made-up beat.
 - No seeking within a track: ZeroOS's music player can't do it yet, so Left /
   Right on the Player skip tracks.
 - No tags: titles come from file names, artists from folder names. Track

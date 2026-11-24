@@ -88,8 +88,13 @@ Bluetooth in **Settings**, put the gamepad in pairing mode, then run `bluetoothc
 `scan on`, then `pair`, `trust` and `connect` with the gamepad's address. Buttons follow the usual
 layout, the d-pad or left stick moves, Home/Guide opens the menu, and holding the right stick in
 fast forwards. A gamepad that connects
-mid-game is picked up within a couple of seconds. In the menu, the d-pad moves, A (or Start)
-chooses and B goes back to the game, so you don't need the keyboard on the sofa.
+mid-game is picked up within a couple of seconds.
+
+**No keyboard needed.** Once Games is open, a gamepad does everything: in the lists of consoles
+and games the d-pad moves (hold it to keep going), A (or Start) opens or starts, and B goes back;
+B on the first list leaves Games. In a game, Home opens the menu, where the d-pad, A and B work the
+same way (B goes back to the game). Only pairing a gamepad and opening Games from the home screen
+still need the Cardputer's keys.
 
 **Two players (or more).** Pair two gamepads the same way, and each one is a player of its own:
 the first to connect is player 1, the next player 2, then 3 and 4. A note on the screen says which

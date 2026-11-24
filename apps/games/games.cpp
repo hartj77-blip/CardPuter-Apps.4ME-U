@@ -8,8 +8,9 @@
 //             W A S D / arrows, K = A, J = B, I = X, U = Y, Q/E = L/R,
 //             Enter = Start, Space = Select, hold Backspace = fast forward,
 //             Esc = menu (save, load, players, TV, border, picture, quit)
-//   Gamepads  up to four players, in the order they connect; Home = menu,
-//             and the d-pad, A (choose) and B (back) work the menu
+//   Gamepads  up to four players, in the order they connect; Home = menu.
+//             The d-pad, A (choose) and B (back) work the lists and the
+//             menu too, so the keyboard isn't needed
 //   TV        with a monitor on the HDMI port, the game plays on it (tv.h)
 //
 // Settings (border, smooth picture, carry on where you left off, TV) are kept
@@ -22,6 +23,7 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -53,6 +55,7 @@ std::string hdmi_claim_file() {
 class GamesApp : public App {
 public:
     ~GamesApp() override {
+        if (list_timer_) lv_timer_delete(list_timer_);
         stop_game();
         if (!kit::simulated()) std::remove(hdmi_claim_file().c_str());
     }
@@ -66,6 +69,7 @@ public:
         for (auto& s : systems())
             if (!s.hidden) kit::make_dirs(games_dir() + "/" + s.folder);
         show_library();
+        list_timer_ = lv_timer_create(on_list_timer, 30, this);
     }
 
     void tick() override {
@@ -411,6 +415,7 @@ private:
     }
 
     void start_game() {
+        list_pad_open_ = false;   // the emulator opens the controls for the game, and closes them after
         std::string core = core_for(*sys_);
         std::string error;
         if (!emu_.load(core, game_, kScreenW, kScreenH, error)) {
@@ -439,6 +444,7 @@ private:
         img_ = lv_image_create(stage_);
         load_border_image_for_game();
         emu_.set_smooth(smooth_);
+        emu_.hold_until_release();   // the A or Enter that chose the game isn't the game's
         bool resumed = resume_ && emu_.has_state(kResume) && emu_.load_state(kResume);
         // The screen redraws at 30 Hz for apps; a game wants every frame.
         if (lv_timer_t* r = lv_display_get_refr_timer(lv_display_get_default())) lv_timer_set_period(r, 16);
@@ -689,20 +695,71 @@ private:
         tv_menu_at_ = 0;
     }
 
-    // The d-pad moves in the menu, A or Start chooses, B goes back to the game.
-    void menu_by_gamepad() {
+    // The gamepad buttons pressed since last time; Up and Down repeat while
+    // held (long game lists), after 400 ms, every 120 ms.
+    uint16_t pad_pressed() {
         uint16_t now = emu_.pad().gamepad_buttons();
         uint16_t pressed = now & ~pad_prev_;
         pad_prev_ = now;
-        if (!pressed || !group) return;
+        uint16_t ud = now & uint16_t((1u << retro::kUp) | (1u << retro::kDown));
+        if (!ud) {
+            pad_held_at_ = 0;
+        } else if (pressed & ud) {
+            pad_held_at_ = lv_tick_get();
+            pad_repeat_at_ = pad_held_at_ + 400;
+        } else if (pad_held_at_ && int32_t(lv_tick_get() - pad_repeat_at_) >= 0) {
+            pressed |= ud;
+            pad_repeat_at_ = lv_tick_get() + 120;
+        }
+        return pressed;
+    }
+
+    // Up/Down move, A or Start chooses. B is back(), the caller's.
+    // True if anything was pressed.
+    bool list_by_gamepad(const std::function<void()>& back) {
+        uint16_t pressed = pad_pressed();
+        if (!pressed || !group) return pressed != 0;
         auto down = [&](unsigned b) { return (pressed >> b) & 1; };
         if (down(retro::kUp)) lv_group_focus_prev(group);
         else if (down(retro::kDown)) lv_group_focus_next(group);
-        else if (down(retro::kB)) close_menu();
+        else if (down(retro::kB)) back();
         else if (down(retro::kA) || down(retro::kStart)) {
             if (lv_obj_t* f = lv_group_get_focused(group)) lv_obj_send_event(f, LV_EVENT_CLICKED, nullptr);
         }
-        tv_menu_at_ = 0;
+        return true;
+    }
+
+    // The in-game menu: B goes back to the game.
+    void menu_by_gamepad() {
+        if (list_by_gamepad([this] { close_menu(); })) tv_menu_at_ = 0;
+    }
+
+    // The lists (systems, games, cores), when no game is on: the gamepads are
+    // read here, on the UI thread (in a game the emulator thread reads them).
+    static void on_list_timer(lv_timer_t* t) { static_cast<GamesApp*>(lv_timer_get_user_data(t))->list_tick(); }
+
+    void list_tick() {
+        if (page_ == Page::Playing) return;
+        Pad& pad = emu_.pad();
+        if (!list_pad_open_) {   // back from a game (it closed them), or just opened
+            pad.open();
+            list_pad_open_ = true;
+            pad.poll();
+            pad_prev_ = pad.gamepad_buttons();   // the A that chose Quit isn't a press here
+            return;
+        }
+        pad.poll();
+        pad.take_menu();   // Home means nothing here
+        if (int p = pad.take_joined()) shell_toast(fmt("Gamepad connected: player %d", p));
+        if (pad.take_activity() && lv_tick_elaps(active_at_) > 1000) {
+            active_at_ = lv_tick_get();
+            power().on_key(active_at_);   // a gamepad wakes the screen like a key
+        }
+        list_by_gamepad([this] {
+            if (on_back()) return;
+            // The first page: leave Games, after this timer is done with us.
+            lv_async_call([](void*) { shell_go_home(); }, nullptr);
+        });
     }
 
     void close_menu() {
@@ -810,7 +867,10 @@ private:
     lv_obj_t* tv_note_ = nullptr;      // "Playing on the TV" on the built-in screen
     bool tv_wanted_ = true, tv_failed_ = false;
     uint32_t tv_check_at_ = 0, tv_menu_at_ = 0;
-    uint16_t pad_prev_ = 0;            // gamepad buttons last time (the menu)
+    uint16_t pad_prev_ = 0;            // gamepad buttons last time (the lists and the menu)
+    uint32_t pad_held_at_ = 0, pad_repeat_at_ = 0;   // Up/Down held: repeat
+    lv_timer_t* list_timer_ = nullptr;
+    bool list_pad_open_ = false;
     static constexpr const char* kResume = ".resume.state";
     lv_obj_t *stage_ = nullptr, *img_ = nullptr, *note_ = nullptr, *menu_ = nullptr, *toast_ = nullptr;
     lv_obj_t *border_img_ = nullptr, *menu_list_ = nullptr;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdlib>
 
 #include "apps/games/libretro_api.h"
 #include "lvgl.h"
@@ -110,6 +111,13 @@ void Pad::scan() {
         char uniq[64] = {0};
         if (ioctl(fd, EVIOCGUNIQ(sizeof uniq - 1), uniq) <= 0) uniq[0] = 0;
         attach(fd, path, gamepad && !keyboard, uniq);
+    }
+    // Tests: ZS_GAMES_TEST_PAD names a FIFO of input_events, a gamepad.
+    if (const char* t = std::getenv("ZS_GAMES_TEST_PAD"); t && t[0]) {
+        bool known = false;
+        for (auto& d : devs_) known |= d.path == t;
+        if (!known)
+            if (int fd = ::open(t, O_RDONLY | O_NONBLOCK | O_CLOEXEC); fd >= 0) attach(fd, t, true, "test");
     }
 #endif
 }

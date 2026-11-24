@@ -1,8 +1,9 @@
 # Games
 
-**Games** plays your games for classic consoles on the built-in screen. It runs the emulators as
-**libretro cores**: the same emulator cores RetroArch uses, loaded by an app built for the
-Cardputer's 320 x 170 screen and keyboard. Install it from the **Apps** app.
+**Games** plays your games for classic consoles on the built-in screen, or on a TV or monitor on
+the HDMI port. It runs the emulators as **libretro cores**: the same emulator cores RetroArch uses,
+loaded by an app built for the Cardputer's 320 x 170 screen and keyboard. Two players (up to four)
+can play with gamepads. Install it from the **Apps** app.
 
 Only play games you own. ZeroOS comes with no games and no console BIOS files.
 
@@ -14,8 +15,8 @@ its own that runs the same libretro cores, scales each picture to fit the panel,
 keyboard. A core you download for Games is a normal libretro core, and the save files are the
 usual `.srm` battery saves.
 
-On an HDMI monitor ([Dock](../dock/README.md)) you can also run RetroArch itself
-(`sudo apt install retroarch`), with the cores Games installed.
+Games plays on a TV itself (see [On a TV](#on-a-tv)). In Dock mode ([Dock](../dock/README.md))
+you can also run RetroArch (`sudo apt install retroarch`), with the cores Games installed.
 
 ## Consoles
 
@@ -69,7 +70,7 @@ before the system one.
 | Q / E | L / R |
 | Enter / Space | Start / Select |
 | Backspace (Del), held | Fast forward (3x) |
-| Esc | Menu: Resume, Save state, Load state, Border, Picture, Carry on next time, Reset, Quit game |
+| Esc | Menu: Resume, Save state, Load state, Swap players 1 and 2, Play on TV, Border, Picture, Carry on next time, Reset, Quit game |
 
 On a full-size keyboard, X and Z are A and B too. Hold several keys at once: Games reads the
 keyboard directly, so you can run and jump.
@@ -79,7 +80,19 @@ Bluetooth in **Settings**, put the gamepad in pairing mode, then run `bluetoothc
 `scan on`, then `pair`, `trust` and `connect` with the gamepad's address. Buttons follow the usual
 layout, the d-pad or left stick moves, Home/Guide opens the menu, and holding the right stick in
 fast forwards. A gamepad that connects
-mid-game is picked up within a couple of seconds.
+mid-game is picked up within a couple of seconds. In the menu, the d-pad moves, A (or Start)
+chooses and B goes back to the game, so you don't need the keyboard on the sofa.
+
+**Two players (or more).** Pair two gamepads the same way, and each one is a player of its own:
+the first to connect is player 1, the next player 2, then 3 and 4. A note on the screen says which
+player a gamepad that connects mid-game is. The keyboard is always player 1, so the keyboard and
+one gamepad can play together: choose **Swap players 1 and 2** and the gamepad becomes player 2.
+That menu row also fixes the wrong gamepad being player 1. A Bluetooth gamepad that drops out and
+comes back gets its player back, if nobody has taken it meanwhile.
+
+Games tells every core it has four players, and plugs a joypad into ports 1 and 2. Players 3 and 4
+need a core that sets up a multitap itself (some SNES and PC Engine cores have it as a core
+option, which Games leaves at the core's default), so most games are one or two players.
 
 **Saves.** Games with a battery save (most RPGs) are saved as they are played and when you quit,
 in `~/Games/saves/<game>.srm`. **Save state** stores the exact moment in
@@ -102,6 +115,33 @@ estimates for this chip and haven't been measured on the device yet. Use the **P
 power profile in **Battery** for the demanding ones.
 
 The screen redraws at 60 frames a second while a game is on (30 for the rest of ZeroOS).
+
+## On a TV
+
+Plug a TV or monitor into the HDMI port, start a game, and it plays on the TV. Plugging the TV in
+mid-game works too: within a second the picture moves over, and unplugging brings it back to the
+built-in screen. The built-in screen says "Playing on the TV"; the menu (**Esc**, or Home on a
+gamepad) shows on both, and the notes ("State saved", "Gamepad connected: player 2") show on the
+TV as well. **Play on TV: Off** in the menu keeps the game on the built-in screen.
+
+The TV runs at 720p (or its preferred mode up to 1080p when it has no 720p). The picture is scaled
+up by a whole number where that fills most of the screen, so the pixels stay sharp and square
+(NES 3x, Game Boy 5x, GBA 4x on 720p), else to the TV's height, in the console's own shape with
+black bars beside it. Border and Picture only change the built-in screen.
+
+| | |
+| --- | --- |
+| Sound | Stays on the Cardputer's speaker or headphones, not the TV |
+| Dock mode | Has the HDMI port while it runs: leave Dock mode first, or Games says so |
+| Plugging in mid-game | Needs a ZeroOS newer than 0.5.1. Older ones open the Dock app when a monitor is plugged in, which closes the game (it carries on from there next time). With a TV plugged in before you start, any ZeroOS works |
+
+How it works: Games draws to the HDMI output with kernel modesetting (DRM dumb buffers, no GPU and
+no desktop), from the emulator thread, page-flipping between two buffers. The built-in LCD is a
+separate DRM card, so ZeroShell keeps drawing there. While Games is open it writes its process id
+to `$XDG_RUNTIME_DIR/zeroos-hdmi-app`, which tells ZeroShell not to open Dock over the game.
+
+**To confirm on a device:** the picture on a real TV (720p and 1080p-only monitors), how much CPU
+the scaling takes at 60 frames a second, and that the console comes back on the TV after a game.
 
 ## Picture and borders
 
@@ -137,4 +177,4 @@ picture without a window fills the whole screen, behind the game. Any size up to
 works, and see-through parts are drawn black. Pick a bezel made for the console's own picture
 shape: a 4:3 TV bezel around a Game Boy picture leaves black gaps beside it.
 
-Border, picture and carry-on settings are kept in `~/Games/settings` for every game.
+Border, picture, carry-on and TV settings are kept in `~/Games/settings` for every game.

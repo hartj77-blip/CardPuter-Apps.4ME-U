@@ -30,6 +30,7 @@ sudo zeroos-apps add-source hartj77-blip/CardPuter-Apps.4ME-U
 | App | Folder | What it does |
 | --- | --- | --- |
 | Battery | [apps/battery](apps/battery) | Time left, power draw and power profile |
+| Browser | [apps/browser](apps/browser/README.md) | Read the web as text: the ZeroOS docs, READMEs, Markdown and simple pages |
 | Camera | [apps/camera](apps/camera/README.md) | Viewfinder, photos and a QR code reader that joins Wi-Fi |
 | Car | [apps/car](apps/car/README.md) | USB stick mode for a car stereo, Bluetooth audio |
 | Clock | [apps/clock](apps/clock) | Clock and stopwatch |

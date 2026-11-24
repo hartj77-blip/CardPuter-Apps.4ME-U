@@ -1,8 +1,9 @@
 // Sensors: wireless weather stations, tyre sensors, doorbells and remotes
 // decoded by rtl_433, one row per device with its latest readings.
 //
-// Up/Down move, Enter shows everything the selected device sent, F changes
-// band (433.92, 315, 868.3, 915 MHz), C clears the list.
+// A List screen: Enter shows everything the selected device sent, typing
+// filters the devices, and the menu (Tab) changes band (433.92, 315, 868.3,
+// 915 MHz) and clears the list.
 #include <algorithm>
 #include <cstdlib>
 #include <string>
@@ -12,6 +13,7 @@
 #include "apps/common.h"
 #include "radio_link.h"
 #include "json_flat.h"
+#include "ui/list_view.h"
 
 namespace zs {
 namespace {
@@ -26,8 +28,7 @@ struct Device {
     zrf::JsonFields fields;   // the latest message
     uint32_t last_seen = 0;   // lv_tick
     int count = 0;
-    lv_obj_t* row = nullptr;
-    lv_obj_t* value = nullptr;
+    int row = -1;             // in the ListView
 };
 
 std::string age_text(uint32_t ms) {
@@ -65,18 +66,24 @@ public:
     void build(lv_obj_t* root) override {
         BackgroundRadio::get().stop();   // this app needs the receiver
         root_ = root;
+        set_actions();
         title_ = label(root, "", &zs_font_14, kAccent);
         lv_obj_set_pos(title_, 4, 0);
-        hint_ = label(root, "", &zs_font_12, kMuted);
-        lv_obj_align(hint_, LV_ALIGN_TOP_RIGHT, -4, 2);
+        note_ = label(root, "", &zs_font_12, kMuted);
+        lv_obj_align(note_, LV_ALIGN_TOP_RIGHT, -4, 2);
 
-        list_ = make_list(root, 0, kTopH, kScreenW, kContentH - kTopH);
-        finish_list(list_);
+        // The list lives in a box of its own, built afresh as devices appear.
+        box_ = lv_obj_create(root);
+        style_plain(box_);
+        lv_obj_set_pos(box_, 0, kTopH);
+        lv_obj_set_size(box_, kScreenW, kBodyH - kTopH);
+        lv_obj_remove_flag(box_, LV_OBJ_FLAG_SCROLLABLE);
+        rebuild();
 
         detail_ = lv_obj_create(root);
         style_panel(detail_);
         lv_obj_set_pos(detail_, 4, kTopH);
-        lv_obj_set_size(detail_, kScreenW - 8, kContentH - kTopH - 2);
+        lv_obj_set_size(detail_, kScreenW - 8, kBodyH - kTopH - 2);
         detail_text_ = label(detail_, "", &zs_font_12, kText);
         lv_obj_set_width(detail_text_, kScreenW - 30);
         lv_obj_add_flag(detail_, LV_OBJ_FLAG_HIDDEN);
@@ -106,19 +113,7 @@ public:
             if (key == LV_KEY_ENTER) { close_detail(); return true; }
             return key == LV_KEY_LEFT || key == LV_KEY_RIGHT;
         }
-        switch (key) {
-        case 'f': case 'F':
-            band_ = (band_ + 1) % int(std::size(kBands));
-            link_.client.send(fmt("tune %.0f", kBands[band_]));
-            clear();
-            update_title();
-            return true;
-        case 'c': case 'C':
-            clear();
-            update_title();
-            return true;
-        default: return false;
-        }
+        return list_.key(key);
     }
 
     bool on_back() override {
@@ -128,6 +123,43 @@ public:
     }
 
 private:
+    void set_actions() {
+        if (showing_ >= 0) {
+            shell_set_actions({{"Back", 0, "Enter", nullptr}, {"Scroll", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr}});
+            return;
+        }
+        std::vector<Action> a;
+        a.push_back({"Details", 0, "Enter", nullptr});
+        a.push_back({fmt("Band: %g MHz (next)", kBands[band_] / 1e6), 'b', nullptr, [this] {
+                         band_ = (band_ + 1) % int(std::size(kBands));
+                         link_.client.send(fmt("tune %.0f", kBands[band_]));
+                         clear();
+                         update_title();
+                         set_actions();
+                     }});
+        a.push_back({"Clear the list", 'c', nullptr, [this] {
+                         clear();
+                         update_title();
+                     }});
+        shell_set_actions(std::move(a));
+    }
+
+    // The rows again, keeping the focus where it was. Only when a device is
+    // first heard: readings on known rows are changed in place.
+    void rebuild() {
+        int at = list_.focused();
+        if (group) lv_group_remove_all_objs(group);
+        lv_obj_clean(box_);
+        list_.build(box_, 4, 2, kScreenW - 8, kBodyH - kTopH - 4);
+        list_.set_empty_text("");   // the message in the middle says why
+        for (size_t i = 0; i < devices_.size(); ++i) {
+            devices_[i].row = list_.add(nullptr, devices_[i].name, "", [this, i] { open_detail(int(i)); });
+            update_row(devices_[i]);
+        }
+        list_.finish();
+        if (at >= 0 && at < list_.size()) list_.focus(at);
+    }
+
     void pump() {
         bool fresh, unavailable;
         if (!link_.ensure(fresh, unavailable)) {
@@ -169,10 +201,8 @@ private:
             Device d;
             d.key = key;
             d.name = *model + (id ? " " + *id : "");
-            d.row = list_button(list_, nullptr, d.name.c_str(), on_row_clicked, this);
-            d.value = lv_label_create(d.row);
-            finish_list(list_);
             devices_.push_back(std::move(d));
+            rebuild();
             it = devices_.end() - 1;
             set_message("");
         }
@@ -184,30 +214,26 @@ private:
     }
 
     void update_row(Device& d) {
+        if (d.row < 0) return;
         std::string s = summary(d.fields);
-        lv_label_set_text(d.value, (s + (s.empty() ? "" : "   ") + age_text(lv_tick_elaps(d.last_seen))).c_str());
-    }
-
-    static void on_row_clicked(lv_event_t* e) {
-        auto* self = static_cast<SensorsApp*>(lv_event_get_user_data(e));
-        lv_obj_t* row = static_cast<lv_obj_t*>(lv_event_get_target(e));
-        for (size_t i = 0; i < self->devices_.size(); ++i)
-            if (self->devices_[i].row == row) { self->open_detail(int(i)); return; }
+        list_.set_value(d.row, s + (s.empty() ? "" : "   ") + age_text(lv_tick_elaps(d.last_seen)));
     }
 
     void open_detail(int index) {
         showing_ = index;
         fill_detail();
         lv_obj_scroll_to_y(detail_, 0, LV_ANIM_OFF);
-        lv_obj_add_flag(list_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(box_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(detail_, LV_OBJ_FLAG_HIDDEN);
+        set_actions();
         update_title();
     }
 
     void close_detail() {
         showing_ = -1;
         lv_obj_add_flag(detail_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(list_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(box_, LV_OBJ_FLAG_HIDDEN);
+        set_actions();
         update_title();
     }
 
@@ -223,9 +249,8 @@ private:
 
     void clear() {
         if (showing_ >= 0) close_detail();
-        lv_obj_clean(list_);
-        // The rows are gone; drop them from the focus group too (lv_obj_clean did).
         devices_.clear();
+        rebuild();
         messages_ = 0;
         set_message("Listening for sensors...\nWeather stations, tyre sensors, remotes");
     }
@@ -239,17 +264,17 @@ private:
     void update_title() {
         if (showing_ >= 0) {
             lv_label_set_text(title_, devices_[size_t(showing_)].name.c_str());
-            lv_label_set_text(hint_, "Esc back");
+            lv_label_set_text(note_, "");
             return;
         }
         lv_label_set_text(title_, fmt("%g MHz", kBands[band_] / 1e6).c_str());
-        if (devices_.empty()) lv_label_set_text(hint_, "F band");
-        else lv_label_set_text(hint_, fmt("%d devices   F band   C clear", int(devices_.size())).c_str());
+        lv_label_set_text(note_, devices_.empty() ? "" : fmt("%d devices", int(devices_.size())).c_str());
     }
 
     RadioLink link_;
     lv_timer_t* timer_ = nullptr;
-    lv_obj_t *root_ = nullptr, *title_ = nullptr, *hint_ = nullptr, *list_ = nullptr;
+    lv_obj_t *root_ = nullptr, *title_ = nullptr, *note_ = nullptr, *box_ = nullptr;
+    ListView list_;
     lv_obj_t *detail_ = nullptr, *detail_text_ = nullptr, *message_ = nullptr;
     std::vector<Device> devices_;
     int band_ = 0, showing_ = -1, messages_ = 0, ticks_ = 0;

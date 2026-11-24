@@ -1,6 +1,7 @@
 // SDR Server: lend the dongle to an SDR program on another computer or phone
 // (SDR++, GQRX, SDR#, SDR Touch) over the network, using rtl_tcp.
-// Enter starts and stops it. It stops when you leave the app.
+// Enter starts and stops it (a Control screen; Space does too). It stops when
+// you leave the app.
 #include <string>
 #include <vector>
 
@@ -43,17 +44,16 @@ public:
 
     void build(lv_obj_t* root) override {
         BackgroundRadio::get().stop();   // this app needs the receiver
+        set_actions();
         state_ = label(root, "", &zs_font_16, kMuted);
         lv_obj_set_pos(state_, 8, 4);
         body_ = label(root, "", &zs_font_12, kText);
         lv_obj_set_pos(body_, 8, 30);
         lv_obj_set_width(body_, kScreenW - 16);
         log_ = label(root, "", &zs_font_12, kMuted);
-        lv_obj_align(log_, LV_ALIGN_BOTTOM_LEFT, 8, -18);
+        lv_obj_align(log_, LV_ALIGN_BOTTOM_LEFT, 8, -2);
         lv_obj_set_width(log_, kScreenW - 16);
         lv_label_set_long_mode(log_, LV_LABEL_LONG_DOT);
-        hint_ = label(root, "", &zs_font_12, kMuted);
-        lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, -1);
         refresh();
         timer_ = lv_timer_create([](lv_timer_t* t) { static_cast<SdrServerApp*>(lv_timer_get_user_data(t))->pump(); },
                                  40, this);
@@ -65,17 +65,26 @@ public:
 
     bool on_key(uint32_t key) override {
         if (key == LV_KEY_ENTER || key == ' ') {
-            on_ = !on_;
-            problem_.clear();
-            last_line_.clear();
-            link_.client.send(on_ ? "decode server" : "decode off");
-            refresh();
+            toggle();
             return true;
         }
         return key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_LEFT || key == LV_KEY_RIGHT;
     }
 
 private:
+    void toggle() {
+        on_ = !on_;
+        problem_.clear();
+        last_line_.clear();
+        link_.client.send(on_ ? "decode server" : "decode off");
+        set_actions();
+        refresh();
+    }
+
+    void set_actions() {
+        shell_set_actions({{on_ ? "Stop" : "Start", 0, "Enter", [this] { toggle(); }}});
+    }
+
     void pump() {
         bool fresh, unavailable;
         if (!link_.ensure(fresh, unavailable)) {
@@ -112,7 +121,6 @@ private:
                                      "While it is on, anyone on the same network can tune "
                                      "the radio, and the other RF tools can't use it.");
             lv_label_set_text(log_, "");
-            lv_label_set_text(hint_, "Enter  start");
             return;
         }
         bool bad = !problem_.empty();
@@ -126,12 +134,11 @@ private:
         }
         lv_label_set_text(body_, text.c_str());
         lv_label_set_text(log_, last_line_.c_str());
-        lv_label_set_text(hint_, "Enter  stop");
     }
 
     RadioLink link_;
     lv_timer_t* timer_ = nullptr;
-    lv_obj_t *state_ = nullptr, *body_ = nullptr, *log_ = nullptr, *hint_ = nullptr;
+    lv_obj_t *state_ = nullptr, *body_ = nullptr, *log_ = nullptr;
     bool on_ = false;
     std::string problem_, last_line_;
     int ticks_ = 0;

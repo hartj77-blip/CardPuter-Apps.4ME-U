@@ -3,4 +3,4 @@
 # the zeroos package: SSH from the Remote app and first-login use it too.
 NAME="Terminal"
 SUMMARY="Linux terminal on the built-in screen, in tmux"
-APP_VERSION="1.1.0"
+APP_VERSION="1.1.1"

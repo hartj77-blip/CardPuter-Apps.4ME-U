@@ -1,7 +1,7 @@
 # Tether (README.md): online through your phone over Wi-Fi, USB or Bluetooth.
 NAME="Tether"
 SUMMARY="Get online through your phone over Wi-Fi, USB or Bluetooth"
-APP_VERSION="1.1.0"
+APP_VERSION="1.1.1"
 DEPENDS="usbmuxd, python3"
 payload() {
     install -D -m 0755 "$F/zeroos-tether" "$D/usr/bin/zeroos-tether"

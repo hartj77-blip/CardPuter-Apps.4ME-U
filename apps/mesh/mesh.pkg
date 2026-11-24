@@ -2,7 +2,7 @@
 # Cap LoRa-1262. meshtasticd comes from Meshtastic's openSUSE repository.
 NAME="Mesh"
 SUMMARY="Meshtastic text messages over LoRa with the Cap LoRa-1262"
-APP_VERSION="1.1.0"
+APP_VERSION="1.1.1"
 DEPENDS="meshtasticd"
 # Off at boot: the Mesh app starts it.
 DISABLE_DEPS="meshtasticd.service"

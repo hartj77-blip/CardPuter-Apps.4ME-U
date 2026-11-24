@@ -2,8 +2,10 @@
 // Raspberry Pi Pico...) and the Grove/GPIO UART. Pick the port, set the speed,
 // watch what the board prints and type lines to send it.
 //
-//   Ports     Enter open      Left/Right speed      E line ending
-//   Monitor   type + Enter send      Tab reset the board (RTS)      Esc close
+//   Ports     a List screen (docs/UX.md in the OS): Enter opens a port; the
+//             speed and the line ending are value rows (Left / Right)
+//   Monitor   a Text screen: type + Enter sends, Esc closes; the menu
+//             resets the board (RTS)
 #include <cerrno>
 #include <cstring>
 #include <string>
@@ -19,6 +21,7 @@
 #include "apps/common.h"
 #include "apps/kit/run.h"
 #include "apps/kit/ui.h"
+#include "ui/list_view.h"
 
 namespace zs {
 namespace {
@@ -96,13 +99,6 @@ public:
     }
 
     void tick() override {
-        if (pending_row_ >= 0) {
-            int i = pending_row_;
-            pending_row_ = -1;
-            if (size_t(i) < ports_.size()) open_port(ports_[size_t(i)]);
-            else show_ports();   // "Look again"
-            return;
-        }
         if (pending_send_) {
             pending_send_ = false;
             send(typed_);
@@ -112,25 +108,8 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (page_ == Page::Ports) {
-            if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-                int n = int(std::size(kBauds));
-                baud_i_ = (baud_i_ + (key == LV_KEY_RIGHT ? 1 : n - 1)) % n;
-                update_baud();
-                return true;
-            }
-            if (key == 'e' || key == 'E') {
-                end_i_ = (end_i_ + 1) % int(std::size(kEndings));
-                update_baud();
-                return true;
-            }
-            return false;
-        }
-        if (key == LV_KEY_NEXT) {   // Tab: reset the board (letters are for typing)
-            reset_board();
-            return true;
-        }
-        return false;
+        if (page_ == Page::Ports) return list_.key(key);
+        return false;   // typing
     }
 
     bool on_back() override {
@@ -146,40 +125,33 @@ private:
     enum class Page { Ports, Monitor };
 
     void clear() {
-        lv_obj_clean(root_);
         if (group) lv_group_remove_all_objs(group);
-        ta_ = title_ = baud_ = nullptr;
-    }
-
-    static void on_click(lv_event_t* e) {
-        auto* self = static_cast<SerialApp*>(lv_event_get_user_data(e));
-        self->pending_row_ = int(lv_obj_get_index(lv_event_get_target_obj(e)));
+        list_.reset();
+        lv_obj_clean(root_);
+        ta_ = title_ = nullptr;
     }
 
     // ---- Ports
     void show_ports() {
         page_ = Page::Ports;
         clear();
-        kit::title_row(root_, "Serial ports", "");
-        baud_ = label(root_, "", &zs_font_12, kMuted);
-        lv_obj_align(baud_, LV_ALIGN_TOP_RIGHT, -4, 3);
-        update_baud();
+        shell_set_actions({{"Open", 0, "Enter", nullptr},
+                           {"Change", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr},
+                           {"Look again", 'r', nullptr, [this] { show_ports(); }}});
         ports_ = find_ports();
-        lv_obj_t* list = make_list(root_, 0, 18, kScreenW, kContentH - 18);
-        for (auto& p : ports_) {
-            std::string text = p.dev.substr(5) + "   " + p.about;
-            list_button(list, LV_SYMBOL_USB, text.c_str(), on_click, this);
-        }
-        list_button(list, LV_SYMBOL_REFRESH,
-                    ports_.empty() ? "No boards found. Plug one in, then look again" : "Look again",
-                    on_click, this);
-        finish_list(list);
-    }
-
-    void update_baud() {
-        if (baud_)
-            lv_label_set_text(baud_, fmt(LV_SYMBOL_LEFT " %d " LV_SYMBOL_RIGHT "   E ends %s", kBauds[baud_i_],
-                                         kEndings[end_i_]).c_str());
+        kit::title_row(root_, "Serial ports", ports_.empty() ? "none found" : "");
+        list_.build(root_, 2, 20, kScreenW - 4, kit::body_h(root_) - 20);
+        for (size_t i = 0; i < ports_.size(); ++i)
+            // The board's name first (it says more); the port on the right.
+            list_.add(LV_SYMBOL_USB, ports_[i].about, ports_[i].dev.substr(5), [this, i] { open_port(ports_[i]); });
+        list_.add(LV_SYMBOL_REFRESH, ports_.empty() ? "No boards found. Plug one in, then look again" : "Look again",
+                  "", [this] { show_ports(); });
+        std::vector<std::string> bauds, endings;
+        for (int b : kBauds) bauds.push_back(std::to_string(b));
+        for (const char* e : kEndings) endings.push_back(e);
+        list_.add_choice(LV_SYMBOL_SETTINGS, "Speed (baud)", bauds, baud_i_, [this](int i) { baud_i_ = i; });
+        list_.add_choice(LV_SYMBOL_NEW_LINE, "Line ending", endings, end_i_, [this](int i) { end_i_ = i; });
+        list_.finish();
     }
 
     // ---- Monitor
@@ -188,13 +160,16 @@ private:
         port_ = p;
         page_ = Page::Monitor;
         clear();
-        title_ = kit::title_row(root_, "", "Tab reset  Esc close");
+        shell_set_actions({{"Send", 0, "Enter", nullptr},
+                           {"Close", 0, "Esc", nullptr},
+                           {"Reset the board", 'r', nullptr, [this] { reset_board(); }}});
+        title_ = kit::title_row(root_, "");
         update_title();
         out_.build(root_, 18, 30);
 
         ta_ = lv_textarea_create(root_);
         lv_textarea_set_one_line(ta_, true);
-        lv_textarea_set_placeholder_text(ta_, "type, Enter sends");
+        lv_textarea_set_placeholder_text(ta_, "Type a line to send");
         lv_obj_set_size(ta_, kScreenW - 8, 26);
         lv_obj_align(ta_, LV_ALIGN_BOTTOM_LEFT, 4, -2);
         lv_obj_set_style_bg_color(ta_, c(kSurface), 0);
@@ -344,7 +319,6 @@ private:
 
     lv_obj_t* root_ = nullptr;
     lv_obj_t* title_ = nullptr;
-    lv_obj_t* baud_ = nullptr;
     lv_obj_t* ta_ = nullptr;
     Page page_ = Page::Ports;
     std::vector<Port> ports_;
@@ -358,7 +332,7 @@ private:
     int end_i_ = 0;
     std::string partial_, typed_;
     uint32_t last_rx_ = 0;
-    int pending_row_ = -1;
+    ListView list_;
     bool pending_send_ = false;
 };
 }  // namespace

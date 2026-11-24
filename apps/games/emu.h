@@ -38,9 +38,19 @@ public:
     bool quit_requested() const { return quit_req_.load(); }   // the core asked to shut down
 
     void reset();
-    bool save_state();
-    bool load_state();
-    bool has_state() const;
+    // The save state (one per game), or with ext ".resume.state" the one
+    // kept when you quit, to carry on from next time.
+    bool save_state(const char* ext = ".state");
+    bool load_state(const char* ext = ".state");
+    bool has_state(const char* ext = ".state") const;
+    void remove_state(const char* ext);
+
+    // Smooth: when the picture is shrunk to fit (NES, SNES, Mega Drive...),
+    // blend neighbouring pixels instead of dropping rows and columns, so
+    // thin lines and small text stay readable.
+    void set_smooth(bool on) { smooth_ = on; }
+    // Fast forward is held (Backspace, or a gamepad's right stick click).
+    bool fast() const { return fast_.load(); }
 
     // The newest picture, if there is one the UI hasn't taken yet. It is
     // already scaled: w x h RGB565 pixels.
@@ -60,11 +70,13 @@ public:
 
 private:
     void loop();
-    void run_frame();
+    void run_frame(bool show = true);
     bool threaded_ = true;
     bool started_ = false;
     double step_at_ = 0;            // not threaded: when the next frame is due (ms)
     void fit(double aspect);
+    void video_smooth(const void* data, unsigned w, unsigned h, size_t pitch);
+    void publish();                     // back_ is the newest picture
     void open_audio(double rate);
     void close_audio();
     void flush_audio();
@@ -83,6 +95,11 @@ private:
     // The scaled picture: built on the emulator thread into back_, handed over as ready_.
     int dst_w_ = 0, dst_h_ = 0;
     std::vector<int> xmap_, ymap_;
+    std::vector<int> xmap1_, ymap1_;    // smooth: the next pixel along, and how much of it (0..32)
+    std::vector<uint8_t> xw_, yw_;
+    std::atomic<bool> smooth_{false}, fast_{false};
+    std::vector<uint16_t> line0_, line1_;
+    bool skip_video_ = false;           // fast forward: frames nobody sees aren't scaled
     unsigned map_src_w_ = 0, map_src_h_ = 0;
     std::vector<uint16_t> back_, ready_;
     int ready_w_ = 0, ready_h_ = 0;

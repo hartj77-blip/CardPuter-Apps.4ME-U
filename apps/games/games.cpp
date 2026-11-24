@@ -5,14 +5,21 @@
 //   Games     Enter play
 //   Cores     Enter download (from libretro)      Del remove a download
 //   Playing   W A S D / arrows, K = A, J = B, I = X, U = Y, Q/E = L/R,
-//             Enter = Start, Space = Select, Esc = menu (save, load, quit)
+//             Enter = Start, Space = Select, hold Backspace = fast forward,
+//             Esc = menu (save, load, border, picture, quit)
+//
+// Settings (border, smooth picture, carry on where you left off) are kept
+// in ~/Games/settings. Quitting a game keeps its moment in
+// ~/Games/states/<game>.resume.state, and the next start carries on from it.
 //
 // Games go in ~/Games/<system>/ (nes, gb, gbc, gba, snes, md...): copy them
 // with Files, Sync, Taildrop or scp. Only use games you own.
+#include <cctype>
 #include <string>
 #include <vector>
 
 #include "apps/common.h"
+#include "apps/games/border.h"
 #include "apps/games/emu.h"
 #include "apps/games/systems.h"
 #include "apps/kit/run.h"
@@ -30,6 +37,7 @@ public:
 
     void build(lv_obj_t* root) override {
         root_ = root;
+        load_settings();
         kit::make_dirs(games_dir());
         for (auto& s : systems())
             if (!s.hidden) kit::make_dirs(games_dir() + "/" + s.folder);
@@ -104,6 +112,30 @@ public:
 
 private:
     enum class Page { Library, Games, Cores, Playing };
+
+    // ---- Settings: ~/Games/settings, "key=value" lines
+    void load_settings() {
+        std::string text = kit::read_file(games_dir() + "/settings", 4096);
+        size_t at = 0;
+        while (at < text.size()) {
+            size_t nl = text.find('\n', at);
+            std::string line = text.substr(at, nl == std::string::npos ? std::string::npos : nl - at);
+            at = nl == std::string::npos ? text.size() : nl + 1;
+            size_t eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            std::string k = line.substr(0, eq), v = line.substr(eq + 1);
+            if (k == "border") border_ = border_from_name(v);
+            else if (k == "smooth") smooth_ = v == "1";
+            else if (k == "resume") resume_ = v != "0";
+        }
+    }
+
+    void save_settings() {
+        std::string b = border_name(border_);
+        for (auto& ch : b) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        kit::write_file(games_dir() + "/settings", "border=" + b + "\nsmooth=" + (smooth_ ? "1" : "0") +
+                                                        "\nresume=" + (resume_ ? "1" : "0") + "\n");
+    }
 
     void clear() {
         lv_obj_clean(root_);
@@ -287,12 +319,30 @@ private:
         note_ = nullptr;
         pix_.assign(size_t(kScreenW) * kScreenH, 0);
         img_w_ = img_h_ = 0;
+        border_pix_.assign(size_t(kScreenW) * kScreenH, 0);
+        border_dsc_ = {};
+        border_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
+        border_dsc_.header.cf = LV_COLOR_FORMAT_RGB565;
+        border_dsc_.header.w = uint32_t(kScreenW);
+        border_dsc_.header.h = uint32_t(kScreenH);
+        border_dsc_.header.stride = uint32_t(kScreenW * 2);
+        border_dsc_.data = reinterpret_cast<const uint8_t*>(border_pix_.data());
+        border_dsc_.data_size = uint32_t(border_pix_.size() * 2);
+        border_img_ = lv_image_create(stage_);   // under the picture
+        lv_obj_set_pos(border_img_, 0, 0);
+        lv_image_set_src(border_img_, &border_dsc_);
+        lv_obj_add_flag(border_img_, LV_OBJ_FLAG_HIDDEN);
         img_ = lv_image_create(stage_);
+        emu_.set_smooth(smooth_);
+        bool resumed = resume_ && emu_.has_state(kResume) && emu_.load_state(kResume);
+        // The screen redraws at 30 Hz for apps; a game wants every frame.
+        if (lv_timer_t* r = lv_display_get_refr_timer(lv_display_get_default())) lv_timer_set_period(r, 16);
         // On the device the emulator keeps its own time; the simulator's clock
         // can be virtual (headless), so there it runs in step with LVGL.
         emu_.start(!kit::simulated());
-        frame_timer_ = lv_timer_create(on_frame, 15, this);
-        hint(emu_.pad().gamepads() ? "Esc or Home: menu" : "Esc menu   WASD move   K/J A/B   Enter start");
+        frame_timer_ = lv_timer_create(on_frame, 5, this);   // pick each new picture up quickly
+        if (resumed) hint("Carrying on where you left off (Esc > Reset to restart)");
+        else hint(emu_.pad().gamepads() ? "Esc or Home: menu" : "Esc menu   WASD move   K/J A/B   Enter start");
     }
 
     void hint(const std::string& text) {
@@ -332,12 +382,22 @@ private:
                 dsc_.header.w = uint32_t(w);
                 dsc_.header.h = uint32_t(h);
                 dsc_.header.stride = uint32_t(w * 2);
-                lv_obj_center(img_);
+                pic_ = {(kScreenW - w) / 2, (kScreenH - h) / 2, w, h};
+                lv_obj_set_pos(img_, pic_.x, pic_.y);
+                draw_border(true);
             }
             dsc_.data = reinterpret_cast<const uint8_t*>(pix_.data());   // pix_ may have moved
             dsc_.data_size = uint32_t(size_t(w) * size_t(h) * 2);
             lv_image_set_src(img_, &dsc_);
             lv_obj_invalidate(img_);
+            // Glow follows the game, a few times a second (it's the whole
+            // screen to send to the panel, so not every frame).
+            if (border_ == Border::Glow && lv_tick_elaps(glow_at_) > 120) draw_border(false);
+        }
+        if (emu_.fast() != fast_shown_) {
+            fast_shown_ = emu_.fast();
+            if (fast_shown_) hint(LV_SYMBOL_NEXT " Fast forward");
+            else if (toast_) lv_obj_add_flag(toast_, LV_OBJ_FLAG_HIDDEN);
         }
         std::string m = emu_.take_message();
         if (!m.empty()) hint(m);
@@ -350,6 +410,40 @@ private:
         }
     }
 
+    // The border around the picture (border.h). all: the whole screen
+    // changed (new picture size, or another border); else only the bars.
+    void draw_border(bool all) {
+        if (!border_img_ || img_w_ <= 0) return;
+        if (border_ == Border::Off) {
+            lv_obj_add_flag(border_img_, LV_OBJ_FLAG_HIDDEN);
+            return;
+        }
+        if (border_ == Border::Frame) {
+            if (!all) return;
+            draw_frame(border_pix_.data(), kScreenW, kScreenH, pic_, sys_ ? sys_->id : "");
+        } else {
+            draw_glow(border_pix_.data(), kScreenW, kScreenH, pic_, pix_.data());
+            glow_at_ = lv_tick_get();
+        }
+        lv_obj_remove_flag(border_img_, LV_OBJ_FLAG_HIDDEN);
+        lv_image_cache_drop(&border_dsc_);
+        if (all) {
+            lv_obj_invalidate(border_img_);
+            return;
+        }
+        // Only the bars: the picture redraws itself.
+        lv_area_t bars[4] = {{0, 0, kScreenW - 1, pic_.y - 1},
+                             {0, pic_.y + pic_.h, kScreenW - 1, kScreenH - 1},
+                             {0, pic_.y, pic_.x - 1, pic_.y + pic_.h - 1},
+                             {pic_.x + pic_.w, pic_.y, kScreenW - 1, pic_.y + pic_.h - 1}};
+        for (auto& a : bars)
+            if (a.x2 >= a.x1 && a.y2 >= a.y1) lv_obj_invalidate_area(border_img_, &a);
+    }
+
+    std::string border_item() const { return std::string("Border: ") + border_name(border_); }
+    std::string picture_item() const { return smooth_ ? "Picture: Smooth" : "Picture: Sharp"; }
+    std::string resume_item() const { return resume_ ? "Carry on next time: On" : "Carry on next time: Off"; }
+
     static void on_menu(lv_event_t* e) {
         auto* self = static_cast<GamesApp*>(lv_event_get_user_data(e));
         // Acted on from the frame timer: not inside the list's own event.
@@ -361,15 +455,19 @@ private:
         emu_.set_paused(true);
         menu_ = lv_obj_create(stage_);
         style_panel(menu_);
-        lv_obj_set_size(menu_, 180, 148);
+        lv_obj_set_size(menu_, 220, 160);
         lv_obj_center(menu_);
         lv_obj_set_style_pad_all(menu_, 4, 0);
-        lv_obj_t* list = make_list(menu_, 0, 0, 170, 138);
+        lv_obj_t* list = make_list(menu_, 0, 0, 210, 150);
+        menu_list_ = list;
         if (group) lv_group_remove_all_objs(group);
         list_button(list, LV_SYMBOL_PLAY, "Resume", on_menu, this);
         list_button(list, LV_SYMBOL_SAVE, "Save state", on_menu, this);
         lv_obj_t* l = list_button(list, LV_SYMBOL_UPLOAD, "Load state", on_menu, this);
         if (!emu_.has_state()) lv_obj_set_style_text_color(l, c(kMuted), 0);
+        list_button(list, LV_SYMBOL_IMAGE, border_item().c_str(), on_menu, this);
+        list_button(list, LV_SYMBOL_EYE_OPEN, picture_item().c_str(), on_menu, this);
+        list_button(list, LV_SYMBOL_LOOP, resume_item().c_str(), on_menu, this);
         list_button(list, LV_SYMBOL_REFRESH, "Reset", on_menu, this);
         list_button(list, LV_SYMBOL_CLOSE, "Quit game", on_menu, this);
         finish_list(list);
@@ -396,8 +494,30 @@ private:
                 close_menu();
                 hint(emu_.load_state() ? "State loaded" : "No saved state");
                 break;
-            case 3: close_menu(); emu_.reset(); hint("Reset"); break;
-            case 4: stop_game(); break;
+            case 3:   // the settings change in place: the menu stays open
+            case 4:
+            case 5: {
+                std::string text;
+                if (menu_pick_ == 3) {
+                    border_ = next_border(border_);
+                    draw_border(true);
+                    text = border_item();
+                } else if (menu_pick_ == 4) {
+                    smooth_ = !smooth_;
+                    emu_.set_smooth(smooth_);
+                    text = picture_item();
+                } else {
+                    resume_ = !resume_;
+                    if (!resume_) emu_.remove_state(kResume);
+                    text = resume_item();
+                }
+                save_settings();
+                lv_obj_t* b = lv_obj_get_child(menu_list_, menu_pick_);
+                if (b) lv_list_set_button_text(menu_list_, b, text.c_str());
+                break;
+            }
+            case 6: close_menu(); emu_.reset(); hint("Reset"); break;
+            case 7: stop_game(); break;
             default: break;
         }
     }
@@ -405,11 +525,16 @@ private:
     void close_stage() {
         if (frame_timer_) lv_timer_delete(frame_timer_);
         frame_timer_ = nullptr;
+        if (lv_timer_t* r = lv_display_get_refr_timer(lv_display_get_default()))
+            lv_timer_set_period(r, LV_DEF_REFR_PERIOD);
         if (stage_) lv_obj_delete(stage_);
-        stage_ = img_ = note_ = menu_ = toast_ = nullptr;
+        stage_ = img_ = border_img_ = note_ = menu_ = menu_list_ = toast_ = nullptr;
+        fast_shown_ = false;
     }
 
     void stop_game() {
+        // Keep this moment to carry on from next time (not when the game itself shut down).
+        if (resume_ && emu_.running() && !emu_.quit_requested()) emu_.save_state(kResume);
         emu_.stop();   // saves the game's battery save
         close_stage();
         if (page_ == Page::Playing && sys_) show_games(*sys_);
@@ -424,7 +549,15 @@ private:
     bool pending_load_ = false;
 
     Emulator emu_;
+    static constexpr const char* kResume = ".resume.state";
     lv_obj_t *stage_ = nullptr, *img_ = nullptr, *note_ = nullptr, *menu_ = nullptr, *toast_ = nullptr;
+    lv_obj_t *border_img_ = nullptr, *menu_list_ = nullptr;
+    lv_image_dsc_t border_dsc_{};
+    std::vector<uint16_t> border_pix_;
+    Rect pic_;
+    Border border_ = Border::Frame;
+    bool smooth_ = true, resume_ = true, fast_shown_ = false;
+    uint32_t glow_at_ = 0;
     lv_timer_t* frame_timer_ = nullptr;
     lv_image_dsc_t dsc_{};
     std::vector<uint16_t> pix_;

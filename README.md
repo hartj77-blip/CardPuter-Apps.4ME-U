@@ -170,7 +170,8 @@ the app. It all goes again when you remove the app.
 
 | App | Id | What it does | Brings |
 | --- | --- | --- | --- |
-| [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, for `~/Music` and every library on a Jellyfin server, music and video | mpv, libmpv |
+| [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, over a file explorer: music and video on the SD card, USB drives and mounted server shares (SMB, NFS), and http(s) addresses | mpv, libmpv |
+| [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: home screen cards, Continue Watching, a now-playing bar | mpv, libmpv |
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
 | [Games](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
@@ -247,7 +248,7 @@ ones to know about for battery life.
 | App | What keeps going | How to stop it |
 | --- | --- | --- |
 | Terminal, Dev Tools | Your tmux session, and anything running in it | `exit` in each window, or `tmux kill-server` |
-| Media, Recorder | The track or note that's playing | Stop in the app, or the media keys |
+| Media, Jellyfin, Recorder | The track or note that's playing | Stop in the app, or the media keys |
 | GPS | A track you're recording (and the expansion port's power, for the GPS) | **R** in GPS |
 | Mesh | The radio (`meshtasticd`) and the expansion port's power | **Turn off mesh** in Mesh |
 | Grove | The LED strip stays lit | Open Grove, press **Space** |
@@ -538,8 +539,8 @@ with Games are Debian's.
 | Car | Loads the `uinput` and `libcomposite` kernel modules at boot | The car's buttons become key presses; the Cardputer can act as a USB stick |
 
 **Your data.** AI's API keys are in `~/.config/zeroos/ai.conf` with mode 600, and are handed to
-curl through a private temporary file so they never appear in the process list. Media uses your
-Jellyfin password once to get a sign-in token, keeps the token, and doesn't keep the password.
+curl through a private temporary file so they never appear in the process list. The Jellyfin app uses your
+password once to get a sign-in token, keeps the token, and doesn't keep the password.
 Sync shares only the three folders it names. Nothing in these apps sends usage data anywhere.
 AI sends what you type to the provider you picked, and Browser fetches the pages you open (its
 home page links point at GitHub); nothing else talks to a service you didn't set up.
@@ -688,7 +689,7 @@ place of the old one (AI was once called `zclaw`).
 
    | Order | Apps |
    | --- | --- |
-   | 10 to 90 | Terminal 10, Remote 20, Desktop 25, Sync 30, Files 40, Notes 50, Recorder 55, AI 60, Browser 65, Media 70, Grove 75, Camera 80, Car 90 |
+   | 10 to 90 | Terminal 10, Remote 20, Desktop 25, Sync 30, Files 40, Notes 50, Recorder 55, AI 60, Browser 65, Media 70, Jellyfin 72, Grove 75, Camera 80, Car 90 |
    | 100 | the OS's own apps |
    | 110 to 190 | Tether 110, Router 115, IR Remote 120, GPS 130, Mesh 140, Compass 150, Battery 160, Clock 170, Dock 180, System 190 |
    | 200 to 220 | the OS's own apps, Net Tools 220 |

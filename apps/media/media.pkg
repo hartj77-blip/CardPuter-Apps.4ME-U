@@ -1,8 +1,10 @@
-# Media (README.md): music player (mpv, part of ZeroOS for Dock), music and
-# video from Jellyfin (video plays through libmpv, which comes with mpv).
-# Voice notes moved to the Recorder app.
+# Media (README.md): a classic desktop MP3 player over a file explorer, for
+# music and video on the SD card, a USB drive or a mounted server share.
+# Music plays through the shell's player (mpv, part of ZeroOS for Dock);
+# video through libmpv, which comes with mpv. Jellyfin moved to its own app;
+# voice notes to the Recorder app.
 NAME="Media"
-SUMMARY="Music player with a classic look, music and video from every Jellyfin library"
-APP_VERSION="2.0.0"
+SUMMARY="Classic MP3 player with a file explorer: music and video from the SD card, USB drives and servers"
+APP_VERSION="3.0.0"
 DEPENDS="mpv, libmpv2"
 NEEDS="mpv"

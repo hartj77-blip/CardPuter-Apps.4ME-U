@@ -7,7 +7,7 @@ Google, and the Cardputer cannot stand in for one.
 | | USB stick mode | Bluetooth |
 | --- | --- | --- |
 | Works with | Any stereo that plays music from a USB stick | Stereos, speakers and headphones with Bluetooth music |
-| What plays | Files in `~/Music` | Anything the Media app plays, Jellyfin included |
+| What plays | Files in `~/Music` | Anything Media or Jellyfin plays |
 | Who is the player | The car | The Cardputer |
 | Car buttons | All of them (it is the car's own player) | Play, pause, next, previous |
 | Cable | One USB-C cable, data and power | None for sound; any USB charger for power |
@@ -45,7 +45,7 @@ In **Car**, under **Bluetooth**:
   the car's screen.
 - Enter on a paired device connects or disconnects it. **X** forgets it.
 
-Once connected, sound from the Media app goes to that device, and its play,
+Once connected, sound from Media and Jellyfin goes to that device, and its play,
 pause, next and previous buttons drive the play queue, also with the screen
 off. Pressing play with nothing queued starts `~/Music` from the top.
 

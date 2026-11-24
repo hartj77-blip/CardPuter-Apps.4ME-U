@@ -1,110 +1,102 @@
 # Media
 
-The **Media** app is a music player in the style of the classic desktop MP3
-players: a green LCD with the time and a spectrum analyser, the title
-scrolling past, transport buttons, and the playlist underneath. It plays music
-from `~/Music` (the **Library** tab) and music and video (movies, TV shows,
-home videos...) from every library on a Jellyfin server (the **Jellyfin** tab).
+The **Media** app plays your own music and video files. On top it's a classic
+desktop MP3 player: a green LCD with the time and a spectrum analyser, the
+title scrolling past, transport buttons. Underneath, where the playlist used
+to be, is a file explorer: the music and video folders on the SD card, USB
+drives, and shares on a server.
 
-Voice notes used to be a tab here. They are in their own app now,
-[Recorder](../recorder/README.md); your notes in `~/Recordings` are where they were.
+Jellyfin used to be a tab here. It has its own app now,
+[Jellyfin](../jellyfin/README.md), in Jellyfin's own look. Voice notes are in
+[Recorder](../recorder/README.md).
 
 ## The player
 
 ```
- LIBRARY  JELLYFIN  ===========================  ~/Music
+ ZEROOS MEDIA  ====================  Music/Aphex Twin/SAW 85-92
  +-----------------+ +-----------------------------------+
- | >         1:23  | | 3. Bench Tapes - Low Battery Blu… |
- | ||| |||||  || | | [OGG] [3/6] [SHUF]  VOL ====        |
+ | >         1:23  | | 2. Aphex Twin - Tha (9:01) ***    |
+ | ||| |||||  || | | [MP3] [2/2] [SHUF]  VOL ====        |
  +-----------------+ [|<][>][||][#][>|]  ----o--------   |
  +--------------------------------------------------------+
- | 1. Synthwave Demos - Night Drive                  3:34 |
- | 2. Synthwave Demos - Solder Fumes                 3:07 |
- | 3. Bench Tapes - Low Battery Blues                4:03 |
+ | 1. 01 Xtal                                         MP3 |
+ | 2. 02 Tha                                          MP3 |
  +--------------------------------------------------------+
 ```
 
 The LCD shows play, pause or stop, and the time (it blinks while paused). The
 strip on the right scrolls the track; under it are the format (MP3, FLAC,
-OGG..., NET for a Jellyfin stream), where you are in the queue, whether
-shuffle is on, and the volume. The playlist marks the track that's playing in
-white and the one you're on in blue.
+OGG..., NET for a stream), where you are in the queue, whether shuffle is on,
+and the volume. The title bar says where you are. The explorer marks the
+track that's playing in white and the row you're on in blue; folders are gold.
+
+## Places
+
+The first screen lists where media can be:
+
+| Place | What it is |
+| --- | --- |
+| **Music** | `~/Music` on the SD card |
+| **Videos** | `~/Videos` on the SD card (made the first time you open it) |
+| **Downloads** | `~/Downloads`, if there is one |
+| **SD card** | your whole home folder |
+| A USB drive | anything mounted under `/media`, `/run/media` or `/mnt` (DRIVE) |
+| A server share | any SMB, NFS, SSHFS, WebDAV or rclone mount, wherever it is (SMB nas, NFS nas...) |
+| **Open an address...** | an `http://` or `https://` address: a stream, internet radio, or a file on a web server |
+
+Only folders and files Media can play are listed: music (mp3, flac, ogg,
+wav, m4a, opus, aac, wma), video (mp4, mkv, webm, mov, avi, m4v, mpg, ts)
+and playlists (m3u, m3u8, pls). Media opens where you left it last time.
+
+### A share on your server
+
+Mount the share once and Media lists it. For SMB (a Windows share, a NAS,
+Samba), from a terminal:
+
+```sh
+sudo apt install cifs-utils
+sudo mkdir -p /mnt/nas
+echo '//nas/music /mnt/nas cifs credentials=/home/zero/.smb,uid=zero,nofail,x-systemd.automount 0 0' | sudo tee -a /etc/fstab
+printf 'username=me\npassword=secret\n' > ~/.smb && chmod 600 ~/.smb
+sudo mount /mnt/nas
+```
+
+NFS works the same way (`sudo apt install nfs-common`, then a `nas:/music
+/mnt/nas nfs nofail,x-systemd.automount 0 0` line). With Tailscale on both
+ends (see [Remote](../remote/README.md)), a share at home works from anywhere.
+
+## Keys
 
 | Key | Does |
 | --- | --- |
-| Up / Down | Move in the playlist |
-| Enter | Play the track (and the rest of the list after it), or open a folder |
-| Left / Right | Library / Jellyfin tab |
-| / | Search: the Library tab narrows its list to an artist or title; Jellyfin searches the server |
-| Esc | Clear the search, or back one level in Jellyfin |
+| Up / Down | Move |
+| Enter | Open a folder; play a track (and the rest of the folder after it); play a video or a playlist |
+| Right | Open the folder you're on |
+| Left, Del or Esc | Up a folder (Esc first clears a search) |
+| X | Play everything in the folder you're on, folders under it included (up to 3000 tracks) |
+| / | Search the folder you're in by name |
 | Z X C V B | Previous, play, pause, stop, next: the classic player's keys |
 | Space | Pause / resume |
 | N / P | Next / previous track |
 | S | Shuffle on or off (from the next track you pick) |
 | + / - | Volume |
-| **Fn + Q** | Play / pause. With nothing playing, plays the track you're on |
+| **Fn + Q** | Play / pause. With nothing playing, plays the row you're on |
 | **Fn + W / Fn + E** | Previous / next track |
 | Fn + S / Fn + D, Fn + A | Volume down / up, sound off (anywhere) |
-| Tab | The menu: search, shuffle, stop, and for Jellyfin refresh libraries, sign in or out |
-| 0 | Every key at once |
+| Tab | The menu: search, shuffle, stop, open an address, places, rescan |
 
 The media keys (Fn + Q, W, E) work in every app, not only this one, and so do a
 Bluetooth headset's or car's buttons. The queue belongs to ZeroShell, not the
 Media app, so music carries on to the next track after you leave the app and
 while the screen is off.
 
-## Jellyfin: sign in
+The marquee shows the artist as the folder two up from the track
+(`Artist/Album/01 Track.mp3`), or the folder it's in.
 
-1. Open **Media** and press **Right** for the **Jellyfin** tab.
-2. Press **Enter** on **Sign in...** and answer three questions:
-   - **Server**: its name or address. `nas` or `192.168.1.20` means
-     `http://nas:8096` (Jellyfin's usual port); type the whole address, such as
-     `https://music.example.com`, for anything else.
-   - **User name** and **password**: the ones you use in Jellyfin's own apps.
+## Video
 
-The password is used once and not kept. The server gives back a sign-in token,
-which is saved in `~/.config/zeroos/settings.conf` (readable only by you).
-**Sign out** forgets it; you can also remove "Cardputer Zero" under Devices in
-Jellyfin's dashboard.
-
-The Jellyfin tab's first list: **Search**, **Continue watching**, then every
-library on your server, by the names you gave them (two music libraries, Kids
-movies, Home videos, Music videos, Audiobooks, Collections...), then **Latest
-albums**, **Artists** and **Playlists**. **Sign out** and **Refresh libraries**
-are in the menu (**Tab**).
-
-| A library of | Opens as |
-| --- | --- |
-| Music | its albums |
-| Movies | its movies |
-| Shows | its shows, then seasons, then episodes |
-| Anything else (home videos, music videos, books, mixed, collections) | its folders and files, folders first |
-
-Live TV libraries aren't listed: there's no tuner support. On ZeroOS 0.4.0 and older
-the library rows aren't there; you get the fixed **Movies**,
-**TV shows** and **Albums** rows instead, as before.
-
-## Playing music
-
-The keys are the player's (see [The player](#the-player)): **Enter** opens an
-album, artist, playlist or folder and plays a track, **Esc** goes back one
-level, and **/** searches the whole server: tracks, albums, artists, playlists,
-movies, shows, episodes, music videos and audiobooks.
-
-Playing a track queues the rest of the album or playlist after it. The queue
-belongs to ZeroShell, not the Media app, so music carries on to the next track
-after you leave the app and while the screen is off. Wi-Fi stays on while
-something is playing.
-
-Tracks in mp3, flac, ogg, opus, m4a or wav play as they are; the server
-converts anything else to mp3. Long lists come 200 at a time: **More...** at
-the bottom fetches the next 200.
-
-## Watching video
-
-Pick a movie, or a show, then a season, then an episode. It plays across the
-whole app area (16:9 fills 267 x 150 pixels), with the sound on the speaker,
-the headphone jack or Bluetooth, whichever music would use.
+A video file plays across the whole app area, with the sound on the speaker,
+the headphone jack or Bluetooth.
 
 | Key | Does |
 | --- | --- |
@@ -115,58 +107,20 @@ the headphone jack or Bluetooth, whichever music would use.
 | 0 | From the start |
 | + / - | Volume |
 | M | Play it on the monitor instead (Dock mode must be running) |
-| Esc or S | Stop |
+| Esc, S or V | Stop |
 
-Any key shows the title, time and progress for three seconds; they stay up
-while paused or loading.
-
-- **Continue watching** lists what you started on any device (Jellyfin's own
-  "Continue watching"), and picks up where you stopped. **0** goes back to the
-  start. Movies and episodes you left part-way show the time, e.g. `@36:50`.
-- The Cardputer tells the server what it is playing: it shows in Jellyfin's
-  dashboard, and the place you stopped is saved for every device.
-- An episode that plays to the end goes on to the next one in the season.
-- A Bluetooth headset's or car's play and skip buttons pause and skip the
-  video too (ZeroOS newer than 0.4.0), instead of starting your music over it.
-- The screen stays on while a video plays (not while paused). Turning the
-  Cardputer face down, or the screen turning off, pauses it.
-- Video belongs to the Media app, unlike music: leaving the app stops it.
-- **M** hands the video to the monitor's player in 720p, from the same place.
-
-### What the server sends
-
-The server converts each video to fit the Cardputer: H.264 and AAC, at most
-427 x 240 and about 700 kbit/s (720p and 4 Mbit/s for the monitor), in short
-HLS segments, so seeking works. A file that already fits is passed through.
-The server needs transcoding enabled for the user (on by default), and a
-server that has to convert a 4K film may need a moment before it starts.
-
-On the Cardputer, mpv decodes the stream (libmpv, which comes with mpv) and
-draws each picture into ZeroShell's own screen. The sign-in token travels in
-the Authorization header of every request, never in an address: Jellyfin 12
-refuses tokens in addresses unless "legacy authorization" is turned on. For
-the monitor, the header goes to the Dock's player in a file only you can read,
-`~/.config/zeroos/jellyfin-mpv.conf`.
-
-## Away from home
-
-With Tailscale on both the Cardputer and the server (see [REMOTE.md](../remote/README.md)),
-sign in with the server's Tailscale name, e.g. `homelab`, and it works from any
-network. Set **Settings > Tailscale** to **Always on** so it stays connected.
+The Cardputer decodes video on its CPU and scales it to the screen, so files
+about the size of the screen play best (480p or smaller, H.264). A 1080p film
+may stutter: press **M** to send it to the monitor in Dock mode, which decodes
+in hardware. Video belongs to the app: leaving Media stops it. Turning the
+Cardputer face down, or the screen turning off, pauses it.
 
 ## Limits
 
-- No album art or posters, and no subtitle or audio track choice (the
-  server's defaults are used).
-- No photos, e-books or Live TV.
 - The spectrum analyser is for the look: the player doesn't hand the sound to
   the app, so it dances to the beat of a random number generator.
-- Video needs Wi-Fi that keeps up with about 1 Mbit/s.
+- No tags: titles come from file names, artists from folder names. Track
+  lengths show once a track plays.
+- Media doesn't mount shares itself; mount them as above.
 - Names in scripts the built-in font lacks (Chinese, Japanese, Cyrillic...)
   show as boxes.
-- Asking the server for a list freezes the screen for a moment, up to 12
-  seconds if the server doesn't answer.
-- Not yet tried against a real server or on the device. The requests follow
-  Jellyfin's published API description (12.4). Video playback is tested
-  with the real player (libmpv) against a stand-in server that serves an HLS
-  stream and checks every request's sign-in header.

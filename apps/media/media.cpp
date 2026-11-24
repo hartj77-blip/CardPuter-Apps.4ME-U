@@ -1,28 +1,34 @@
-// Media: music from ~/Music and music and video from a Jellyfin server, in
-// two tabs, dressed as a classic desktop MP3 player: a green LCD with the
-// time and a spectrum analyser, a scrolling title, transport buttons, and
-// the playlist underneath. Voice notes moved to the Recorder app.
+// Media: your own music and video files, dressed as a classic desktop MP3
+// player: a green LCD with the time and a spectrum analyser, a scrolling
+// title, transport buttons, and a file explorer underneath in place of the
+// playlist. It plays what is on the device (the SD card), on a USB drive,
+// or on a server whose share is mounted (SMB, NFS, SSHFS), and http(s)
+// addresses. Jellyfin has its own app now. Voice notes are in Recorder.
 //
-//   Left/Right   Library / Jellyfin tab   Up/Down   choose
-//   Enter        play / open              /         search
-//   Z X C V B    previous, play, pause, stop, next (the old desktop keys)
-//   Space        pause / resume           N / P     next / previous
-//   S            shuffle on or off        + / -     volume
+//   Up/Down      choose                   Enter        open / play
+//   Left         up a folder              Right        open a folder
+//   X            play the focused file, or everything in a folder
+//   Z C V B      previous, pause, stop, next (the old desktop keys)
+//   Space        pause / resume           N / P        next / previous
+//   S            shuffle on or off        + / -        volume
 //   Fn+Q/W/E     the keyboard's media keys: play/pause, previous, next
-//   Esc          back one level, or clear the search
-//   Tab          the menu (search, shuffle, stop, refresh, sign out)
+//   /            search this folder       Esc / Del    up a folder, or clear the search
+//   Tab          the menu (open an address, shuffle, stop, rescan)
 //
 // Playing goes through the shell's queue (ui/player.h), so it carries on to
 // the next track after you leave the app or the screen turns off.
 //
-// A Jellyfin movie or episode plays full width in the app (README.md):
+// A video file plays full width in the app (README.md):
 //   Space pause   Left/Right -/+10 s   Up/Down +/-1 min   0 from the start
-//   Fn+Q pause    Fn+W/E -10/+30 s     + / - volume   M on the monitor
-//   Esc or S stop
+//   + / - volume  M on the monitor     Esc or S stop
 // Video belongs to the app: it stops when you leave Media.
+#include <dirent.h>
+#include <sys/stat.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
 #include <functional>
 #include <random>
 
@@ -49,6 +55,7 @@ constexpr uint32_t kGoldDim = 0x6e5c2c;
 constexpr uint32_t kSelect = 0x1414b4;
 constexpr uint32_t kButton = 0x3a3a55;
 constexpr uint32_t kButtonText = 0xc4c4d8;
+constexpr uint32_t kFolder = 0xdcb85a;   // folders in the list: gold, like the title bar
 
 constexpr int kH = kBodyH;            // the soft-key bar takes the bottom
 constexpr int kBars = 19;             // spectrum analyser columns
@@ -60,22 +67,11 @@ constexpr int kListY = 70;
 // The video picture: the whole content area. 16:9 fills it at 267 x 150.
 constexpr int kVidW = kScreenW;
 constexpr int kVidH = kContentH;
-// What we ask the server for: a picture about the size of the screen (it
-// scales down, never up) at a bitrate Wi-Fi on a Pi Zero 2 keeps up with.
-constexpr int kStreamW = 427, kStreamH = 240, kStreamKbps = 700;
-// And for the monitor in Dock mode: 720p, decoded in hardware there.
-constexpr int kDockW = 1280, kDockH = 720, kDockKbps = 4000;
-constexpr uint32_t kReportEveryMs = 30000;
+constexpr uint32_t kOsdMs = 3000;     // the info bar stays up this long after a key
 
-// Library lists came with a later ZeroOS than some this app is built for
-// (releases build against the newest released ZeroOS too). The values were
-// added at the end of their enums, so they are spelled by number here; an
-// older ZeroOS answers "Nothing to open" and the fixed rows stay.
-constexpr JfView kViewLibraries = JfView(13);   // JfView::Libraries
-constexpr JfView kViewLibrary = JfView(14);     // JfView::Library
-constexpr JfItem::Kind kFolder = JfItem::Kind(9);   // JfItem::Folder
-constexpr int kPage = 200;                       // kJfPage: rows in one reply
-constexpr uint32_t kOsdMs = 3000;   // the info bar stays up this long after a key
+// Playing a whole folder looks this many folders down, for this many files.
+constexpr int kDeep = 5;
+constexpr size_t kMaxQueue = 3000;
 
 std::string mmss(int ms) {
     if (ms < 0) return "--:--";
@@ -87,6 +83,68 @@ std::string mmss(int ms) {
 std::string lower(std::string s) {
     for (auto& ch : s) ch = char(std::tolower((unsigned char)ch));
     return s;
+}
+
+std::string ext_of(const std::string& name) {
+    auto dot = name.rfind('.');
+    auto slash = name.rfind('/');
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return "";
+    std::string e = lower(name.substr(dot));
+    auto q = e.find_first_of("?#");   // an address's query
+    return q == std::string::npos ? e : e.substr(0, q);
+}
+
+bool is_audio(const std::string& name) {
+    static const char* const k[] = {".mp3", ".flac", ".ogg", ".oga", ".wav", ".m4a", ".opus", ".aac", ".wma"};
+    std::string e = ext_of(name);
+    for (auto x : k)
+        if (e == x) return true;
+    return false;
+}
+
+bool is_video(const std::string& name) {
+    static const char* const k[] = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".mpg", ".mpeg", ".ts"};
+    std::string e = ext_of(name);
+    for (auto x : k)
+        if (e == x) return true;
+    return false;
+}
+
+bool is_playlist(const std::string& name) {
+    std::string e = ext_of(name);
+    return e == ".m3u" || e == ".m3u8" || e == ".pls";
+}
+
+bool is_url(const std::string& s) { return s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0; }
+
+// "02 - Some Song.flac" -> "02 - Some Song".
+std::string stem(const std::string& path) {
+    std::string n = path.substr(path.rfind('/') + 1);
+    auto q = n.find_first_of("?#");
+    if (q != std::string::npos) n = n.substr(0, q);
+    auto dot = n.rfind('.');
+    return dot == std::string::npos || dot == 0 ? n : n.substr(0, dot);
+}
+
+std::string join(const std::string& dir, const std::string& name) {
+    return dir == "/" ? "/" + name : dir + "/" + name;
+}
+
+std::string parent_of(const std::string& path) {
+    auto p = path.find_last_of('/');
+    return p == 0 || p == std::string::npos ? "/" : path.substr(0, p);
+}
+
+bool is_dir(const std::string& path) {
+    struct stat st{};
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+std::string human(long long b) {
+    if (b < 1024) return fmt("%lld B", b);
+    if (b < 1024 * 1024) return fmt("%.0f KB", b / 1024.0);
+    if (b < 1024LL * 1024 * 1024) return fmt("%.1f MB", b / 1048576.0);
+    return fmt("%.1f GB", b / 1073741824.0);
 }
 
 // A plain box: no padding, no scrolling, a 1-pixel border.
@@ -104,11 +162,60 @@ lv_obj_t* box(lv_obj_t* parent, int x, int y, int w, int h, uint32_t bg, uint32_
     return o;
 }
 
+// One row of the explorer.
+struct Entry {
+    enum Type { Place, Dir, Audio, Video, List, Address } type = Dir;
+    std::string name;
+    std::string path;
+    long long size = 0;
+    const char* icon = nullptr;   // places only
+    std::string note;             // places: what it is ("USB", "SMB" ...)
+};
+
+// Mount points of drives and shares: /media/*, /mnt/*, /run/media/*, and any
+// network filesystem wherever it is mounted.
+std::vector<Entry> mounted_places() {
+    std::vector<Entry> v;
+    std::ifstream f("/proc/mounts");
+    std::string dev, dir, type, rest;
+    while (f >> dev >> dir >> type) {
+        std::getline(f, rest);
+        // Spaces in a mount point come as \040.
+        for (size_t p; (p = dir.find("\\040")) != std::string::npos;) dir.replace(p, 4, " ");
+        bool net = type == "cifs" || type == "smb3" || type == "nfs" || type == "nfs4" || type == "fuse.sshfs" ||
+                   type == "davfs" || type == "fuse.rclone";
+        bool removable = dir.rfind("/media/", 0) == 0 || dir.rfind("/mnt/", 0) == 0 ||
+                         dir.rfind("/run/media/", 0) == 0;
+        if (!net && !removable) continue;
+        if (dir == "/" || dir == "/boot" || dir.rfind("/boot/", 0) == 0) continue;
+        Entry e;
+        e.type = Entry::Place;
+        e.path = dir;
+        e.name = dir.substr(dir.rfind('/') + 1);
+        if (net) {
+            std::string host = dev;
+            if (host.rfind("//", 0) == 0) host = host.substr(2);   // //nas/music
+            host = host.substr(0, host.find_first_of(":/"));
+            e.icon = LV_SYMBOL_WIFI;
+            e.note = type == "cifs" || type == "smb3" ? "SMB" : type.rfind("nfs", 0) == 0 ? "NFS"
+                     : type == "fuse.sshfs"                    ? "SSH"
+                                                               : "NET";
+            if (!host.empty()) e.note += " " + host;
+        } else {
+            e.icon = LV_SYMBOL_USB;
+            e.note = "DRIVE";
+        }
+        bool dup = false;
+        for (auto& x : v) dup = dup || x.path == e.path;
+        if (!dup) v.push_back(e);
+    }
+    return v;
+}
+
 class MediaApp : public App {
 public:
     ~MediaApp() override {
-        // Leaving the app: the screen is being torn down, so only stop the
-        // video and tell the server where we got to.
+        // Leaving the app: the screen is being torn down, so only stop the video.
         if (anim_) lv_timer_delete(anim_);
         close_video(false);
     }
@@ -116,16 +223,12 @@ public:
     void build(lv_obj_t* root) override {
         root_ = root;
         shuffle_ = prefs::get_str("media.shuffle", "0") == "1";
-
-        jf_.server = prefs::get_str("jellyfin.server", "");
-        jf_.user = prefs::get_str("jellyfin.user", "");
-        jf_.user_id = prefs::get_str("jellyfin.user_id", "");
-        jf_.token = prefs::get_str("jellyfin.token", "");
-        jf_.device_id = prefs::get_str("jellyfin.device", "");
-        if (jf_.device_id.empty()) {
-            std::random_device rd;
-            jf_.device_id = fmt("zeroos-%08x%08x", unsigned(rd()), unsigned(rd()));
-            prefs::set_str("jellyfin.device", jf_.device_id);
+        // Back where you were last time, if it is still there.
+        std::string last = prefs::get_str("media.folder", "");
+        std::string base = prefs::get_str("media.place", "");
+        if (!last.empty() && !base.empty() && is_dir(last) && last.rfind(base, 0) == 0) {
+            place_ = base;
+            cwd_ = last;
         }
 
         lv_obj_t* frame = box(root, 0, 0, kScreenW, kH, kChrome, kChrome);
@@ -135,7 +238,8 @@ public:
 
         anim_ = lv_timer_create([](lv_timer_t* t) { static_cast<MediaApp*>(lv_timer_get_user_data(t))->animate(); },
                                 60, this);
-        show_tab(0);
+        set_actions();
+        load();
     }
 
     void tick() override {
@@ -161,9 +265,9 @@ public:
             if (queue_paths_[i] == pb.path) at = int(i);
         std::string marquee;
         if (pb.path.empty()) {
-            marquee = "ZeroOS Media  ***  / to search, Enter to play  ***  ";
+            marquee = "ZeroOS Media  ***  Enter plays, X plays a whole folder  ***  ";
         } else {
-            std::string name = q ? q->title : pb.path.substr(pb.path.rfind('/') + 1);
+            std::string name = q ? q->title : stem(pb.path);
             std::string artist = q ? q->artist : "";
             marquee = (at >= 0 ? fmt("%d. ", at + 1) : std::string()) + (artist.empty() ? "" : artist + " - ") +
                       name + " (" + mmss(pb.dur_ms) + ")  ***  ";
@@ -188,7 +292,7 @@ public:
             if (flash_at_[i] && now - flash_at_[i] > 180) {
                 flash_at_[i] = 0;
                 lv_obj_set_style_bg_color(buttons_[i], c(kButton), 0);
-                lv_obj_set_style_text_color(buttons_[i], c(kButtonText), 0);
+                lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(kButtonText), 0);
             }
     }
 
@@ -197,8 +301,17 @@ public:
         if (input_) return false;   // typing in the text box
         auto& h = hal();
         switch (key) {
-            case LV_KEY_LEFT: show_tab((tab_ + kTabs - 1) % kTabs); return true;
-            case LV_KEY_RIGHT: show_tab((tab_ + 1) % kTabs); return true;
+            case LV_KEY_LEFT:
+            case LV_KEY_BACKSPACE:
+                up();
+                return true;
+            case LV_KEY_RIGHT: {
+                int i = focused_index();
+                if (i >= 0 && i < int(entries_.size()) &&
+                    (entries_[size_t(i)].type == Entry::Dir || entries_[size_t(i)].type == Entry::Place))
+                    activate(i);
+                return true;
+            }
             // The keyboard's media keys (Fn + Q / W / E), and a headset's
             // when the shell passes them on: here they act on the list too.
             case kKeyPlayPause:
@@ -212,7 +325,7 @@ public:
             }
             case 'x': case 'X':
                 flash(kPlay);
-                activate(focused_index());
+                play_focused();
                 return true;
             case kKeyNextTrack:
             case 'b': case 'B':
@@ -251,55 +364,29 @@ public:
             close_input();
             return true;
         }
-        if (tab_ == kLibraryTab && !filter_.empty()) {
+        if (!filter_.empty()) {
             filter_.clear();
             rebuild_list();
             return true;
         }
-        if (tab_ == kJellyfinTab && !stack_.empty()) {
-            stack_.pop_back();
-            rebuild_list();
+        if (!cwd_.empty()) {
+            up();
             return true;
         }
         return false;
     }
 
 private:
-    static constexpr int kTabs = 2;
-    static constexpr int kLibraryTab = 0, kJellyfinTab = 1;
     enum Button { kPrev, kPlay, kPause, kStop, kNext };
-    static constexpr int kMoreRow = -2;   // "More..." at the end of a long list
-
-    // One screen of Jellyfin results; the stack of them is where you are.
-    struct Level {
-        std::string title;
-        std::vector<JfItem> items;
-        JfView view = JfView::Latest;
-        std::string arg;          // what was asked, without the page
-        bool more = false;        // came back a whole page long
-    };
-
-    // The Jellyfin tab's first screen: fixed rows around the user's libraries.
-    enum RootKind { kSearch, kResume, kLibrary, kMovies, kShows, kAlbums, kLatest, kArtists, kPlaylists };
-    struct RootRow {
-        RootKind kind;
-        std::string text;
-        const char* icon;
-        JfItem lib;   // kLibrary
-    };
 
     // ---- Building the screen --------------------------------------------
 
     void build_title_bar(lv_obj_t* frame) {
-        static const char* const names[kTabs] = {"LIBRARY", "JELLYFIN"};
-        int x = 6;
-        for (int i = 0; i < kTabs; ++i) {
-            tabs_[i] = label(frame, names[i], &zs_font_12, kGoldDim);
-            lv_obj_set_pos(tabs_[i], x, 0);
-            lv_obj_update_layout(tabs_[i]);
-            x += lv_obj_get_width(tabs_[i]) + 10;
-        }
-        // The grip ridges between the tabs and where you are.
+        lv_obj_t* t = label(frame, "ZEROOS MEDIA", &zs_font_12, kGold);
+        lv_obj_set_pos(t, 6, 0);
+        lv_obj_update_layout(t);
+        int x = 6 + lv_obj_get_width(t) + 8;
+        // The grip ridges between the name and where you are.
         for (int k = 0; k < 2; ++k) {
             lv_obj_t* r = box(frame, x, 5 + k * 3, kScreenW - x - 6, 1, kGoldDim, kGoldDim);
             lv_obj_set_style_border_width(r, 0, 0);
@@ -369,9 +456,7 @@ private:
         for (int i = 0; i < 5; ++i) {
             buttons_[i] = box(frame, kRightX + i * 25, 53, 22, 13, kButton, kChromeHi);
             lv_obj_set_style_border_side(buttons_[i], lv_border_side_t(LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT), 0);
-            lv_obj_set_style_text_color(buttons_[i], c(kButtonText), 0);
             lv_obj_center(label(buttons_[i], syms[i], &zs_font_12, kButtonText));
-            lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(kButtonText), 0);
         }
         seek_ = thin_bar(frame, kRightW - 130, 4, kGold);
         lv_obj_set_style_bg_color(seek_, c(kChromeLo), LV_PART_MAIN);
@@ -424,52 +509,124 @@ private:
             return;
         }
         std::vector<Action> a;
-        a.push_back({"Play", 0, "Enter", nullptr});
-        a.push_back({"Search", 'f', "/", [this] { search(); }});
+        a.push_back({"Open / play", 0, "Enter", nullptr});
+        a.push_back({"Up a folder", 0, LV_SYMBOL_LEFT, nullptr});
+        a.push_back({"Play folder", 0, "X", nullptr});
+        a.push_back({"Search folder", 'f', "/", [this] { search(); }});
         a.push_back({"Pause", 0, "Space", nullptr});
         a.push_back({"Previous", 0, "Z", nullptr});
-        a.push_back({"Play focused", 0, "X", nullptr});
-        a.push_back({"Pause", 0, "C", nullptr});
         a.push_back({"Stop", 't', "V", [this] { stop(); }});
         a.push_back({"Next", 0, "B", nullptr});
         a.push_back({shuffle_ ? "Shuffle off" : "Shuffle on", 's', "S", [this] { toggle_shuffle(); }});
         a.push_back({"Volume", 0, "+ -", nullptr});
-        a.push_back({"Library / Jellyfin", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
-        if (tab_ == kJellyfinTab && jf_.signed_in()) {
-            a.push_back({"Refresh libraries", 'r', nullptr, [this] {
-                             libs_tried_ = false;
-                             stack_.clear();
-                             rebuild_list();
-                         }});
-            a.push_back({"Sign out", 'o', nullptr, [this] { sign_out(); }, true, true,
-                         "Sign out of Jellyfin?"});
-        } else if (tab_ == kJellyfinTab) {
-            a.push_back({"Sign in", 'i', nullptr, [this] { sign_in(); }});
-        }
+        a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
+        a.push_back({"Places", 'h', nullptr, [this] { go_places(); }});
+        a.push_back({"Rescan", 'r', nullptr, [this] {
+                         int i = focused_index();
+                         load(i >= 0 && i < int(entries_.size()) ? entries_[size_t(i)].path : "");
+                     }});
         shell_set_actions(std::move(a));
     }
 
-    void show_tab(int t) {
-        tab_ = t;
-        for (int i = 0; i < kTabs; ++i) lv_obj_set_style_text_color(tabs_[i], c(i == t ? kGold : kGoldDim), 0);
-        set_actions();
-        if (t == kJellyfinTab) load_libraries();
-        rebuild_list();
-    }
-
     static std::string format_of(const std::string& path) {
-        if (path.rfind("http", 0) == 0) return "NET";
-        auto dot = path.rfind('.');
-        if (dot == std::string::npos || path.size() - dot > 5) return "---";
-        std::string ext = path.substr(dot + 1);
-        for (auto& ch : ext) ch = char(std::toupper((unsigned char)ch));
-        return ext;
+        std::string e = ext_of(path);
+        if (e.size() < 2 || e.size() > 5) return is_url(path) ? "NET" : "---";
+        std::string up = e.substr(1);
+        for (auto& ch : up) ch = char(std::toupper((unsigned char)ch));
+        return up;
     }
 
-    // ---- The playlist -----------------------------------------------------
+    // ---- The explorer -----------------------------------------------------
+
+    // The first screen: the folders that hold media, drives, shares.
+    std::vector<Entry> places() const {
+        std::vector<Entry> v;
+        std::string home = home_dir();
+        auto add = [&](const std::string& name, const std::string& path, const char* icon, const std::string& note) {
+            Entry e;
+            e.type = Entry::Place;
+            e.name = name;
+            e.path = path;
+            e.icon = icon;
+            e.note = note;
+            v.push_back(e);
+        };
+        add("Music", home + "/Music", LV_SYMBOL_AUDIO, "SD");
+        add("Videos", home + "/Videos", LV_SYMBOL_VIDEO, "SD");
+        if (is_dir(home + "/Downloads")) add("Downloads", home + "/Downloads", LV_SYMBOL_DOWNLOAD, "SD");
+        add("SD card", home, LV_SYMBOL_SD_CARD, "HOME");
+        for (auto& m : mounted_places()) v.push_back(m);
+        Entry addr;
+        addr.type = Entry::Address;
+        addr.name = "Open an address...";
+        addr.icon = ZS_ICON_GLOBE;
+        addr.note = "HTTP";
+        v.push_back(addr);
+        return v;
+    }
+
+    // Read the current folder (or the places) into entries_.
+    void load(const std::string& focus = "") {
+        entries_.clear();
+        if (cwd_.empty()) {
+            entries_ = places();
+        } else if (DIR* d = opendir(cwd_.c_str())) {
+            std::vector<Entry> dirs, files;
+            while (dirent* de = readdir(d)) {
+                std::string n = de->d_name;
+                if (n.empty() || n[0] == '.') continue;
+                std::string full = join(cwd_, n);
+                struct stat st{};
+                if (stat(full.c_str(), &st) != 0) continue;
+                Entry e;
+                e.name = n;
+                e.path = full;
+                e.size = (long long)st.st_size;
+                if (S_ISDIR(st.st_mode)) {
+                    e.type = Entry::Dir;
+                    dirs.push_back(e);
+                    continue;
+                }
+                if (!S_ISREG(st.st_mode)) continue;
+                if (is_audio(n)) e.type = Entry::Audio;
+                else if (is_video(n)) e.type = Entry::Video;
+                else if (is_playlist(n)) e.type = Entry::List;
+                else continue;   // only what Media can play
+                files.push_back(e);
+            }
+            closedir(d);
+            auto by_name = [](const Entry& a, const Entry& b) { return lower(a.name) < lower(b.name); };
+            std::sort(dirs.begin(), dirs.end(), by_name);
+            std::sort(files.begin(), files.end(), by_name);
+            entries_ = std::move(dirs);
+            entries_.insert(entries_.end(), files.begin(), files.end());
+        }
+        if (!cwd_.empty()) {
+            prefs::set_str("media.place", place_);
+            prefs::set_str("media.folder", cwd_);
+        }
+        rebuild_list(focus, false);
+    }
+
+    // The place you are in and the folder: "Music/Artist/Album".
+    std::string crumb_text() const {
+        if (cwd_.empty()) return "PLACES";
+        std::string name;
+        for (auto& p : places())
+            if (p.path == place_) name = p.name;
+        if (name.empty()) name = place_.substr(place_.rfind('/') + 1);
+        std::string t = name + cwd_.substr(place_.size());
+        if (!filter_.empty()) t = "\"" + filter_ + "\" in " + t;
+        if (t.size() > 26) t = "..." + t.substr(t.size() - 24);   // the deepest part matters most
+        return t;
+    }
+
+    bool shown(const Entry& e) const {
+        return filter_.empty() || lower(e.name).find(lower(filter_)) != std::string::npos;
+    }
 
     lv_obj_t* add_row(const char* symbol, const std::string& text, const std::string& right, int index,
-                      bool now = false) {
+                      uint32_t color, bool now = false) {
         lv_obj_t* b = list_button(list_, symbol, text.c_str(), on_click, this);
         lv_obj_set_user_data(b, (void*)(intptr_t)index);
         lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
@@ -479,7 +636,7 @@ private:
             lv_obj_set_style_bg_opa(b, LV_OPA_COVER, st);
             lv_obj_set_style_text_color(b, c(0xffffff), st);
         }
-        lv_obj_set_style_text_color(b, c(now ? 0xffffff : kGreen), 0);
+        lv_obj_set_style_text_color(b, c(now ? 0xffffff : color), 0);
         lv_obj_set_style_radius(b, 0, 0);
         lv_obj_set_style_border_width(b, 0, 0);
         lv_obj_set_style_outline_width(b, 0, LV_STATE_FOCUS_KEY);
@@ -508,8 +665,13 @@ private:
         lv_obj_set_style_pad_hor(t, 3, 0);
     }
 
-    void rebuild_list() {
-        int keep = focused_index();
+    // focus_path: the row to select. Otherwise the one selected now stays
+    // selected (keep), else what is playing, else the first row.
+    void rebuild_list(const std::string& focus_path = "", bool keep_focus = true) {
+        int keep = keep_focus ? focused_index() : -1;
+        std::string keep_path = !focus_path.empty() ? focus_path
+                                : keep >= 0 && keep < int(entries_.size()) ? entries_[size_t(keep)].path
+                                                                           : std::string();
         if (list_) {
             lv_group_remove_all_objs(group);
             lv_obj_delete(list_);
@@ -529,144 +691,57 @@ private:
         lv_obj_set_style_bg_color(list_, c(kGreenDim), LV_PART_SCROLLBAR);
 
         listed_playing_ = hal().playback().path;
-        lv_obj_t* focus = tab_ == kJellyfinTab ? build_jellyfin(keep) : build_library(keep);
-        if (focus) lv_group_focus_obj(focus);
-        if (input_) lv_obj_move_foreground(input_);
-        update_crumb();
-    }
-
-    void update_crumb() {
-        std::string t;
-        if (tab_ == kLibraryTab) t = filter_.empty() ? "~/Music" : "\"" + filter_ + "\"";
-        else if (!jf_.signed_in()) t = "Not signed in";
-        else if (stack_.empty()) t = host_of(jf_.server);
-        else t = stack_.back().title;
-        if (t.size() > 26) t = t.substr(0, 25) + "...";   // the ridges keep the rest
-        lv_label_set_text(crumb_, t.c_str());
-        lv_obj_align(crumb_, LV_ALIGN_TOP_RIGHT, -6, 0);
-    }
-
-    lv_obj_t* build_library(int keep) {
-        music_ = hal().music_library();
         lv_obj_t* focus = nullptr;
-        if (music_.empty()) note("Copy music to ~/Music");
-        std::string f = lower(filter_);
-        int shown = 0;
-        for (size_t i = 0; i < music_.size(); ++i) {
-            const Track& t = music_[i];
-            if (!f.empty() && lower(t.title + " " + t.artist).find(f) == std::string::npos) continue;
-            bool now = t.path == listed_playing_;
-            std::string text = fmt("%zu. ", i + 1) + (t.artist.empty() ? "" : t.artist + " - ") + t.title;
-            lv_obj_t* b = add_row(nullptr, text, t.duration_s > 0 ? mmss(t.duration_s * 1000) : "", int(i), now);
-            if (now || (!focus && int(i) == keep)) focus = b;
-            ++shown;
+        lv_obj_t* now_row = nullptr;
+        int files = 0, shown_n = 0;
+        if (!cwd_.empty() && entries_.empty()) {
+            note(is_dir(cwd_) ? "No music or video here" : "Can't open this folder");
+            if (place_ == home_dir() + "/Music") note("Copy music to ~/Music on the SD card");
+            if (place_ == home_dir() + "/Videos") note("Copy videos to ~/Videos on the SD card");
         }
-        if (!music_.empty() && shown == 0) note("Nothing matches \"" + filter_ + "\" (Esc clears)");
-        return focus;
-    }
-
-    // ---- Jellyfin ---------------------------------------------------------
-
-    static std::string host_of(const std::string& url) {
-        auto a = url.find("://");
-        std::string h = a == std::string::npos ? url : url.substr(a + 3);
-        return h.substr(0, h.find_first_of(":/"));
-    }
-
-    static const char* folder_icon(const std::string& type) {
-        if (type == "music") return LV_SYMBOL_AUDIO;
-        if (type == "movies" || type == "tvshows" || type == "homevideos" || type == "musicvideos")
-            return LV_SYMBOL_VIDEO;
-        if (type == "playlists") return LV_SYMBOL_LIST;
-        if (type == "books") return LV_SYMBOL_FILE;
-        return LV_SYMBOL_DIRECTORY;
-    }
-
-    // The user's libraries, asked for once (Refresh in the menu asks again).
-    // A ZeroOS too old to know them, or a server that won't say, leaves the
-    // fixed Movies / TV shows / Albums rows in their place.
-    void load_libraries() {
-        if (libs_tried_ || !jf_.signed_in()) return;
-        libs_tried_ = true;
-        libs_.clear();
-        shell_toast("Loading libraries...");
-        lv_refr_now(nullptr);
-        std::string error;
-        if (!hal().jellyfin_list(jf_, kViewLibraries, "", libs_, error)) {
-            libs_.clear();
-            // "Nothing to open": this ZeroOS predates library lists.
-            if (error != "Nothing to open") shell_toast(error);
-        }
-    }
-
-    std::vector<RootRow> root_rows() const {
-        std::vector<RootRow> r;
-        r.push_back({kSearch, "Search...", ZS_ICON_SEARCH, {}});
-        r.push_back({kResume, "Continue watching", LV_SYMBOL_PLAY, {}});
-        if (libs_.empty()) {
-            r.push_back({kMovies, "Movies", LV_SYMBOL_VIDEO, {}});
-            r.push_back({kShows, "TV shows", LV_SYMBOL_VIDEO, {}});
-            r.push_back({kAlbums, "Albums", LV_SYMBOL_AUDIO, {}});
-        }
-        for (const JfItem& lib : libs_) r.push_back({kLibrary, lib.name, folder_icon(lib.detail), lib});
-        r.push_back({kLatest, "Latest albums", LV_SYMBOL_BELL, {}});
-        r.push_back({kArtists, "Artists", LV_SYMBOL_DIRECTORY, {}});
-        r.push_back({kPlaylists, "Playlists", LV_SYMBOL_LIST, {}});
-        return r;
-    }
-
-    // A list row: episodes say which, movies their year, and anything
-    // half-watched where you stopped.
-    static std::string row_text(const JfItem& it, JfView view) {
-        std::string t = it.name;
-        if (it.kind == JfItem::Episode) {
-            if (view == JfView::SeasonEpisodes && it.number >= 0) t = std::to_string(it.number) + ". " + it.name;
-            else t = it.detail + " " + it.episode_code() + " " + it.name;
-        } else if (it.kind == JfItem::Movie && it.year > 0) {
-            t += fmt(" (%d)", it.year);
-        } else if ((it.kind == JfItem::Track || it.kind == JfItem::Album) && !it.detail.empty() &&
-                   view != JfView::AlbumTracks) {
-            t = it.detail + " - " + it.name;
-        }
-        if (it.playable_video() && it.resume_s > 0) t += "  @" + mmss(it.resume_s * 1000);
-        return t;
-    }
-
-    lv_obj_t* build_jellyfin(int keep) {
-        lv_obj_t* focus = nullptr;
-        if (!jf_.signed_in()) {
-            note("Music and video from your server");
-            add_row(LV_SYMBOL_RIGHT, "Sign in...", "", 0);
-            return nullptr;
-        }
-        if (stack_.empty()) {
-            auto rows = root_rows();
-            for (size_t i = 0; i < rows.size(); ++i) {
-                lv_obj_t* b = add_row(rows[i].icon, rows[i].text, "", int(i));
-                if (int(i) == keep) focus = b;
+        for (size_t i = 0; i < entries_.size(); ++i) {
+            const Entry& e = entries_[i];
+            if (!shown(e)) continue;
+            ++shown_n;
+            lv_obj_t* b = nullptr;
+            switch (e.type) {
+                case Entry::Place:
+                case Entry::Address:
+                    b = add_row(e.icon, e.name, e.note, int(i), kGreen);
+                    break;
+                case Entry::Dir: b = add_row(LV_SYMBOL_DIRECTORY, e.name, "", int(i), kFolder); break;
+                case Entry::List: b = add_row(LV_SYMBOL_LIST, stem(e.name), "M3U", int(i), kGreen); break;
+                case Entry::Video:
+                    b = add_row(LV_SYMBOL_VIDEO, stem(e.name), human(e.size), int(i), kGreen);
+                    break;
+                case Entry::Audio: {
+                    bool now = e.path == listed_playing_;
+                    b = add_row(nullptr, fmt("%d. ", ++files) + stem(e.name), format_of(e.name), int(i), kGreen, now);
+                    if (now) now_row = b;
+                    break;
+                }
             }
-            return focus;
+            if (!keep_path.empty() && e.path == keep_path) focus = b;
+            if (!focus && keep_path.empty() && int(i) == keep) focus = b;
         }
-        const Level& lv = stack_.back();
-        if (lv.items.empty()) note("Nothing here");
-        int track_no = 0;
-        for (size_t i = 0; i < lv.items.size(); ++i) {
-            const JfItem& it = lv.items[i];
-            bool track = it.kind == JfItem::Track;
-            bool now = track && jf::stream_url(jf_, it.id) == listed_playing_;
-            const char* icon = track ? nullptr
-                               : it.playable_video() ? LV_SYMBOL_VIDEO
-                               : it.kind == JfItem::Playlist ? LV_SYMBOL_LIST
-                               : it.kind == kFolder ? folder_icon(it.detail)
-                                                           : LV_SYMBOL_DIRECTORY;
-            std::string text = row_text(it, lv.view);
-            if (track) text = fmt("%d. ", ++track_no) + text;
-            std::string right = (track || it.playable_video()) && it.duration_s > 0 ? mmss(it.duration_s * 1000) : "";
-            lv_obj_t* b = add_row(icon, text, right, int(i), now);
-            if (now || (!focus && int(i) == keep)) focus = b;
+        if (!entries_.empty() && shown_n == 0) note("Nothing matches \"" + filter_ + "\" (Esc clears)");
+        if (!focus) focus = now_row;
+        if (!focus && lv_obj_get_child_count(list_) > 0) {
+            for (uint32_t k = 0; k < lv_obj_get_child_count(list_); ++k) {
+                lv_obj_t* ch = lv_obj_get_child(list_, int32_t(k));
+                if (lv_obj_check_type(ch, &lv_list_button_class)) {
+                    focus = ch;
+                    break;
+                }
+            }
         }
-        if (lv.more) add_row(LV_SYMBOL_DOWN, "More...", fmt("%zu shown", lv.items.size()), kMoreRow);
-        return focus;
+        if (focus) {
+            lv_group_focus_obj(focus);
+            lv_obj_scroll_to_view(focus, LV_ANIM_OFF);
+        }
+        if (input_) lv_obj_move_foreground(input_);
+        lv_label_set_text(crumb_, crumb_text().c_str());
+        lv_obj_align(crumb_, LV_ALIGN_TOP_RIGHT, -6, 0);
     }
 
     int focused_index() {
@@ -674,6 +749,35 @@ private:
         if (!f || !list_ || lv_obj_get_parent(f) != list_) return -1;
         return int((intptr_t)lv_obj_get_user_data(f));
     }
+
+    void go_places() {
+        std::string was = place_;
+        cwd_.clear();
+        place_.clear();
+        filter_.clear();
+        load(was);
+    }
+
+    void open_dir(const std::string& path) {
+        cwd_ = path;
+        filter_.clear();
+        load();
+    }
+
+    // Up a folder; from the top of a place, back to the places.
+    void up() {
+        if (cwd_.empty()) return;
+        if (!filter_.empty()) filter_.clear();
+        if (cwd_ == place_) {
+            go_places();
+            return;
+        }
+        std::string was = cwd_;
+        cwd_ = parent_of(cwd_);
+        load(was);   // the folder we came out of stays selected
+    }
+
+    // ---- Playing ------------------------------------------------------------
 
     // Shuffle: the chosen track first, the rest in a random order.
     std::vector<QueueItem> arrange(std::vector<QueueItem> q, int& at) {
@@ -688,212 +792,161 @@ private:
     }
 
     void play_queue(std::vector<QueueItem> q, int at, const std::string& name) {
+        if (q.empty()) {
+            shell_toast("No music in " + name);
+            return;
+        }
         q = arrange(std::move(q), at);
         if (!player_play(std::move(q), at)) shell_toast("Can't play " + name);
+        else if (queue_paths_.size() > 1) shell_toast(fmt("Playing %zu tracks", queue_paths_.size()));
         rebuild_list();
     }
 
-    // Enter on row i of the current list.
-    void activate(int i) {
-        if (tab_ == kJellyfinTab) {
-            activate_jellyfin(i < 0 && i != kMoreRow ? 0 : i);
-            return;
-        }
-        if (i < 0) {   // nothing focused: the first row that's shown
-            if (lv_obj_t* f = lv_obj_get_child(list_, 0)) i = int((intptr_t)lv_obj_get_user_data(f));
-        }
-        if (i < 0 || i >= int(music_.size())) return;
-        // Music continues down the list (what the search shows, if any).
-        std::vector<QueueItem> q;
-        int at = 0;
-        std::string f = lower(filter_);
-        for (size_t k = 0; k < music_.size(); ++k) {
-            const Track& t = music_[k];
-            if (!f.empty() && lower(t.title + " " + t.artist).find(f) == std::string::npos) continue;
-            if (int(k) == i) at = int(q.size());
-            q.push_back({t.path, t.title, t.artist, t.duration_s, ""});
-        }
-        if (q.empty()) return;
-        play_queue(std::move(q), at, music_[size_t(i)].title);
+    // The artist: the folder two up from a track (Artist/Album/track), or
+    // the one it is in.
+    std::string artist_of(const std::string& path) const {
+        std::string dir = parent_of(path);
+        std::string top = place_.empty() ? std::string("/") : place_;
+        std::string up2 = parent_of(dir);
+        if (up2.size() > top.size() && up2.rfind(top, 0) == 0) return up2.substr(up2.rfind('/') + 1);
+        if (dir.size() > top.size()) return dir.substr(dir.rfind('/') + 1);
+        return "";
     }
 
-    void activate_jellyfin(int i) {
-        if (!jf_.signed_in()) {
-            sign_in();
-            return;
+    QueueItem item_for(const std::string& path) const {
+        return {path, stem(path), is_url(path) ? "" : artist_of(path), -1, ""};
+    }
+
+    // Every track in a folder and the folders under it, in name order.
+    void collect(const std::string& dir, int depth, std::vector<QueueItem>& out) const {
+        if (depth > kDeep || out.size() >= kMaxQueue) return;
+        DIR* d = opendir(dir.c_str());
+        if (!d) return;
+        std::vector<std::string> names;
+        while (dirent* de = readdir(d))
+            if (de->d_name[0] != '.') names.push_back(de->d_name);
+        closedir(d);
+        std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) { return lower(a) < lower(b); });
+        std::vector<std::string> subdirs;
+        for (auto& n : names) {
+            std::string full = join(dir, n);
+            struct stat st{};
+            if (stat(full.c_str(), &st) != 0) continue;
+            if (S_ISDIR(st.st_mode)) subdirs.push_back(full);
+            else if (S_ISREG(st.st_mode) && is_audio(n) && out.size() < kMaxQueue) out.push_back(item_for(full));
         }
-        if (stack_.empty()) {
-            auto rows = root_rows();
-            if (i < 0 || i >= int(rows.size())) return;
-            const RootRow& r = rows[size_t(i)];
-            switch (r.kind) {
-                case kSearch: search(); break;
-                case kResume: open_level("Continue watching", JfView::Resume, ""); break;
-                case kLibrary: open_level(r.lib.name, kViewLibrary, r.lib.id + ":" + r.lib.detail); break;
-                case kMovies: open_level("Movies", JfView::Movies, ""); break;
-                case kShows: open_level("TV shows", JfView::Shows, ""); break;
-                case kAlbums: open_level("Albums", JfView::Albums, ""); break;
-                case kLatest: open_level("Latest albums", JfView::Latest, ""); break;
-                case kArtists: open_level("Artists", JfView::Artists, ""); break;
-                case kPlaylists: open_level("Playlists", JfView::Playlists, ""); break;
+        for (auto& s : subdirs) collect(s, depth + 1, out);
+    }
+
+    // A .m3u or .pls: one address or path per line; relative paths are
+    // from the playlist's folder.
+    std::vector<QueueItem> read_playlist(const std::string& path) const {
+        std::vector<QueueItem> q;
+        std::ifstream f(path);
+        std::string line, dir = parent_of(path);
+        bool pls = ext_of(path) == ".pls";
+        while (std::getline(f, line) && q.size() < kMaxQueue) {
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+            if (line.empty() || line[0] == '#') continue;
+            if (pls) {
+                if (line.rfind("File", 0) != 0) continue;
+                auto eq = line.find('=');
+                if (eq == std::string::npos) continue;
+                line = line.substr(eq + 1);
             }
-            return;
+            if (line.rfind("file://", 0) == 0) line = line.substr(7);
+            std::string p = is_url(line) || line[0] == '/' ? line : join(dir, line);
+            if (is_url(p) || is_audio(p)) q.push_back(item_for(p));
         }
-        if (i == kMoreRow) {
-            load_more();
-            return;
-        }
-        // Copies: opening a level reallocates the stack this item lives in.
-        const std::vector<JfItem> items = stack_.back().items;
-        if (i < 0 || i >= int(items.size())) return;
-        const JfItem it = items[size_t(i)];
-        switch (it.kind) {
-            case JfItem::Album: open_level(it.name, JfView::AlbumTracks, it.id); break;
-            case JfItem::Artist: open_level(it.name, JfView::ArtistAlbums, it.id); break;
-            case JfItem::Playlist: open_level(it.name, JfView::PlaylistTracks, it.id); break;
-            case JfItem::Series: open_level(it.name, JfView::Seasons, it.id); break;
-            case kFolder: open_level(it.name, kViewLibrary, it.id + ":" + it.detail); break;
-            case JfItem::Season:
-                if (it.series_id.empty()) {
-                    shell_toast("The server didn't say which show");
-                    break;
+        return q;
+    }
+
+    // Enter on row i.
+    void activate(int i) {
+        if (i < 0 || i >= int(entries_.size())) return;
+        const Entry e = entries_[size_t(i)];   // a copy: loading replaces entries_
+        switch (e.type) {
+            case Entry::Place:
+                if (!is_dir(e.path)) {
+                    // ~/Videos may not exist yet: make the folders that are ours.
+                    if (e.path.rfind(home_dir() + "/", 0) == 0) mkdir(e.path.c_str(), 0755);
+                    if (!is_dir(e.path)) {
+                        shell_toast("Can't open " + e.name);
+                        return;
+                    }
                 }
-                open_level(it.detail.empty() ? it.name : it.detail + ", " + it.name, JfView::SeasonEpisodes,
-                           it.series_id + ":" + it.id);
+                place_ = e.path;
+                open_dir(e.path);
                 break;
-            case JfItem::Movie:
-            case JfItem::Episode:
-            case JfItem::Video: open_video(items, i); break;
-            case JfItem::Track: {
-                // Queue every track on this screen, starting with this one.
+            case Entry::Address: open_address(); break;
+            case Entry::Dir: open_dir(e.path); break;
+            case Entry::List: play_queue(read_playlist(e.path), 0, e.name); break;
+            case Entry::Video: open_video(e.path, stem(e.name)); break;
+            case Entry::Audio: {
+                // The folder plays on from this track (what the search shows, if any).
                 std::vector<QueueItem> q;
                 int at = 0;
-                std::string auth = jf::auth_header(jf_);
-                for (size_t k = 0; k < items.size(); ++k) {
-                    if (items[k].kind != JfItem::Track) continue;
+                for (size_t k = 0; k < entries_.size(); ++k) {
+                    const Entry& x = entries_[k];
+                    if (x.type != Entry::Audio || !shown(x)) continue;
                     if (int(k) == i) at = int(q.size());
-                    q.push_back({jf::stream_url(jf_, items[k].id), items[k].name, items[k].detail,
-                                 items[k].duration_s, auth});
+                    q.push_back(item_for(x.path));
                 }
-                play_queue(std::move(q), at, it.name);
+                play_queue(std::move(q), at, e.name);
                 break;
             }
         }
     }
 
-    static bool paged(JfView v) {
-        return v == JfView::Albums || v == JfView::Artists || v == JfView::Playlists || v == JfView::Movies ||
-               v == JfView::Shows || v == kViewLibrary;
-    }
-
-    // Ask the server for a list and show it as a new level.
-    void open_level(const std::string& title, JfView view, const std::string& arg) {
-        shell_toast("Loading...");
-        lv_refr_now(nullptr);   // the request blocks; show the notice first
-        Level lv;
-        lv.title = title;
-        lv.view = view;
-        lv.arg = arg;
-        std::string error;
-        if (!hal().jellyfin_list(jf_, view, arg, lv.items, error)) {
-            shell_toast(error);
-            return;
-        }
-        lv.more = paged(view) && int(lv.items.size()) >= kPage;
-        shell_toast(lv.items.empty() ? "Nothing found" : fmt("%zu found", lv.items.size()));
-        stack_.push_back(std::move(lv));
-        rebuild_list();
-        if (lv_obj_get_child_count(list_) > 0) lv_group_focus_obj(lv_obj_get_child(list_, 0));
-    }
-
-    // The next page of a long list, added to the end of it.
-    void load_more() {
-        Level& lv = stack_.back();
-        shell_toast("Loading more...");
-        lv_refr_now(nullptr);
-        std::vector<JfItem> more;
-        std::string error;
-        if (!hal().jellyfin_list(jf_, lv.view, lv.arg + fmt("@%zu", lv.items.size()), more, error)) {
-            shell_toast(error);
-            return;
-        }
-        int first_new = int(lv.items.size());
-        lv.more = int(more.size()) >= kPage;
-        lv.items.insert(lv.items.end(), more.begin(), more.end());
-        shell_toast(fmt("%zu in all", lv.items.size()));
-        rebuild_list();
-        // Focus the first new row.
-        for (uint32_t k = 0; k < lv_obj_get_child_count(list_); ++k) {
-            lv_obj_t* ch = lv_obj_get_child(list_, int32_t(k));
-            if (int((intptr_t)lv_obj_get_user_data(ch)) == first_new) {
-                lv_group_focus_obj(ch);
-                break;
+    // X: a folder plays everything in it and under it; anything else as Enter.
+    void play_focused() {
+        int i = focused_index();
+        if (i < 0 || i >= int(entries_.size())) {
+            if (!cwd_.empty()) {
+                std::vector<QueueItem> q;
+                collect(cwd_, 0, q);
+                play_queue(std::move(q), 0, crumb_text());
             }
+            return;
         }
+        const Entry e = entries_[size_t(i)];
+        if (e.type == Entry::Dir || (e.type == Entry::Place && is_dir(e.path))) {
+            shell_toast("Finding music in " + e.name + "...");
+            lv_refr_now(nullptr);
+            if (e.type == Entry::Place) place_ = e.path;
+            std::vector<QueueItem> q;
+            collect(e.path, 0, q);
+            if (e.type == Entry::Place && cwd_.empty()) place_.clear();
+            play_queue(std::move(q), 0, e.name);
+            return;
+        }
+        activate(i);
     }
 
-    // '/': the Library tab narrows its own list; Jellyfin asks the server.
-    void search() {
-        if (tab_ == kLibraryTab) {
-            ask("Search ~/Music (artist or title)", filter_, false, [this](const std::string& text) {
-                filter_ = text;
-                rebuild_list();
-                if (!filter_.empty() && lv_obj_get_child_count(list_) > 0)
-                    lv_group_focus_obj(lv_obj_get_child(list_, 0));
-            });
-            return;
-        }
-        if (!jf_.signed_in()) {
-            sign_in();
-            return;
-        }
-        ask("Search Jellyfin: music, movies, shows", "", false, [this](const std::string& text) {
-            if (!text.empty()) open_level("\"" + text + "\"", JfView::Search, text);
+    // A stream or a file on a web server: music plays in the queue, video
+    // full screen.
+    void open_address() {
+        ask("Address (http:// or https://)", last_address_, false, [this](const std::string& typed) {
+            std::string url = typed;
+            while (!url.empty() && url.back() == ' ') url.pop_back();
+            while (!url.empty() && url.front() == ' ') url.erase(0, 1);
+            if (url.empty()) return;
+            if (!is_url(url)) url = "http://" + url;
+            last_address_ = url;
+            if (is_video(url)) {
+                open_video(url, stem(url));
+                return;
+            }
+            std::vector<QueueItem> q = {{url, stem(url).empty() ? url : stem(url), "", -1, ""}};
+            play_queue(std::move(q), 0, url);
         });
     }
 
-    void sign_out() {
-        for (const char* k : {"jellyfin.user_id", "jellyfin.token"}) prefs::set_str(k, "");
-        jf_.user_id.clear();
-        jf_.token.clear();
-        stack_.clear();
-        libs_.clear();
-        libs_tried_ = false;
-        shell_toast("Signed out of Jellyfin");
-        set_actions();
-        rebuild_list();
-    }
-
-    // Three questions, then sign in. Only the token is kept, not the password.
-    void sign_in() {
-        ask("Jellyfin server (name or address)", jf_.server, false, [this](const std::string& server) {
-            if (server.empty()) return;
-            typed_server_ = server;
-            ask("User name", jf_.user, false, [this](const std::string& user) {
-                if (user.empty()) return;
-                typed_user_ = user;
-                ask("Password", "", true, [this](const std::string& password) {
-                    shell_toast("Signing in...");
-                    lv_refr_now(nullptr);
-                    JfSession s;
-                    std::string error;
-                    if (!hal().jellyfin_login(typed_server_, typed_user_, password, jf_.device_id, s, error)) {
-                        shell_toast(error);
-                        return;
-                    }
-                    jf_ = s;
-                    prefs::set_str("jellyfin.server", s.server);
-                    prefs::set_str("jellyfin.user", s.user);
-                    prefs::set_str("jellyfin.user_id", s.user_id);
-                    prefs::set_str("jellyfin.token", s.token);
-                    stack_.clear();
-                    libs_tried_ = false;
-                    shell_toast("Signed in as " + s.user);
-                    set_actions();
-                    load_libraries();
-                    rebuild_list();
-                });
-            });
+    // '/': narrows the folder you are in.
+    void search() {
+        ask("Search this folder", filter_, false, [this](const std::string& text) {
+            filter_ = text;
+            rebuild_list();
         });
     }
 
@@ -977,43 +1030,25 @@ private:
     }
 
     // ---- Video ----------------------------------------------------------
+    // A file on the card, a drive or a share, or an address. mpv decodes it
+    // and scales each picture to the screen.
 
-    static std::string new_session_id() {
-        std::random_device rd;
-        return fmt("%08x%08x%08x%08x", unsigned(rd()), unsigned(rd()), unsigned(rd()), unsigned(rd()));
-    }
-
-    // Play items[i] (a movie or episode) on the screen. The rest of the list
-    // stays with it, so an episode can go on to the next one.
-    void open_video(const std::vector<JfItem>& items, int i) {
-        const JfItem& it = items[size_t(i)];
+    void open_video(const std::string& path, const std::string& title) {
         close_video(true);
         player_stop();   // music and video share the speaker
-        std::string session = new_session_id();
-        std::string url = jf::video_url(jf_, it.id, session, kStreamW, kStreamH, kStreamKbps);
-        if (url.empty()) {
-            shell_toast("Can't play " + it.name);
-            return;
-        }
+        queue_paths_.clear();
         vid_pixels_.assign(size_t(kVidW) * kVidH, 0);
         std::string error;
-        int start = it.resume_s > 0 ? it.resume_s : 0;
-        if (!hal().video_open(url, jf::auth_header(jf_), start, kVidW, kVidH, error)) {
-            shell_toast(error.empty() ? "Can't play " + it.name : error);
+        if (!hal().video_open(path, "", 0, kVidW, kVidH, error)) {
+            shell_toast(error.empty() ? "Can't play " + title : error);
             vid_pixels_.clear();
             return;
         }
-        vid_items_ = items;
-        vid_at_ = i;
-        vid_item_ = it;
-        vid_session_ = session;
-        vid_reported_at_ = lv_tick_get();
-        vid_started_ = false;
-        vid_auto_paused_ = false;
+        vid_path_ = path;
+        vid_name_ = title;
         build_video_view();
         set_actions();
         show_osd();
-        if (start > 0) shell_toast("Resuming at " + mmss(start * 1000) + "   0: from the start");
     }
 
     void build_video_view() {
@@ -1037,33 +1072,28 @@ private:
         lv_image_set_src(vid_img_, &vid_dsc_);
         lv_obj_set_pos(vid_img_, 0, 0);
 
-        vid_wait_ = label(vid_, "Loading...", &zs_font_14, kText);
+        vid_wait_ = label(vid_, "Loading...", &zs_font_14, kGreen);
         lv_obj_center(vid_wait_);
 
-        // The info bar along the bottom: title, time, a progress line.
-        vid_osd_ = lv_obj_create(vid_);
-        style_plain(vid_osd_);
-        lv_obj_set_size(vid_osd_, kVidW, 40);
-        lv_obj_align(vid_osd_, LV_ALIGN_BOTTOM_MID, 0, 0);
-        lv_obj_set_style_bg_color(vid_osd_, c(0x000000), 0);
-        lv_obj_set_style_bg_opa(vid_osd_, LV_OPA_70, 0);
-        lv_obj_remove_flag(vid_osd_, LV_OBJ_FLAG_SCROLLABLE);
-        vid_title_ = label(vid_osd_, "", &zs_font_12, kText);
+        // The info bar along the bottom, in the player's colours: title,
+        // time, a gold progress line.
+        vid_osd_ = box(vid_, 0, kVidH - 40, kVidW, 40, kChrome, kChromeHi);
+        lv_obj_set_style_border_side(vid_osd_, LV_BORDER_SIDE_TOP, 0);
+        lv_obj_set_style_bg_opa(vid_osd_, LV_OPA_80, 0);
+        vid_title_ = label(vid_osd_, vid_name_.c_str(), &zs_font_12, kGreen);
         lv_obj_set_width(vid_title_, kVidW - 12);
         lv_label_set_long_mode(vid_title_, LV_LABEL_LONG_DOT);
         lv_obj_set_pos(vid_title_, 6, 2);
-        vid_bar_ = thin_bar(vid_osd_, kVidW - 12, 3, kAccent);
+        vid_bar_ = thin_bar(vid_osd_, kVidW - 12, 3, kGold);
+        lv_obj_set_style_bg_color(vid_bar_, c(kChromeLo), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(vid_bar_, LV_OPA_COVER, LV_PART_MAIN);
         lv_bar_set_range(vid_bar_, 0, 1000);
         lv_obj_set_pos(vid_bar_, 6, 19);
-        vid_time_ = label(vid_osd_, "", &zs_font_12, kMuted);
+        vid_time_ = label(vid_osd_, "", &zs_font_12, kGreen);
         lv_obj_set_pos(vid_time_, 6, 24);
-        vid_hint_ = label(vid_osd_, "Space pause  " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " seek  Esc stop", &zs_font_12,
-                          kMuted);
-        lv_obj_align(vid_hint_, LV_ALIGN_TOP_RIGHT, -6, 24);
-        std::string t = vid_item_.kind == JfItem::Episode
-                            ? vid_item_.detail + " " + vid_item_.episode_code() + " " + vid_item_.name
-                            : vid_item_.name;
-        lv_label_set_text(vid_title_, t.c_str());
+        lv_obj_t* hint = label(vid_osd_, "Space pause  " LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " seek  Esc stop",
+                               &zs_font_12, kGoldDim);
+        lv_obj_align(hint, LV_ALIGN_TOP_RIGHT, -6, 24);
 
         if (group) lv_group_focus_obj(nullptr);
         // Pictures come faster than the shell's 10 Hz tick.
@@ -1073,37 +1103,26 @@ private:
     }
 
     void video_pump() {
-        if (!vid_) return;
-        if (power().screen_off()) return;   // nobody is looking; the tick pauses it
-        if (hal().video_frame(vid_pixels_.data())) {
-            lv_obj_invalidate(vid_img_);
-            if (!vid_started_) {
-                vid_started_ = true;
-                hal().jellyfin_report(jf_, JfReport::Start, vid_item_.id, vid_session_, vid_item_.resume_s, false);
-            }
-        }
+        if (!vid_ || power().screen_off()) return;   // nobody is looking; the tick pauses it
+        if (hal().video_frame(vid_pixels_.data())) lv_obj_invalidate(vid_img_);
     }
 
     void video_tick() {
         VideoState st = hal().video();
         uint32_t now = lv_tick_get();
         if (!st.open) {
-            video_ended(st);
+            std::string error = st.error;
+            bool finished = st.finished;
+            std::string name = vid_name_;
+            close_video(true);
+            if (!error.empty()) shell_toast(error);
+            else if (finished) shell_toast("Finished " + name);
             return;
         }
         if (power().screen_off()) {
-            // Face down or timed out: stop watching, keep the place.
-            if (!st.paused) {
-                hal().video_pause(true);
-                vid_auto_paused_ = true;
-            }
+            if (!st.paused) hal().video_pause(true);   // face down or timed out: keep the place
         } else if (!st.paused) {
             power().stay_awake(now);
-        }
-        vid_pos_s_ = st.pos_ms / 1000;
-        if (now - vid_reported_at_ >= kReportEveryMs) {
-            vid_reported_at_ = now;
-            hal().jellyfin_report(jf_, JfReport::Progress, vid_item_.id, vid_session_, vid_pos_s_, st.paused);
         }
 
         const char* wait = st.loading ? "Loading..." : st.paused ? LV_SYMBOL_PAUSE "  Paused" : "";
@@ -1118,47 +1137,12 @@ private:
             int permille = st.dur_ms > 0 ? int(1000LL * st.pos_ms / st.dur_ms) : 0;
             lv_bar_set_value(vid_bar_, permille, LV_ANIM_OFF);
             lv_label_set_text(vid_time_, (mmss(st.pos_ms) + " / " + mmss(st.dur_ms) +
-                                          fmt("   " LV_SYMBOL_VOLUME_MID " %d%%", hal().volume()))
+                                          fmt("   VOL %d%%", hal().volume()))
                                              .c_str());
         }
     }
 
-    void video_ended(const VideoState& st) {
-        bool finished = st.finished;
-        std::string error = st.error;
-        // Finished: the server should forget the resume point.
-        if (finished) vid_pos_s_ = vid_item_.duration_s > 0 ? vid_item_.duration_s : vid_pos_s_;
-        close_video(true);
-        if (!error.empty()) {
-            shell_toast(error);
-            return;
-        }
-        if (!finished) return;
-        // An episode: on to the next one in the list.
-        int next = vid_at_ + 1;
-        // (Only within the season: a list like Continue watching mixes shows.)
-        if (vid_item_.kind == JfItem::Episode && next < int(vid_items_.size()) &&
-            vid_items_[size_t(next)].kind == JfItem::Episode &&
-            vid_items_[size_t(next)].series_id == vid_item_.series_id &&
-            vid_items_[size_t(next)].season == vid_item_.season &&
-            vid_items_[size_t(next)].number > vid_item_.number) {
-            std::vector<JfItem> items = vid_items_;
-            items[size_t(next)].resume_s = 0;
-            shell_toast("Next: " + items[size_t(next)].name);
-            open_video(items, next);
-        } else {
-            shell_toast("Finished " + vid_item_.name);
-        }
-    }
-
     void show_osd() { vid_osd_at_ = lv_tick_get(); }
-
-    void video_toggle_pause() {
-        VideoState st = hal().video();
-        hal().video_pause(!st.paused);
-        vid_auto_paused_ = false;
-        hal().jellyfin_report(jf_, JfReport::Progress, vid_item_.id, vid_session_, st.pos_ms / 1000, !st.paused);
-    }
 
     bool video_key(uint32_t key) {
         auto& h = hal();
@@ -1166,7 +1150,7 @@ private:
         switch (key) {
             case ' ':
             case LV_KEY_ENTER:
-            case kKeyPlayPause: video_toggle_pause(); return true;
+            case kKeyPlayPause: h.video_pause(!h.video().paused); return true;
             case LV_KEY_LEFT: h.video_seek(-10, false); return true;
             case LV_KEY_RIGHT: h.video_seek(+10, false); return true;
             case LV_KEY_UP: h.video_seek(+60, false); return true;
@@ -1180,7 +1164,7 @@ private:
             case '-': case '_':
                 h.set_volume(std::max(0, h.volume() - 5));
                 return true;
-            case 's': case 'S': close_video(true); return true;
+            case 's': case 'S': case 'v': case 'V': close_video(true); return true;
             case 'm': case 'M': video_to_monitor(); return true;
             case LV_KEY_ESC: return false;   // on_back() closes it
         }
@@ -1189,44 +1173,35 @@ private:
         return !is_shell_key(key);
     }
 
-    // Dock mode: hand the video to the monitor's player, from where we are.
+    // Dock mode: the monitor's player has hardware decoding, so a big file
+    // plays better there.
     void video_to_monitor() {
         if (!hal().display().dock_running) {
             shell_toast("Start Dock mode for the monitor first");
             return;
         }
-        JfItem it = vid_item_;
-        int at = hal().video().pos_ms / 1000;
-        std::string url = jf::video_url(jf_, it.id, new_session_id(), kDockW, kDockH, kDockKbps);
+        std::string path = vid_path_;
         close_video(true);
-        if (!jf::write_dock_options(jf_, at) || !hal().dock_open("video", url)) {
+        if (!hal().dock_open("video", path)) {
             shell_toast("Can't open the video on the monitor");
             return;
         }
         shell_toast("Playing on the monitor");
     }
 
-    // Stop the video, tell the server where it stopped and, with ui, take
-    // the picture off the screen.
+    // Stop the video and, with ui, take the picture off the screen.
     void close_video(bool ui) {
         if (vid_timer_) {
             lv_timer_delete(vid_timer_);
             vid_timer_ = nullptr;
         }
         if (!vid_) return;
-        VideoState st = hal().video();
-        if (st.open) vid_pos_s_ = st.pos_ms / 1000;
         hal().video_close();
-        hal().jellyfin_report(jf_, JfReport::Stop, vid_item_.id, vid_session_, vid_pos_s_, false);
         if (ui) {
             lv_obj_delete(vid_);
             vid_ = nullptr;
-            // The list may have a stale resume point; show the place we stopped.
-            for (auto& lvl : stack_)
-                for (auto& x : lvl.items)
-                    if (x.id == vid_item_.id) x.resume_s = st.finished ? 0 : vid_pos_s_;
             set_actions();
-            rebuild_list();
+            rebuild_list(vid_path_);
         }
         vid_ = nullptr;
         vid_pixels_.clear();
@@ -1234,7 +1209,6 @@ private:
     }
 
     lv_obj_t* root_ = nullptr;
-    lv_obj_t* tabs_[kTabs] = {};
     lv_obj_t* crumb_ = nullptr;
     lv_obj_t* list_ = nullptr;
     lv_obj_t *state_ = nullptr, *time_ = nullptr, *marquee_ = nullptr;
@@ -1249,36 +1223,27 @@ private:
     bool playing_ = false;
     std::string shown_marquee_;
 
-    std::vector<Track> music_;
-    std::string filter_;               // the Library tab's search
+    std::string place_;                // the place we are in ("" on the places screen)
+    std::string cwd_;                  // the folder shown, "" for the places
+    std::vector<Entry> entries_;
+    std::string filter_;               // the search, within this folder
     std::vector<std::string> queue_paths_;   // what we queued, for "3/12"
     bool shuffle_ = false;
     std::string listed_playing_;       // what the list last marked as playing
-    int tab_ = 0;
+    std::string last_address_;
     int pending_ = -1;
-
-    JfSession jf_;
-    std::vector<Level> stack_;
-    std::vector<JfItem> libs_;         // the user's libraries
-    bool libs_tried_ = false;
     lv_obj_t* input_ = nullptr;
     Done done_;
-    std::string typed_server_, typed_user_;
 
     // Video
     lv_obj_t* vid_ = nullptr;   // the player view, over everything; null when no video
     lv_obj_t *vid_img_ = nullptr, *vid_wait_ = nullptr, *vid_osd_ = nullptr, *vid_title_ = nullptr,
-             *vid_bar_ = nullptr, *vid_time_ = nullptr, *vid_hint_ = nullptr;
+             *vid_bar_ = nullptr, *vid_time_ = nullptr;
     lv_timer_t* vid_timer_ = nullptr;
     lv_image_dsc_t vid_dsc_{};
     std::vector<uint16_t> vid_pixels_;
-    std::vector<JfItem> vid_items_;   // the list it was started from
-    int vid_at_ = -1;
-    JfItem vid_item_;
-    std::string vid_session_;
-    uint32_t vid_reported_at_ = 0, vid_osd_at_ = 0;
-    int vid_pos_s_ = 0;
-    bool vid_started_ = false, vid_auto_paused_ = false;
+    std::string vid_path_, vid_name_;
+    uint32_t vid_osd_at_ = 0;
 };
 }  // namespace
 

@@ -536,8 +536,8 @@ with Games are Debian's.
 | Car | Loads the `uinput` and `libcomposite` kernel modules at boot | The car's buttons become key presses; the Cardputer can act as a USB stick |
 
 **Your data.** AI's API keys are in `~/.config/zeroos/ai.conf` with mode 600, and are handed to
-curl through a private temporary file so they never appear in the process list. Jellyfin uses your
-Jellyfin password once to get a sign-in token, keeps the token, and doesn't keep the password.
+curl through a private temporary file so they never appear in the process list. The Jellyfin app uses your
+password once to get a sign-in token, keeps the token, and doesn't keep the password.
 Sync shares only the three folders it names. Nothing in these apps sends usage data anywhere.
 AI sends what you type to the provider you picked, and Browser fetches the pages you open (its
 home page links point at GitHub); nothing else talks to a service you didn't set up.

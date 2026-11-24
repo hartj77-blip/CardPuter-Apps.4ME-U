@@ -1,8 +1,8 @@
 # Car (README.md): USB stick mode for a car stereo, Bluetooth audio with
-# the car's play and skip buttons.
+# the car's play and skip buttons, and a phone's music through the Cardputer.
 NAME="Car"
-SUMMARY="USB stick mode for a car stereo, Bluetooth audio with the car's buttons"
-APP_VERSION="1.1.2"
+SUMMARY="USB stick mode for a car stereo, Bluetooth audio with the car's buttons, your phone's music to the aux"
+APP_VERSION="1.2.0"
 DEPENDS="mtools, dosfstools, fdisk"
 NEEDS="mtools"
 STOP_ON_REMOVE="zeroos-usb-stick.service"
@@ -12,4 +12,6 @@ payload() {
     # uinput: BlueZ turns the car's play/skip buttons into key presses with it.
     install -d "$D/etc/modules-load.d"
     printf 'uinput\nlibcomposite\n' > "$D/etc/modules-load.d/zeroos-car.conf"
+    # WirePlumber: Bluetooth audio without a login; a phone's music, not its calls.
+    install -D -m 0644 "$F/60-zeroos-car.conf" "$D/etc/wireplumber/wireplumber.conf.d/60-zeroos-car.conf"
 }

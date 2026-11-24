@@ -322,7 +322,7 @@ private:
         }
         if (state_key() != saved_key_ && ++unsaved_ticks_ > 50) save_state();
         if (!link_.ensure(fresh, unavailable)) {
-            if (unavailable) set_message("Radio service not available");
+            if (unavailable) set_message(RadioLink::unavailable_text());
             return;
         }
         if (fresh) {

@@ -89,7 +89,7 @@ private:
     void pump() {
         bool fresh, unavailable;
         if (!link_.ensure(fresh, unavailable)) {
-            if (unavailable) { problem_ = "Radio service not available"; refresh(); }
+            if (unavailable) { problem_ = RadioLink::unavailable_text(); refresh(); }
             return;
         }
         if (fresh && on_) link_.client.send("decode server");

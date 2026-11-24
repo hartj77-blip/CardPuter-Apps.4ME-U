@@ -210,7 +210,7 @@ private:
     void pump() {
         bool fresh, unavailable;
         if (!link_.ensure(fresh, unavailable)) {
-            if (unavailable) lv_label_set_text(state_, "Radio not available");
+            if (unavailable) lv_label_set_text(state_, RadioLink::unavailable_text());
             return;
         }
         if (fresh) {

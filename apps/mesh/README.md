@@ -24,7 +24,8 @@ The info page has:
 | | |
 | --- | --- |
 | Turn on / off mesh | Start or stop the radio. It stays on after you leave the app |
-| QR code | Scan it with your phone, on the same Wi-Fi, to chat from Meshtastic's web client |
+| Allow phones / Block phones | Let phones on this network reach the web client and API, until the mesh goes off. Without it, only the Cardputer and your tailnet can |
+| QR code | Scan it with your phone, on the same Wi-Fi, to chat from Meshtastic's web client (after **Allow phones**) |
 | Open on monitor | The same web client in Dock mode's browser |
 | GPS | Opens the GPS app |
 
@@ -49,7 +50,14 @@ and checks it against a pinned fingerprint. It also installs:
   The expander forgets this whenever the 5 V goes off, which is why it runs every time. An older
   cap with no expander just gets the 5 V;
 - `files/meshtasticd-zeroos.conf`: run that script first, never start at boot (the app starts
-  it), run at a lower priority, and be the first thing stopped if memory runs out.
+  it), run at a lower priority, and be the first thing stopped if memory runs out. It also runs
+  `zeroos-mesh-firewall close` before every start and `clear` after it stops;
+- `files/zeroos-mesh-firewall` (as `/usr/lib/zeroos/mesh-firewall`) and
+  `files/zeroos-mesh-lan.service`: meshtasticd's web client and API have no login, so an
+  nftables table (`inet zeroos_mesh`, from the `nftables` package) drops ports 9443 and 4403
+  unless they arrive on `lo` or `tailscale0`. **Allow phones** starts `zeroos-mesh-lan.service`
+  (polkit lets `pi` start exactly this unit, from ZeroOS with the matching rule), which empties
+  the table. It is bound to meshtasticd, so turning the mesh off ends it.
 
 Up to Mesh 1.0.1 the radio couldn't work: the config set the TCXO to 1.8 V (`DIO3_TCXO_VOLTAGE:
 true`) instead of 3.0 V, and nothing switched the antenna in. Mesh 1.0.2 fixes both.
@@ -63,3 +71,4 @@ not the web client.
   run them yet. If the app says **No radio** or **Radio error**, `journalctl -u meshtasticd -b`
   shows `zeroos-mesh:` lines from the power-up step, then meshtasticd's own errors.
 - Range and battery use with the mesh on.
+- **Allow phones**: a phone on the same Wi-Fi can't open the web client before it, and can after.

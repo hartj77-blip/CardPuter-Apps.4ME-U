@@ -13,6 +13,7 @@
 // that needs a command runs on a worker thread, so the screen never waits.
 // The simulator gets a pretend router.
 #include <atomic>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -109,6 +110,22 @@ std::shared_ptr<Job> spawn(const std::string& cmd) {
     std::thread(work).detach();
 #endif
     return job;
+}
+
+// One single-quoted shell word.
+std::string quote(const std::string& s) {
+    std::string r = "'";
+    for (char ch : s) r += ch == '\'' ? std::string("'\\''") : std::string(1, ch);
+    return r + "'";
+}
+
+// A Tailscale IP (v4 or v6), or "" for none: anything else never reaches a
+// command line.
+bool exit_node_ip(const std::string& ip) {
+    if (ip.size() > 45) return false;
+    for (char ch : ip)
+        if (!std::isxdigit((unsigned char)ch) && ch != '.' && ch != ':') return false;
+    return true;
 }
 
 bool take(std::shared_ptr<Job>& job, std::string& out) {
@@ -384,7 +401,11 @@ private:
         if (sim_) {
             for (size_t k = 0; k < nodes_.size(); ++k) nodes_[k].selected = int(k) == i;
         } else {
-            action_job_ = spawn("tailscale set --exit-node=" + ip + " 2>/dev/null");
+            if (!exit_node_ip(ip)) {
+                shell_toast("That node has no usable address");
+                return;
+            }
+            action_job_ = spawn("tailscale set --exit-node=" + quote(ip) + " 2>/dev/null");
             for (size_t k = 0; k < nodes_.size(); ++k) nodes_[k].selected = int(k) == i;   // until it's confirmed
         }
         shell_toast(ip.empty() ? "No exit node" : "Exit node: " + nodes_[size_t(i)].name);

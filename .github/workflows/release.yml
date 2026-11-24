@@ -34,7 +34,7 @@ jobs:
       built_for: ${{ steps.plan.outputs.built_for }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       - name: Plan
         id: plan
         env:
@@ -77,7 +77,7 @@ jobs:
           apt-get update -qq
           apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file >/dev/null
           apt-get install -y -qq --no-install-recommends pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev >/dev/null
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           submodules: true
       - name: Use ZeroOS ${{ matrix.ref }}
@@ -97,7 +97,7 @@ jobs:
           tools/build.sh build/device build/apps
           cat build/apps/zeroos-apps.index
           grep -q "^# level abi=${{ matrix.abi }} " build/apps/zeroos-apps.index
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: level-${{ matrix.abi }}
           path: build/apps/
@@ -105,9 +105,14 @@ jobs:
   publish:
     needs: [levels, build]
     runs-on: ubuntu-24.04
+    # The signing key is a secret of this environment (ZeroOS's
+    # tools/signing-key.sh). A required reviewer on it (Settings >
+    # Environments > release) makes every publish, the timed ones too, wait
+    # for an OK before it reaches devices.
+    environment: release
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           pattern: level-*
           path: levels
@@ -120,6 +125,16 @@ jobs:
           gh release download --dir previous --pattern 'zeroos-app*' 2>/dev/null || echo "no previous release"
           PREVIOUS=$PWD/previous tools/assemble.sh dist "${{ needs.levels.outputs.built_for }}" levels/level-*
           cat dist/zeroos-apps.index
+      - name: Sign
+        env:
+          ZEROOS_SIGNING_KEY: ${{ secrets.ZEROOS_SIGNING_KEY }}
+        run: |
+          # The key devices check the index with is the one ZeroOS ships. Not
+          # there yet (404): the index goes out unsigned, as before.
+          curl -fsSL -o release-key.pem \
+            https://raw.githubusercontent.com/hartj77-blip/CardPuter-OS.4ME-U/main/image/stage-zeroos/files/keys/zeroos-release.pem ||
+            rm -f release-key.pem
+          tools/sign-release.sh release-key.pem dist/zeroos-apps.index
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -132,6 +147,8 @@ jobs:
             echo '| --- | --- |'
             awk -F= '$1 == "name" {n = $2} $1 == "version" {print "| " n " | " $2 " |"}' dist/zeroos-apps.index
           } > notes.md
-          gh release create "$tag" dist/zeroos-app-*.deb dist/zeroos-apps.index \
+          sig=()
+          [ -f dist/zeroos-apps.index.sig ] && sig=(dist/zeroos-apps.index.sig)
+          gh release create "$tag" dist/zeroos-app-*.deb dist/zeroos-apps.index "${sig[@]}" \
             --target "$GITHUB_SHA" --title "Apps $(date -u +%Y-%m-%d) (#${{ github.run_number }})" \
             --notes-file notes.md --latest

@@ -3,6 +3,6 @@
 # which comes with mpv. It used to be a tab in the Media app.
 NAME="Jellyfin"
 SUMMARY="Music, movies and shows from your Jellyfin server, in Jellyfin's own look"
-APP_VERSION="1.1.0"
+APP_VERSION="1.1.1"
 DEPENDS="mpv, libmpv2"
 NEEDS="mpv"

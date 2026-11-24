@@ -2,7 +2,29 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <vector>
+
+// stb_image (public domain, third_party/stb_image.h), for PNG only: ZeroOS's
+// LVGL is built without an image decoder.
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
+#define STBI_ONLY_PNG
+#define STBI_NO_STDIO
+#define STBI_NO_LINEAR
+#define STBI_NO_HDR
+#define STBI_MAX_DIMENSIONS 4096
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#endif
+#include "apps/games/third_party/stb_image.h"
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace zs::games {
 namespace {
@@ -82,6 +104,7 @@ const char* border_name(Border b) {
         case Border::Off: return "Off";
         case Border::Frame: return "Frame";
         case Border::Glow: return "Glow";
+        case Border::Image: return "Image";
     }
     return "Frame";
 }
@@ -89,6 +112,7 @@ const char* border_name(Border b) {
 Border border_from_name(const std::string& s) {
     if (s == "off" || s == "Off") return Border::Off;
     if (s == "glow" || s == "Glow") return Border::Glow;
+    if (s == "image" || s == "Image") return Border::Image;
     return Border::Frame;
 }
 
@@ -96,7 +120,8 @@ Border next_border(Border b) {
     switch (b) {
         case Border::Off: return Border::Frame;
         case Border::Frame: return Border::Glow;
-        case Border::Glow: return Border::Off;
+        case Border::Glow: return Border::Image;
+        case Border::Image: return Border::Off;
     }
     return Border::Frame;
 }
@@ -211,6 +236,121 @@ void draw_glow(uint16_t* out, int sw, int sh, Rect pic, const uint16_t* pixels) 
             float d = float(std::max(ddx, ddy));
             float k = 0.08f + 0.47f * std::max(0.0f, 1.0f - d / 72.0f);   // 55% at the picture, fading out
             out[y * sw + x] = pack(scale(c, k));
+        }
+    }
+}
+
+}  // namespace zs::games
+
+namespace zs::games {
+
+bool load_border_image(const std::string& path, BorderImage& out, std::string& error) {
+    out = BorderImage{};
+    std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        error = "Can't open " + path;
+        return false;
+    }
+    std::vector<uint8_t> file((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (file.empty() || file.size() > (size_t(32) << 20)) {
+        error = "The border picture is empty or too big";
+        return false;
+    }
+    int w = 0, h = 0, n = 0;
+    uint8_t* px = stbi_load_from_memory(file.data(), int(file.size()), &w, &h, &n, 4);
+    if (!px) {
+        const char* why = stbi_failure_reason();
+        error = std::string("Not a PNG this app can read") + (why ? std::string(" (") + why + ")" : "");
+        return false;
+    }
+    out.w = w;
+    out.h = h;
+    out.rgba.assign(px, px + size_t(w) * size_t(h) * 4);
+    stbi_image_free(px);
+
+    // The window: the see-through area around the middle, if the middle is see-through.
+    auto clear = [&](int x, int y) { return out.rgba[(size_t(y) * size_t(w) + size_t(x)) * 4 + 3] < 128; };
+    int cx = w / 2, cy = h / 2;
+    if (clear(cx, cy)) {
+        std::vector<uint8_t> seen(size_t(w) * size_t(h), 0);
+        std::vector<int> todo = {cy * w + cx};
+        seen[size_t(cy * w + cx)] = 1;
+        int x0 = cx, x1 = cx, y0 = cy, y1 = cy;
+        while (!todo.empty()) {
+            int i = todo.back();
+            todo.pop_back();
+            int x = i % w, y = i / w;
+            x0 = std::min(x0, x), x1 = std::max(x1, x), y0 = std::min(y0, y), y1 = std::max(y1, y);
+            const int nx[4] = {x - 1, x + 1, x, x}, ny[4] = {y, y, y - 1, y + 1};
+            for (int k = 0; k < 4; ++k) {
+                if (nx[k] < 0 || ny[k] < 0 || nx[k] >= w || ny[k] >= h) continue;
+                int j = ny[k] * w + nx[k];
+                if (seen[size_t(j)] || !clear(nx[k], ny[k])) continue;
+                seen[size_t(j)] = 1;
+                todo.push_back(j);
+            }
+        }
+        // A window that is the whole picture is no window: it's an empty picture.
+        if (x1 - x0 + 1 < w || y1 - y0 + 1 < h) out.hole = {x0, y0, x1 - x0 + 1, y1 - y0 + 1};
+    }
+    return true;
+}
+
+std::string find_border_image(const std::string& dir, const std::string& system, const std::string& game) {
+    for (const std::string& name : {game, system, std::string("default")}) {
+        if (name.empty()) continue;
+        std::string p = dir + "/" + name + ".png";
+        if (std::ifstream(p).good()) return p;
+    }
+    return "";
+}
+
+void draw_image(uint16_t* out, int sw, int sh, Rect pic, const BorderImage& img) {
+    std::fill(out, out + size_t(sw) * size_t(sh), uint16_t(0));
+    if (img.empty() || img.w <= 0 || img.h <= 0) return;
+    // Screen pixel x = src x * s + ox.
+    double s, ox, oy;
+    if (img.hole.w > 0 && img.hole.h > 0 && pic.w > 0 && pic.h > 0) {
+        s = std::max(double(pic.w) / img.hole.w, double(pic.h) / img.hole.h);
+        ox = pic.x + pic.w / 2.0 - (img.hole.x + img.hole.w / 2.0) * s;
+        oy = pic.y + pic.h / 2.0 - (img.hole.y + img.hole.h / 2.0) * s;
+    } else {
+        s = std::max(double(sw) / img.w, double(sh) / img.h);
+        ox = (sw - img.w * s) / 2.0;
+        oy = (sh - img.h * s) / 2.0;
+    }
+    // Each screen pixel covers source pixels [a, b): average them (a box
+    // filter: a 1920 x 1080 bezel shrinks well), over black.
+    auto span = [&](int n, int size, double o, std::vector<int>& a, std::vector<int>& b) {
+        a.resize(size_t(n));
+        b.resize(size_t(n));
+        for (int i = 0; i < n; ++i) {
+            double lo = (i - o) / s, hi = (i + 1 - o) / s;
+            int ia = int(std::floor(lo + 1e-9)), ib = int(std::ceil(hi - 1e-9));
+            if (ib <= ia) ib = ia + 1;
+            a[size_t(i)] = std::clamp(ia, 0, size);
+            b[size_t(i)] = std::clamp(ib, 0, size);
+            if (ib <= 0 || ia >= size) a[size_t(i)] = b[size_t(i)] = 0;   // off the picture
+        }
+    };
+    std::vector<int> xa, xb, ya, yb;
+    span(sw, img.w, ox, xa, xb);
+    span(sh, img.h, oy, ya, yb);
+    for (int y = 0; y < sh; ++y) {
+        if (ya[size_t(y)] >= yb[size_t(y)]) continue;
+        for (int x = 0; x < sw; ++x) {
+            if (x >= pic.x && x < pic.x + pic.w && y >= pic.y && y < pic.y + pic.h) continue;
+            if (xa[size_t(x)] >= xb[size_t(x)]) continue;
+            uint64_t r = 0, g = 0, b = 0, n = 0;
+            for (int sy = ya[size_t(y)]; sy < yb[size_t(y)]; ++sy) {
+                const uint8_t* p = &img.rgba[(size_t(sy) * size_t(img.w) + size_t(xa[size_t(x)])) * 4];
+                for (int sx = xa[size_t(x)]; sx < xb[size_t(x)]; ++sx, p += 4) {
+                    r += uint64_t(p[0]) * p[3], g += uint64_t(p[1]) * p[3], b += uint64_t(p[2]) * p[3];
+                    ++n;
+                }
+            }
+            n *= 255;
+            out[y * sw + x] = pack({float(r) / n, float(g) / n, float(b) / n});
         }
     }
 }

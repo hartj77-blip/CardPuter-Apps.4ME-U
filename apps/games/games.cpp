@@ -39,6 +39,7 @@ public:
         root_ = root;
         load_settings();
         kit::make_dirs(games_dir());
+        kit::make_dirs(borders_dir());
         for (auto& s : systems())
             if (!s.hidden) kit::make_dirs(games_dir() + "/" + s.folder);
         show_library();
@@ -333,6 +334,7 @@ private:
         lv_image_set_src(border_img_, &border_dsc_);
         lv_obj_add_flag(border_img_, LV_OBJ_FLAG_HIDDEN);
         img_ = lv_image_create(stage_);
+        load_border_image_for_game();
         emu_.set_smooth(smooth_);
         bool resumed = resume_ && emu_.has_state(kResume) && emu_.load_state(kResume);
         // The screen redraws at 30 Hz for apps; a game wants every frame.
@@ -418,9 +420,12 @@ private:
             lv_obj_add_flag(border_img_, LV_OBJ_FLAG_HIDDEN);
             return;
         }
-        if (border_ == Border::Frame) {
-            if (!all) return;
+        if (border_ == Border::Frame || (border_ == Border::Image && border_image_.empty())) {
+            if (!all) return;   // (no picture for Image: the Frame instead)
             draw_frame(border_pix_.data(), kScreenW, kScreenH, pic_, sys_ ? sys_->id : "");
+        } else if (border_ == Border::Image) {
+            if (!all) return;
+            draw_image(border_pix_.data(), kScreenW, kScreenH, pic_, border_image_);
         } else {
             draw_glow(border_pix_.data(), kScreenW, kScreenH, pic_, pix_.data());
             glow_at_ = lv_tick_get();
@@ -440,7 +445,22 @@ private:
             if (a.x2 >= a.x1 && a.y2 >= a.y1) lv_obj_invalidate_area(border_img_, &a);
     }
 
-    std::string border_item() const { return std::string("Border: ") + border_name(border_); }
+    std::string border_item() const {
+        std::string s = std::string("Border: ") + border_name(border_);
+        if (border_ == Border::Image && border_image_.empty()) s += " (none yet)";
+        return s;
+    }
+
+    static std::string borders_dir() { return games_dir() + "/borders"; }
+
+    // A border picture for this game, its console, or every game (border.h).
+    void load_border_image_for_game() {
+        border_image_ = BorderImage{};
+        border_image_error_.clear();
+        std::string path = find_border_image(borders_dir(), sys_ ? sys_->id : "", game_title(game_));
+        if (!path.empty() && !load_border_image(path, border_image_, border_image_error_))
+            border_image_ = BorderImage{};
+    }
     std::string picture_item() const { return smooth_ ? "Picture: Smooth" : "Picture: Sharp"; }
     std::string resume_item() const { return resume_ ? "Carry on next time: On" : "Carry on next time: Off"; }
 
@@ -502,6 +522,10 @@ private:
                     border_ = next_border(border_);
                     draw_border(true);
                     text = border_item();
+                    if (border_ == Border::Image && border_image_.empty())
+                        hint(border_image_error_.empty()
+                                 ? "No PNG in ~/Games/borders yet"
+                                 : border_image_error_);
                 } else if (menu_pick_ == 4) {
                     smooth_ = !smooth_;
                     emu_.set_smooth(smooth_);
@@ -556,6 +580,8 @@ private:
     std::vector<uint16_t> border_pix_;
     Rect pic_;
     Border border_ = Border::Frame;
+    BorderImage border_image_;
+    std::string border_image_error_;
     bool smooth_ = true, resume_ = true, fast_shown_ = false;
     uint32_t glow_at_ = 0;
     lv_timer_t* frame_timer_ = nullptr;

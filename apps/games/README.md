@@ -117,6 +117,24 @@ The space around the picture has a **Border**. Press **Esc** and Enter on **Bord
 | --- | --- |
 | Frame (the default) | A case in the console's colours around a recessed screen: a power light and speaker slots on the handhelds, trim lines on the others |
 | Glow | The colours at the edges of the picture, spread out and dimmed into the bars, like a TV with ambient light. It follows the game |
+| Image | A border picture of your own (below). Without one, the Frame is shown |
 | Off | Black |
+
+**Border pictures.** Put PNG pictures in `~/Games/borders`. For each game, Games uses the first
+it finds of:
+
+1. `<game>.png`, named like the game file without its extension (`Tetris (World).png`)
+2. `<console>.png`, using the folder name from the table above (`gb.png`, `nes.png`, `snes.png`...)
+3. `default.png`
+
+A picture with a see-through window in the middle is scaled so that the window sits on the game's
+picture. That's how ready-made bezels and borders work, so they can be used as they are: the
+console bezels from libretro's
+[overlay-borders](https://github.com/libretro/overlay-borders) collection (1920 x 1080, made for
+a 4:3 picture), or a Super Game Boy border (256 x 224, with a 160 x 144 window). The screen is
+wider and shorter than a TV, so the top and bottom of a Super Game Boy border are cut off. A
+picture without a window fills the whole screen, behind the game. Any size up to 4096 x 4096
+works, and see-through parts are drawn black. Pick a bezel made for the console's own picture
+shape: a 4:3 TV bezel around a Game Boy picture leaves black gaps beside it.
 
 Border, picture and carry-on settings are kept in `~/Games/settings` for every game.

@@ -10,19 +10,16 @@
 //             pick a row, Enter opens or plays, Backspace goes up a folder,
 //             Space pauses while nothing is typed.
 //             Everything else is in the Tab menu (Ctrl + its letter).
-//   Player    a Control screen: Enter or Space pause, Left / Right previous
-//             and next, + / - volume, H shuffle, T the next skin, Esc the
-//             Library; in the classic look N next, P previous, S stop, in a
-//             pixel-art skin C V B N M its five buttons and L the playlist.
+//   Player    a Control screen in the explorer's place: Enter or Space
+//             pause, N next, P previous (Left / Right too), S stop,
+//             H shuffle, T the next skin, + / - volume. Esc: the Library.
 // The keyboard's media keys (Fn + Q / W / E) work on both, and in every app.
-// The soft-key bar, the Tab menu and the key sheet (0) list each screen's
-// keys (set_actions); nothing on screen spells them out by hand.
 //
-// Skins (skins.h): the classic look, where the Player tab takes the
-// explorer's place under the LCD, or whole-screen pixel-art skins whose
-// playlist screen is the Library and whose player screen is the Player. In
-// a skin the app draws the explorer itself, so it moves the selection here
-// rather than through LVGL's focus. T steps through them (media.skin).
+// Skins (skins.h): besides the classic look, whole-screen pixel-art skins
+// with a player screen and a playlist screen; the playlist is the Library
+// tab and the player the Player tab (L flips between them too). In a skin
+// the app draws the explorer itself, so it moves the selection here rather
+// than through LVGL's focus.
 //
 // Playing goes through the shell's queue (ui/player.h), so it carries on to
 // the next track after you leave the app or the screen turns off.
@@ -250,7 +247,7 @@ public:
             if (queue_paths_[i] == pb.path) at = int(i);
         std::string marquee;
         if (pb.path.empty()) {
-            marquee = "ZeroOS Media  ***  Classic  ***  ";
+            marquee = std::string("ZeroOS Media  ***  ") + kSkinNames[skin_] + "  ***  ";
         } else {
             std::string name = q ? q->title : stem(pb.path);
             std::string artist = q ? q->artist : "";
@@ -284,6 +281,7 @@ public:
 
     bool on_key(uint32_t key) override {
         if (input_) return false;   // typing in the text box
+        if (skin_ && skin_key(key)) return true;
         // The keyboard's media keys (Fn + Q / W / E), and a headset's when
         // the shell passes them on: the same on both tabs.
         switch (key) {
@@ -297,8 +295,7 @@ public:
                 step(+1);
                 return true;
         }
-        if (player_page_) return skin_ ? skin_player_key(key) : player_key(key);
-        return library_key(key);
+        return on_player() ? player_key(key) : library_key(key);
     }
 
     bool on_back() override {
@@ -306,7 +303,7 @@ public:
             close_input();
             return true;
         }
-        if (player_page_) {
+        if (on_player()) {
             show_library();
             return true;
         }
@@ -325,6 +322,7 @@ public:
 private:
     enum Button { kPrev, kPlay, kPause, kStop, kNext };
 
+
     // ---- Building the screen --------------------------------------------
 
     // The whole player in the current skin. Called again to change it.
@@ -337,7 +335,6 @@ private:
             build_main_window(frame);
             return;
         }
-        // A skin fills the app area above the soft-key bar (kBodyH).
         skin_obj_ = skin_ == 1 ? media::make_hifi_skin() : media::make_chrome_skin();
         pixels_.assign(size_t(kScreenW) * kH, 0);
         canvas_ = lv_canvas_create(root_);
@@ -345,13 +342,13 @@ private:
         lv_obj_set_pos(canvas_, 0, 0);
     }
 
-    // T: the next skin. Everything is rebuilt; the tab and the place in the
-    // list stay.
+    // T: the next skin. Everything is rebuilt; the place in the list stays.
     void next_skin() {
         if (input_) return;
         int keep = focused_index();
         std::string keep_path = keep >= 0 && keep < int(entries_.size()) ? entries_[size_t(keep)].path : "";
-        if (player_page_) keep_path = back_to_;
+        if (player_page_) keep_path = back_to_;   // the classic Player tab has no list
+        bool was_player = on_player();            // stay on the same tab
         skin_ = (skin_ + 1) % kSkinCount;
         prefs::set_str("media.skin", kSkinNames[skin_]);
         lv_group_remove_all_objs(group);
@@ -363,17 +360,26 @@ private:
         for (auto& f : flash_at_) f = 0;
         shown_marquee_.clear();
         build_player();
-        set_actions();
         if (skin_) {
-            skin_rows(keep_path);
-        } else if (player_page_) {
-            build_now();
-            lv_label_set_text(crumb_, "PLAYER");
-            lv_obj_align(crumb_, LV_ALIGN_TOP_RIGHT, -6, 0);
-        } else {
+            // The skin's own screens stand for the tabs.
+            player_page_ = false;
+            list_view_ = !was_player;
+            set_actions();
             rebuild_list(keep_path, false);
+            render_skin();
+        } else {
+            player_page_ = was_player;
+            set_actions();
+            if (player_page_) {
+                back_to_ = keep_path;
+                build_now();
+                lv_label_set_text(crumb_, "PLAYER");
+                lv_obj_align(crumb_, LV_ALIGN_TOP_RIGHT, -6, 0);
+            } else {
+                rebuild_list(keep_path, false);
+            }
+            tick();
         }
-        if (skin_ == 0) tick();
         shell_toast(std::string("Skin: ") + kSkinNames[skin_]);
     }
 
@@ -406,7 +412,7 @@ private:
         lv_obj_set_pos(time_, 24, 0);
         for (int i = 0; i < kBars; ++i) {
             int x = 5 + i * 5, y = kLcdH - 4 - kBarH;
-            // Each column is the whole gradient (the bottom colour
+            // Each column is the whole gradient (the theme's bottom colour
             // to its top one), covered from the top down to its level; a
             // cap marks the peak.
             lv_obj_t* g = box(lcd, x, y, 4, kBarH, kSpecHi, 0);
@@ -467,7 +473,6 @@ private:
         if (skin_) {
             skin_flash_ = b;
             skin_flash_at_ = lv_tick_get();
-            render_skin();
             return;
         }
         flash_at_[b] = lv_tick_get() | 1;
@@ -514,37 +519,18 @@ private:
 
     // The Library is a List screen: letters narrow it, so its actions are
     // in the menu only. The Player is a Control screen: its letters work as
-    // they are, and the bar shows them. In a pixel-art skin the Player's
-    // letters are the skin's five buttons, C V B N M, as on its panel.
+    // they are, and the bar shows them.
     void set_actions() {
         std::vector<Action> a;
         auto shuffle = [this] { return std::string(shuffle_ ? "Shuffle off" : "Shuffle on"); };
         auto skin = [this] { return std::string("Skin: ") + kSkinNames[skin_] + " (next)"; };
-        if (player_page_ && skin_) {
-            a.push_back({"Play / pause", 0, "Enter", nullptr});
-            a.push_back({"Playlist", 'l', "L", [this] { show_library(); }});
-            a.push_back({"Next", 'm', "M", [this] { next(); }});
-            a.push_back({"Previous", 'c', "C", [this] { previous(); }});
-            a.push_back({"Play", 'v', "V", [this] { play(); }});
-            a.push_back({"Pause", 'b', "B", [this] { pause(); }});
-            a.push_back({"Stop", 'n', "N", [this] {
-                             flash(kStop);
-                             stop();
-                         }});
-            a.push_back({"Prev / next", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
-            a.push_back({"Play / pause", 0, "Space", nullptr});
-            a.push_back({"Volume", 0, "+ -", nullptr});
-            a.push_back({shuffle(), 'h', "H", [this] { toggle_shuffle(); }});
-            a.push_back({skin(), 't', "T", [this] { next_skin(); }});
-            a.push_back({"Playlist", 0, "Esc", nullptr});
-            a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
-        } else if (player_page_) {
+        if (on_player()) {
             a.push_back({"Play / pause", 0, "Enter", nullptr});
             a.push_back({"Next", 'n', "N", [this] { next(); }});
             a.push_back({"Previous", 'p', "P", [this] { previous(); }});
             a.push_back({"Library", 0, "Esc", nullptr});
             a.push_back({"Play / pause", 0, "Space", nullptr});
-            a.push_back({"Prev / next", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+            a.push_back({"Previous / next", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
             a.push_back({"Volume", 0, "+ -", nullptr});
             a.push_back({"Stop", 's', "S", [this] { stop(); }});
             a.push_back({shuffle(), 'h', "H", [this] { toggle_shuffle(); }});
@@ -552,7 +538,7 @@ private:
             a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
         } else {
             a.push_back({"Open", 0, "Enter", nullptr});
-            a.push_back({"Player", 'l', LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, [this] { show_player(); }});
+            a.push_back({"Player", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
             if (!cwd_.empty()) a.push_back({"Up", 0, "Bksp", nullptr});
             a.push_back({"Play all", 'a', nullptr, [this] {
                              flash(kPlay);
@@ -578,19 +564,8 @@ private:
 
     // The Library: a List screen. Letters, space and punctuation narrow the
     // folder; 1 to 9 pick one of the first nine rows; Left / Right go to
-    // the Player tab. In a skin the app moves the selection itself.
+    // the Player tab.
     bool library_key(uint32_t key) {
-        if (skin_) {
-            int page = skin_obj_ ? skin_obj_->rows_shown() : 6;
-            switch (key) {
-                case LV_KEY_UP: move_sel(-1); return true;
-                case LV_KEY_DOWN: move_sel(+1); return true;
-                case kKeyPageUp: move_sel(-page); return true;
-                case kKeyPageDown: move_sel(+page); return true;
-                case LV_KEY_ENTER:
-                case '\r': activate(focused_index()); return true;
-            }
-        }
         switch (key) {
             case LV_KEY_LEFT:
             case LV_KEY_RIGHT:
@@ -610,7 +585,7 @@ private:
                 return true;
         }
         if (key >= '1' && key <= '9') {
-            pick(int(key - '1'));
+            if (!skin_) pick(int(key - '1'));   // a skin's preset keys are in skin_key()
             return true;
         }
         if (key >= 32 && key < 127 && key != '0') {   // 0 is the shell's key sheet
@@ -621,9 +596,9 @@ private:
         return false;
     }
 
-    // The Player in the classic look: a Control screen. Its letters are
-    // declared in set_actions().
+    // The Player: a Control screen. Its letters are declared in set_actions().
     bool player_key(uint32_t key) {
+        auto& h = hal();
         switch (key) {
             case LV_KEY_ENTER:
             case '\r':
@@ -635,45 +610,11 @@ private:
             case 's': case 'S': stop(); return true;
             case 'h': case 'H': toggle_shuffle(); return true;
             case 't': case 'T': next_skin(); return true;
-        }
-        return volume_key(key);
-    }
-
-    // The Player in a pixel-art skin: a Control screen too, its bottom row
-    // C V B N M the skin's five buttons left to right. Declared in
-    // set_actions().
-    bool skin_player_key(uint32_t key) {
-        switch (key) {
-            case LV_KEY_ENTER:
-            case '\r':
-            case ' ': play_pause(); return true;
-            case LV_KEY_LEFT:
-            case 'c': case 'C': previous(); return true;
-            case 'v': case 'V': play(); return true;
-            case 'b': case 'B': pause(); return true;
-            case 'n': case 'N':
-                flash(kStop);
-                stop();
-                return true;
-            case LV_KEY_RIGHT:
-            case 'm': case 'M': next(); return true;
-            case 'l': case 'L': show_library(); return true;
-            case 'h': case 'H': toggle_shuffle(); return true;
-            case 't': case 'T': next_skin(); return true;
-        }
-        return volume_key(key);
-    }
-
-    bool volume_key(uint32_t key) {
-        auto& h = hal();
-        switch (key) {
             case '+': case '=':
                 h.set_volume(std::min(100, h.volume() + 5));
-                if (skin_) render_skin();
                 return true;
             case '-': case '_':
                 h.set_volume(std::max(0, h.volume() - 5));
-                if (skin_) render_skin();
                 return true;
         }
         return false;
@@ -686,25 +627,8 @@ private:
         PlaybackState pb = h.playback();
         flash(!pb.path.empty() && !pb.paused ? kPause : kPlay);
         if (!pb.path.empty()) h.set_paused(!pb.paused);
-        else if (player_page_) show_library();
+        else if (on_player()) show_library();
         else activate(focused_index());
-    }
-
-    // A skin's Play button: resume, or start the Library's selected row.
-    void play() {
-        auto& h = hal();
-        flash(kPlay);
-        PlaybackState pb = h.playback();
-        if (pb.path.empty()) activate(focused_index());
-        else if (pb.paused) h.set_paused(false);
-    }
-
-    // A skin's Pause button: pause, or resume.
-    void pause() {
-        auto& h = hal();
-        flash(kPause);
-        PlaybackState pb = h.playback();
-        if (!pb.path.empty()) h.set_paused(!pb.paused);
     }
 
     void next() {
@@ -721,14 +645,13 @@ private:
     // Enter on it.
     void pick(int n) {
         if (skin_) {
-            for (size_t r = 0; r < row_entry_.size(); ++r) {
-                if (row_entry_[r] < 0 || n-- > 0) continue;
-                sel_ = int(r);
-                scroll_to_sel();
-                render_skin();
-                activate(row_entry_[r]);
-                return;
-            }
+            for (size_t r = 0; r < row_entry_.size(); ++r)
+                if (row_entry_[r] >= 0 && n-- == 0) {
+                    sel_ = int(r);
+                    scroll_to_sel();
+                    activate(row_entry_[r]);
+                    return;
+                }
             return;
         }
         if (!list_) return;
@@ -745,31 +668,37 @@ private:
 
     // ---- The two tabs -------------------------------------------------------
 
-    // In the classic look the Player takes the explorer's place under the
-    // LCD; in a skin it is the skin's player screen.
+    // Which tab is up. In a skin its player screen is the Player tab and its
+    // playlist screen the Library.
+    bool on_player() const { return skin_ ? !list_view_ : player_page_; }
+
     void show_player() {
-        if (player_page_) return;
-        int i = focused_index();
-        back_to_ = i >= 0 && i < int(entries_.size()) ? entries_[size_t(i)].path : "";
-        player_page_ = true;
-        set_actions();
+        if (on_player()) return;
         if (skin_) {
-            render_skin();
+            show_list(false);
             return;
         }
         if (list_) {
+            int i = focused_index();
+            back_to_ = i >= 0 && i < int(entries_.size()) ? entries_[size_t(i)].path : "";
             lv_group_remove_all_objs(group);
             lv_obj_delete(list_);
             list_ = nullptr;
         }
+        player_page_ = true;
         build_now();
         lv_label_set_text(crumb_, "PLAYER");
         lv_obj_align(crumb_, LV_ALIGN_TOP_RIGHT, -6, 0);
+        set_actions();
         tick();
     }
 
     void show_library() {
-        if (!player_page_) return;
+        if (!on_player()) return;
+        if (skin_) {
+            show_list(true);
+            return;
+        }
         player_page_ = false;
         if (now_) lv_obj_delete(now_);
         now_ = nullptr;
@@ -831,8 +760,7 @@ private:
     // ---- Skins ------------------------------------------------------------
 
     // The explorer as rows for the skin; select keep_path, else what is
-    // playing, else the first row. Rows that can be opened come first after
-    // any notes, so row r is the one 1 to 9 pick as r + 1.
+    // playing, else the first row.
     void skin_rows(const std::string& keep_path) {
         rows_.clear();
         row_entry_.clear();
@@ -849,7 +777,7 @@ private:
             add_note(is_dir(cwd_) ? "No music here" : "Can't open this folder");
             if (place_ == home_dir() + "/Music") add_note("Copy music to ~/Music on the SD card");
         }
-        int focus = -1, now = -1;
+        int files = 0, focus = -1, now = -1;
         for (size_t i = 0; i < entries_.size(); ++i) {
             const Entry& e = entries_[i];
             if (!shown(e)) continue;
@@ -874,7 +802,7 @@ private:
                     r.right = "M3U";
                     break;
                 case Entry::Audio:
-                    r.text = stem(e.name);
+                    r.text = fmt("%d. ", ++files) + stem(e.name);
                     r.right = format_of(e.name);
                     break;
             }
@@ -883,7 +811,7 @@ private:
             rows_.push_back(r);
             row_entry_.push_back(int(i));
         }
-        if (!entries_.empty() && rows_.empty()) add_note("Nothing matches \"" + filter_ + "\"");
+        if (!entries_.empty() && rows_.empty()) add_note("Nothing matches \"" + filter_ + "\" (Esc clears)");
         sel_ = focus >= 0 ? focus : now >= 0 ? now : 0;
         // The first row that can be opened, not a note.
         while (sel_ < int(rows_.size()) - 1 && row_entry_[size_t(sel_)] < 0) ++sel_;
@@ -899,6 +827,13 @@ private:
         top_ = std::max(0, std::min(top_, int(rows_.size()) - shown_n));
     }
 
+    void show_list(bool on) {
+        if (list_view_ == on) return;
+        list_view_ = on;
+        set_actions();
+        render_skin();
+    }
+
     void move_sel(int d) {
         if (rows_.empty()) return;
         sel_ = std::max(0, std::min(int(rows_.size()) - 1, sel_ + d));
@@ -906,20 +841,54 @@ private:
         render_skin();
     }
 
-    // One frame of the skin: the Player tab is its player screen, the
-    // Library its playlist screen.
+    // Keys a skin handles itself: the moving about LVGL's focus does in the
+    // classic look, the screen flip, and the preset keys 1-6.
+    bool skin_key(uint32_t key) {
+        int page = skin_obj_ ? skin_obj_->rows_shown() : 6;
+        switch (key) {
+            case 'l': case 'L':
+                if (list_view_) break;   // on the playlist (the Library) letters search
+                show_list(true);
+                return true;
+            case LV_KEY_UP:
+            case LV_KEY_DOWN:
+                if (!list_view_) show_list(true);
+                else move_sel(key == LV_KEY_UP ? -1 : 1);
+                return true;
+            case kKeyPageUp:
+            case kKeyPageDown:
+                show_list(true);
+                move_sel(key == kKeyPageUp ? -page : page);
+                return true;
+            case LV_KEY_ENTER:
+                if (!list_view_) break;   // the Player tab: play / pause
+                activate(focused_index());
+                return true;
+        }
+        // On the playlist, 1-6 are the preset keys: open that row.
+        if (list_view_ && key >= '1' && key < uint32_t('1' + page)) {
+            int r = top_ + int(key - '1');
+            if (r < int(rows_.size())) {
+                sel_ = r;
+                activate(focused_index());
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // One frame of the skin: what is playing, and the explorer.
     void render_skin() {
         if (!skin_obj_ || !canvas_) return;
         auto& h = hal();
         PlaybackState pb = h.playback();
-        // On the Player the Library's selection follows what is playing.
+        // Opening and playing reload the list; the rows follow what is playing.
         if (pb.path != listed_playing_) {
             listed_playing_ = pb.path;
             for (size_t i = 0; i < rows_.size(); ++i)
-                if (!pb.path.empty() && rows_[i].path == pb.path && player_page_) {
+                if (!pb.path.empty() && rows_[i].path == pb.path && !list_view_) {
                     sel_ = int(i);
                     scroll_to_sel();
-                    back_to_ = pb.path;
                 }
         }
         media::View v;
@@ -951,7 +920,7 @@ private:
         v.sel = sel_;
         v.top = top_;
         v.crumb = crumb_text();
-        v.list = !player_page_;
+        v.list = list_view_;
         skin_obj_->draw(canvas_, pixels_.data(), v);
         lv_obj_invalidate(canvas_);
     }
@@ -1100,10 +1069,7 @@ private:
     // focus_path: the row to select. Otherwise the one selected now stays
     // selected (keep), else what is playing, else the first row.
     void rebuild_list(const std::string& focus_path = "", bool keep_focus = true) {
-        if (player_page_) {   // the Library rebuilds it on the way back
-            if (skin_) render_skin();
-            return;
-        }
+        if (player_page_) return;   // the Library rebuilds it on the way back
         int keep = keep_focus ? focused_index() : -1;
         std::string keep_path = !focus_path.empty() ? focus_path
                                 : keep >= 0 && keep < int(entries_.size()) ? entries_[size_t(keep)].path
@@ -1417,7 +1383,7 @@ private:
         input_ = nullptr;
         lv_obj_delete_async(in);
         set_actions();
-        if (!list_) return;   // the Player tab has no list
+        if (!list_) return;   // the Player tab, or a skin: no LVGL list
         // Focus goes back to the list (its first row).
         int n = int(lv_obj_get_child_count(list_));
         for (int i = 0; i < n; ++i) {
@@ -1486,6 +1452,7 @@ private:
     std::vector<media::Row> rows_;     // what the explorer shows, as the skin draws it
     std::vector<int> row_entry_;       // rows_ -> entries_ index (-1: a note)
     int sel_ = 0, top_ = 0;            // the selected row; the first shown
+    bool list_view_ = false;           // the skin's playlist screen, else its player
     int skin_flash_ = -1;
     uint32_t skin_flash_at_ = 0;
     std::string listed_playing_;       // what the list last marked as playing

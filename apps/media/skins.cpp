@@ -447,11 +447,12 @@ private:
         t3(p, "0", 269, 79, ENGR);
         t3(p, "10", 297, 79, ENGR);
         t3e(p, "VOLUME", 274, 87, ENGR, ENGR_HI);
-        // The keys that work them are in the soft-key bar and the key sheet.
         static const char* keys[5] = {"PREV", "PLAY", "PAUSE", "STOP", "NEXT"};
+        static const char* letters[5] = {"P", "SPC", "SPC", "S", "N"};
         for (int i = 0; i < 5; ++i) {
             int x = 14 + i * 22;
             t3e(p, keys[i], x + 10 - w3(keys[i]) / 2, 118, ENGR, ENGR_HI);
+            t3(p, letters[i], x + 10 - w3(letters[i]) / 2, 126, R(0x6a6a70));
         }
         p.rect(12, 96, 296, 1, R(0x7a7a80));
         p.rect(12, 97, 296, 1, R(0xf4f4f8));
@@ -520,7 +521,7 @@ private:
             t3(p, q, 262 - w3(q), 80, AMB);
         }
         std::string title = v.stopped ? "Media" : v.title;
-        std::string sub = v.stopped ? "Nothing playing"
+        std::string sub = v.stopped ? "Pick music on the playlist, T changes the skin"
                                     : v.artist + (v.album.empty() || v.album == v.artist ? "" : " \xC2\xB7 " + v.album);
         int tw = 262 - seg_w(tm) - 6 - 128;
         tx.draw(title, 127, 50, &::zs_font_16, 0x6a3a0c, box(124, 50, tw + 3, 20));
@@ -545,9 +546,11 @@ private:
         dial_glass(p, 36, 13, 271, 80);
         t3e(p, "PRESET", 11, 13, ENGR, ENGR_HI);
         static const char* keys[6] = {"BACK", "OPEN", "FIND", "SHUF", "SKIN", "DECK"};
+        static const char* letters[6] = {"BKSP", "OK", "A-Z", "^H", "^T", "ESC"};
         for (int i = 0; i < 6; ++i) {
             int x = 14 + i * 25;
             t3e(p, keys[i], x + 11 - w3(keys[i]) / 2, 118, ENGR, ENGR_HI);
+            t3(p, letters[i], x + 11 - w3(letters[i]) / 2, 126, R(0x6a6a70));
         }
         p.rect(12, 97, 296, 1, R(0x7a7a80));
         p.rect(12, 98, 296, 1, R(0xf4f4f8));
@@ -564,10 +567,7 @@ private:
             if (r >= n) break;
             bool sel = r == v.sel, play = !v.playing_path.empty() && rows[size_t(r)].path == v.playing_path;
             piano_key(p, 12, y + 6, 20, 8, sel, -1);
-            // The preset keys carry the number that picks the row: the
-            // first nine rows, wherever the list is scrolled.
-            if (r < 9 && !rows[size_t(r)].note)
-                t3(p, std::to_string(r + 1), 21, y + 7 + (sel ? 1 : 0), sel ? R(0x1a1a1c) : R(0x4a4a50));
+            t3(p, std::to_string(i + 1), 21, y + 7 + (sel ? 1 : 0), sel ? R(0x1a1a1c) : R(0x4a4a50));
             if (sel) {
                 p.rect(38, y, 266, 12, R(0xd0841e));
                 p.rect(38, y, 266, 1, AMB_HI);
@@ -829,7 +829,7 @@ private:
         t3(p, "SHUF", 52, 61, v.shuffle ? CY : CYD);
         t3(p, "MUTE", 72, 61, v.muted ? CY : CYD);
         // The title in big pixel letters, scrolling inside the oval.
-        std::string mq = v.stopped ? "ZEROOS MEDIA - LIQUID CHROME - " : upper(v.title) + (v.artist.empty() ? "" : " - " + upper(v.artist)) + " - ";
+        std::string mq = v.stopped ? "ZEROOS MEDIA - ENTER PLAYS - " : upper(v.title) + (v.artist.empty() ? "" : " - " + upper(v.artist)) + " - ";
         int mw = w3(mq, 3) + 3, off = int(std::fmod(t * 26, float(mw)));
         {
             // Clipped to its window and to the oval, a pixel at a time.
@@ -941,14 +941,11 @@ private:
                     }
                 p.rect(x0 + 10, y + 1, 30, 1, R(0xffffff));
             }
-            const Row& row = rows[size_t(r)];
-            // The number that picks the row (the first nine), then the
-            // ripple on the one playing.
-            if (r < 9 && !row.note) t3(p, std::to_string(r + 1), x0 + 5, y + 4, sel ? R(0x00204a) : R(0x2a7ab8));
             if (play) {
                 int rr = 2 + (live(v) ? int(std::lround(beat(t) * 1.4f)) : 0);
-                for (float a = 0; a < 6.28f; a += 0.4f) p.pxf(x0 + 11 + std::cos(a) * rr, y + 6 + std::sin(a) * rr, R(0x7af4ff));
+                for (float a = 0; a < 6.28f; a += 0.4f) p.pxf(x0 + 9 + std::cos(a) * rr, y + 6 + std::sin(a) * rr, R(0x7af4ff));
             }
+            const Row& row = rows[size_t(r)];
             uint32_t col = sel ? 0x00204a : play ? 0xffffff : row.note ? 0x2a7ab8 : row.folder ? 0xd8f4ff : 0x9cd8ff;
             int rw = row.right.empty() ? 0 : Text::width(row.right, &::zs_font_12) + 6;
             tx.draw(row_text(row), x0 + 16, y - 2, &::zs_font_12, col, box(x0 + 14, y - 1, w - 22 - rw, 14));

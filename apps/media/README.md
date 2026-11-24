@@ -38,9 +38,9 @@ the track in big letters, where it is in the queue and what comes next.
 
 ## Skins
 
-Pick **Skin** in the Tab menu (Ctrl + T anywhere in Media), or press **T** on
-the Player tab, to go to the next skin. Media remembers the one you leave it
-on, and the tab you're on stays.
+Press **T** on the Player tab, or pick **Skin** in the Tab menu (Ctrl + T
+anywhere in Media), to go to the next skin. Media remembers the one you
+leave it on.
 
 | Skin | Look |
 | --- | --- |
@@ -48,17 +48,13 @@ on, and the tab you're on stays.
 | **Hi-Fi Receiver** | Walnut and brushed aluminium. The amber tuning dial is the seek bar: its red needle sweeps across the track's time, and a second scale shows your place in the queue. Two VU meters, the track name in a big amber window, latching piano keys, Shuffle and Mute switches, a volume knob |
 | **Liquid Chrome** | A molten-metal body whose reflections ripple, an oval screen with big digits, the title in large scrolling letters and an analyser, jelly buttons, and a glass tube that fills as the track plays |
 
-The two skins are pixel art at the screen's own size, above the soft-key bar,
-and each has two screens: the playlist is the Library tab and the player is
-the Player tab, so the keys are the same as in the classic look (below). The
-Hi-Fi's preset keys carry the numbers **1** to **6** of the rows they pick;
-Liquid Chrome numbers its rows the same way. On a skin's player its five
-buttons are the bottom row of keys, **C V B N M**, and **L** goes back to the
-playlist.
+The two skins are pixel art at the screen's own size, and each has two
+screens, which are Media's two tabs: the player is the Player tab, and the
+playlist (the explorer) the Library. Left / Right on the playlist go to
+the player; on the player, Esc, **L**, Up or Down go to the playlist. On a
+skin's playlist the preset keys **1** to **6** open that row.
 
-Up to 3.1 Media had eight colour themes instead; they're gone. Up to 3.2 the
-skins had keys of their own (`/` to search, X to play a folder); from 3.3 they
-have the Library and Player tabs like the classic look.
+Up to 3.1 Media had eight colour themes instead; they're gone.
 
 ## Places
 
@@ -112,12 +108,12 @@ The Library is a list, so typing searches it:
 | Space | Pause / resume (with nothing playing, plays the row you're on). Once you've typed, a space in the search |
 | Backspace or Esc | Up a folder |
 | Left / Right | The Player tab |
-| Tab | The menu: Player (L), Play all (A), Pause (U), Next (N), Previous (P), Stop (S), Shuffle (H), Skin (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
+| Tab | The menu: Play all (A), Pause (U), Next (N), Previous (P), Stop (S), Shuffle (H), Skin (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
 
 **Play all** plays everything in the folder you're on, folders under it
 included (up to 3000 tracks).
 
-The Player takes its letters as they are. In the classic look:
+The Player takes its letters as they are:
 
 | Key | Does |
 | --- | --- |
@@ -129,22 +125,6 @@ The Player takes its letters as they are. In the classic look:
 | T | The next skin |
 | + / - | Volume |
 | Esc | Back to the Library |
-
-In the Hi-Fi Receiver and Liquid Chrome skins, the bottom row of keys works
-the skin's five buttons, left to right:
-
-| Key | Does |
-| --- | --- |
-| Enter or Space | Pause / resume |
-| C or Left | Previous track |
-| V | Play: resume, or play the Library row you're on |
-| B | Pause / resume |
-| N | Stop |
-| M or Right | Next track |
-| H | Shuffle on or off (from the next track you pick) |
-| T | The next skin |
-| + / - | Volume |
-| L or Esc | Back to the Library (the skin's playlist) |
 
 Anywhere in Media, and in every other app:
 

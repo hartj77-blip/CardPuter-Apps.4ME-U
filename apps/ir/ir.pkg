@@ -2,7 +2,7 @@
 # remotes learned button by button. The code database comes with the app.
 NAME="IR Remote"
 SUMMARY="A universal remote (about 2,000 remotes from Flipper-IRDB) and remotes you teach it"
-APP_VERSION="1.0.0"
+APP_VERSION="1.1.0"
 DEPENDS="v4l-utils, ir-keytable"
 payload() {
     # Built by prepare.sh with irdb/build_irdb.py.

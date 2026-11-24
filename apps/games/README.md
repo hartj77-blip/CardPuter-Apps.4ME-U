@@ -68,7 +68,8 @@ before the system one.
 | I / U | X / Y |
 | Q / E | L / R |
 | Enter / Space | Start / Select |
-| Esc | Menu: Resume, Save state, Load state, Reset, Quit game |
+| Backspace (Del), held | Fast forward (3x) |
+| Esc | Menu: Resume, Save state, Load state, Border, Picture, Carry on next time, Reset, Quit game |
 
 On a full-size keyboard, X and Z are A and B too. Hold several keys at once: Games reads the
 keyboard directly, so you can run and jump.
@@ -76,13 +77,18 @@ keyboard directly, so you can run and jump.
 **Gamepads** work as well: USB, or Bluetooth. Pair a Bluetooth one once in the Terminal: turn on
 Bluetooth in **Settings**, put the gamepad in pairing mode, then run `bluetoothctl`, and in it
 `scan on`, then `pair`, `trust` and `connect` with the gamepad's address. Buttons follow the usual
-layout, the d-pad or left stick moves, and Home/Guide opens the menu. A gamepad that connects
+layout, the d-pad or left stick moves, Home/Guide opens the menu, and holding the right stick in
+fast forwards. A gamepad that connects
 mid-game is picked up within a couple of seconds.
 
 **Saves.** Games with a battery save (most RPGs) are saved as they are played and when you quit,
 in `~/Games/saves/<game>.srm`. **Save state** stores the exact moment in
 `~/Games/states/<game>.state` (one per game); **Load state** goes back to it. Turning the screen
 off, or putting the Cardputer face down, pauses the game.
+
+**Carry on where you left off.** Quitting a game keeps the moment you quit at, in
+`~/Games/states/<game>.resume.state`, and starting it again carries on from there. **Reset** in
+the menu starts the game over; **Carry on next time: Off** turns this off.
 
 **Sound** plays through the speaker or headphones at the system volume.
 
@@ -95,6 +101,40 @@ slow here; use Snes9x 2010. PlayStation (PCSX ReARMed) runs many games at full s
 estimates for this chip and haven't been measured on the device yet. Use the **Performance**
 power profile in **Battery** for the demanding ones.
 
+The screen redraws at 60 frames a second while a game is on (30 for the rest of ZeroOS).
+
+## Picture and borders
+
 The picture is scaled to fit the screen, keeping its shape. A Game Boy picture (160 x 144) is
-shown at its real size, because that looks sharpest. Bigger pictures are scaled down, so very
-small text in some games can be hard to read.
+shown at its real size, because that looks sharpest. Bigger pictures (NES, Super Nintendo, Mega
+Drive, PlayStation) are scaled down. **Picture: Smooth** (the default) blends neighbouring pixels
+as it shrinks them, so thin lines and small text stay readable; **Picture: Sharp** keeps hard
+pixel edges but drops some rows and columns.
+
+The space around the picture has a **Border**. Press **Esc** and Enter on **Border** to change it:
+
+| Border | |
+| --- | --- |
+| Frame (the default) | A case in the console's colours around a recessed screen: a power light and speaker slots on the handhelds, trim lines on the others |
+| Glow | The colours at the edges of the picture, spread out and dimmed into the bars, like a TV with ambient light. It follows the game |
+| Image | A border picture of your own (below). Without one, the Frame is shown |
+| Off | Black |
+
+**Border pictures.** Put PNG pictures in `~/Games/borders`. For each game, Games uses the first
+it finds of:
+
+1. `<game>.png`, named like the game file without its extension (`Tetris (World).png`)
+2. `<console>.png`, using the folder name from the table above (`gb.png`, `nes.png`, `snes.png`...)
+3. `default.png`
+
+A picture with a see-through window in the middle is scaled so that the window sits on the game's
+picture. That's how ready-made bezels and borders work, so they can be used as they are: the
+console bezels from libretro's
+[overlay-borders](https://github.com/libretro/overlay-borders) collection (1920 x 1080, made for
+a 4:3 picture), or a Super Game Boy border (256 x 224, with a 160 x 144 window). The screen is
+wider and shorter than a TV, so the top and bottom of a Super Game Boy border are cut off. A
+picture without a window fills the whole screen, behind the game. Any size up to 4096 x 4096
+works, and see-through parts are drawn black. Pick a bezel made for the console's own picture
+shape: a 4:3 TV bezel around a Game Boy picture leaves black gaps beside it.
+
+Border, picture and carry-on settings are kept in `~/Games/settings` for every game.

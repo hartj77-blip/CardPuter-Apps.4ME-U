@@ -3,7 +3,7 @@
 What the Cardputer is doing: CPU, memory, storage, temperature, and the versions it runs. Its id
 is `sysmon`.
 
-Two pages. **Left**, **Right** or **Tab** switch between them; **Esc** goes home. Both refresh
+Two pages. **Left** and **Right** switch between them; **Esc** goes home. Both refresh
 every second.
 
 ## Overview

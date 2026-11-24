@@ -6,10 +6,13 @@
 //                   set up here
 //   Bluetooth       slower, but far easier on both batteries. Pair once
 //                   (Add a phone), then Enter on the phone goes online or
-//                   offline. Del twice forgets a phone.
+//                   offline. Forget is in the menu (Tab > D, or Del), and
+//                   asks first.
+#include <algorithm>
 #include <vector>
 
 #include "apps/common.h"
+#include "ui/list_view.h"
 
 namespace zs {
 
@@ -40,21 +43,17 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (page_ != Page::Main || (key != LV_KEY_DEL && key != LV_KEY_BACKSPACE)) return false;
-        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
-        for (size_t i = 0; i < phone_btns_.size(); ++i) {
-            if (phone_btns_[i] != f) continue;
-            const TetherPhone& p = st_.phones[i];
-            if (confirm_ != p.mac || lv_tick_elaps(confirm_at_) > 3000) {   // a fresh warning each time
-                confirm_ = p.mac;
-                confirm_at_ = lv_tick_get();
-                shell_toast("Del again to forget " + p.name);
-                return true;
+        if (page_ == Page::Pair) return false;
+        if (page_ == Page::Main && key == LV_KEY_DEL) {   // not a letter: letters filter the list
+            if (const TetherPhone* p = focused_phone()) {
+                std::string mac = p->mac, name = p->name;
+                shell_confirm("Forget " + name + "?", "Pair it again to use it.", "Forget",
+                              [this, mac, name] { forget(mac, name); });
             }
-            confirm_.clear();
-            hal().tether_forget(p.mac);
-            shell_toast("Forgot " + p.name);
-            dirty_ = true;
+            return true;
+        }
+        if (list_.key(key)) {
+            set_actions();   // Forget follows the focus
             return true;
         }
         return false;
@@ -70,6 +69,50 @@ public:
 private:
     enum class Page { Main, Search, Pair };
 
+    const TetherPhone* focused_phone() const {
+        int i = page_ == Page::Main ? list_.focused() - first_phone_ : -1;
+        return i >= 0 && i < int(st_.phones.size()) ? &st_.phones[size_t(i)] : nullptr;
+    }
+
+    void forget(const std::string& mac, const std::string& name) {
+        hal().tether_forget(mac);
+        shell_toast("Forgot " + name);
+        dirty_ = true;
+    }
+
+    void set_actions() {
+        std::vector<Action> a;
+        switch (page_) {
+            case Page::Main: {
+                const TetherPhone* p = focused_phone();
+                std::string enter = p ? (p->online ? "Go offline" : "Go online") : "Select";
+                a.push_back({enter, 0, "Enter", nullptr});
+                a.push_back({"Add a phone", 'n', nullptr, [this] { search(); }});
+                Action f{"Forget", 'd', nullptr, [] {}, p != nullptr, true};
+                if (p) {
+                    std::string mac = p->mac, name = p->name;
+                    f.run = [this, mac, name] { forget(mac, name); };
+                    f.confirm = "Forget " + name + "?";
+                }
+                a.push_back(f);
+                break;
+            }
+            case Page::Search:
+                a.push_back({"Pair", 0, "Enter", nullptr});
+                a.push_back({"Search again", 'r', nullptr, [this] { search(); }, st_.busy != "searching"});
+                a.push_back({"Back", 0, "Esc", nullptr});
+                break;
+            case Page::Pair: a.push_back({"Back", 0, "Esc", nullptr}); break;
+        }
+        shell_set_actions(std::move(a));
+    }
+
+    void search() {
+        hal().tether_search();
+        page_ = Page::Search;
+        dirty_ = true;
+    }
+
     std::string signature(const TetherStatus& s) const {
         NetStatus n = hal().net();
         std::string k = std::to_string(int(page_)) + s.busy + s.busy_mac + s.passkey + s.error + s.usb_name + s.usb_ip +
@@ -83,23 +126,21 @@ private:
         st_ = hal().tether();
         sig_ = signature(st_);
         dirty_ = false;
-        int keep = 0;
-        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
-        if (f && list_ && lv_obj_get_parent(f) == list_ && page_ == built_) keep = int(lv_obj_get_index(f));
+        int keep = page_ == built_ ? list_.focused() : -1;
         lv_obj_clean(root_);
-        list_ = nullptr;
-        phone_btns_.clear();
+        list_.reset();
         if (group) lv_group_remove_all_objs(group);
         built_ = page_;
+        set_actions();   // first: the screen is laid out above the bar
         switch (page_) {
         case Page::Main: build_main(); break;
         case Page::Search: build_search(); break;
         case Page::Pair: build_pair(); break;
         }
-        if (list_) {
-            finish_list(list_);
-            int n = int(lv_obj_get_child_count(list_));
-            if (n > 0) lv_group_focus_obj(lv_obj_get_child(list_, keep < n ? keep : n - 1));
+        if (page_ != Page::Pair) {
+            list_.finish();
+            if (keep >= 0) list_.focus(std::min(keep, list_.size() - 1));
+            set_actions();   // again, for the row now in focus
         }
     }
 
@@ -123,43 +164,36 @@ private:
         lv_obj_set_width(h, kScreenW - 16);
         lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
 
-        list_ = make_list(root_, 4, 22, kScreenW - 8, kContentH - 26);
-        list_button(list_, LV_SYMBOL_WIFI, "Wi-Fi hotspot: pick it in Wi-Fi",
-                    [](lv_event_t*) { shell_open_app("wifi"); }, nullptr);
-        list_button(list_, ZS_ICON_CAMERA, "Wi-Fi hotspot: scan its QR code",
-                    [](lv_event_t*) { shell_open_app("camera", "scan"); }, nullptr);
+        list_.build(root_, 2, 20, kScreenW - 4, kBodyH - 21);
+        list_.add(LV_SYMBOL_WIFI, "Wi-Fi hotspot: pick it in Wi-Fi", "", [] { shell_open_app("wifi"); });
+        list_.add(ZS_ICON_CAMERA, "Wi-Fi hotspot: scan its QR code", "", [] { shell_open_app("camera", "scan"); });
 
-        std::string usb = "USB: plug in the phone";
-        if (st_.usb) usb = "USB: " + st_.usb_name + (st_.usb_ip.empty() ? "   not sharing yet" : "   online");
-        list_button(list_, LV_SYMBOL_USB, usb.c_str(), [](lv_event_t* e) {
-            auto* self = static_cast<TetherApp*>(lv_event_get_user_data(e));
-            if (self->st_.usb && !self->st_.usb_ip.empty()) shell_toast("Online at " + self->st_.usb_ip);
+        std::string usb = "USB: plug in the phone", usb_state;
+        if (st_.usb) {
+            usb = "USB: " + st_.usb_name;
+            usb_state = st_.usb_ip.empty() ? "not sharing yet" : "online";
+        }
+        list_.add(LV_SYMBOL_USB, usb, usb_state, [this] {
+            if (st_.usb && !st_.usb_ip.empty()) shell_toast("Online at " + st_.usb_ip);
             else shell_toast("On the phone: turn on USB tethering (iPhone: Personal Hotspot)");
-        }, this);
+        });
 
+        first_phone_ = list_.size();
         for (size_t i = 0; i < st_.phones.size(); ++i) {
             const TetherPhone& p = st_.phones[i];
             bool busy = st_.busy == "connecting" && st_.busy_mac == p.mac;
-            std::string text = p.name + (busy ? "   connecting..." : p.online ? "   online" : "   off");
-            lv_obj_t* b = list_button(list_, p.online ? LV_SYMBOL_OK : LV_SYMBOL_BLUETOOTH, text.c_str(), on_phone, this);
-            lv_obj_set_user_data(b, (void*)(intptr_t)i);
-            phone_btns_.push_back(b);
+            int row = list_.add(p.online ? LV_SYMBOL_OK : LV_SYMBOL_BLUETOOTH, p.name,
+                                busy ? "connecting..." : p.online ? "online" : "off", [this, i] { on_phone(i); });
+            if (p.online) list_.set_value_color(row, kGood);
         }
-        list_button(list_, LV_SYMBOL_PLUS, "Add a phone over Bluetooth", [](lv_event_t* e) {
-            auto* self = static_cast<TetherApp*>(lv_event_get_user_data(e));
-            hal().tether_search();
-            self->page_ = Page::Search;
-            self->dirty_ = true;
-        }, this);
+        list_.add(LV_SYMBOL_PLUS, "Add a phone over Bluetooth", "", [this] { search(); });
     }
 
-    static void on_phone(lv_event_t* e) {
-        auto* self = static_cast<TetherApp*>(lv_event_get_user_data(e));
-        size_t i = size_t((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
-        if (i >= self->st_.phones.size()) return;
-        const TetherPhone& p = self->st_.phones[i];
-        if (!self->st_.busy.empty()) {
-            shell_toast("Busy: " + self->st_.busy);
+    void on_phone(size_t i) {
+        if (i >= st_.phones.size()) return;
+        const TetherPhone& p = st_.phones[i];
+        if (!st_.busy.empty()) {
+            shell_toast("Busy: " + st_.busy);
             return;
         }
         if (p.online) {
@@ -169,7 +203,7 @@ private:
             hal().tether_connect(p.mac);
             shell_toast("Connecting through " + p.name + "...");
         }
-        self->dirty_ = true;
+        dirty_ = true;
     }
 
     void build_search() {
@@ -182,26 +216,20 @@ private:
         lv_obj_set_width(tip, kScreenW - 16);
         lv_label_set_long_mode(tip, LV_LABEL_LONG_WRAP);
 
-        list_ = make_list(root_, 4, 54, kScreenW - 8, kContentH - 58);
+        list_.build(root_, 2, 52, kScreenW - 4, kBodyH - 53);
+        list_.set_empty_text(searching ? "Searching..." : "Nothing found");
         for (size_t i = 0; i < st_.found.size(); ++i) {
-            lv_obj_t* b = list_button(list_, ZS_ICON_PHONE, st_.found[i].name.c_str(), [](lv_event_t* e) {
-                auto* self = static_cast<TetherApp*>(lv_event_get_user_data(e));
-                size_t i = size_t((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
-                if (i >= self->st_.found.size()) return;
-                self->mac_ = self->st_.found[i].mac;
-                self->name_ = self->st_.found[i].name;
-                hal().tether_pair(self->mac_);
-                self->started_ = true;
-                self->page_ = Page::Pair;
-                self->dirty_ = true;
-            }, this);
-            lv_obj_set_user_data(b, (void*)(intptr_t)i);
+            list_.add(ZS_ICON_PHONE, st_.found[i].name, "", [this, i] {
+                if (i >= st_.found.size()) return;
+                mac_ = st_.found[i].mac;
+                name_ = st_.found[i].name;
+                hal().tether_pair(mac_);
+                started_ = true;
+                page_ = Page::Pair;
+                dirty_ = true;
+            });
         }
-        if (!searching)
-            list_button(list_, LV_SYMBOL_REFRESH, "Search again", [](lv_event_t* e) {
-                hal().tether_search();
-                static_cast<TetherApp*>(lv_event_get_user_data(e))->dirty_ = true;
-            }, this);
+        if (!searching) list_.add(LV_SYMBOL_REFRESH, "Search again", "", [this] { search(); });
     }
 
     void build_pair() {
@@ -210,7 +238,7 @@ private:
         std::string big, text;
         uint32_t color = kMuted;
         if (!st_.error.empty() && st_.busy.empty()) {
-            text = st_.error + "\nEsc goes back.";
+            text = st_.error;
             color = kBad;
         } else if (st_.busy == "connecting") {
             text = "Paired. Going online...";
@@ -233,11 +261,10 @@ private:
     }
 
     lv_obj_t* root_ = nullptr;
-    lv_obj_t* list_ = nullptr;
-    std::vector<lv_obj_t*> phone_btns_;
+    ListView list_;
+    int first_phone_ = 0;   // the list's row of the first paired phone
     TetherStatus st_;
-    std::string sig_, confirm_, shown_error_, mac_, name_;
-    uint32_t confirm_at_ = 0;
+    std::string sig_, shown_error_, mac_, name_;
     Page page_ = Page::Main, built_ = Page::Main;
     bool dirty_ = false;
     bool started_ = false;   // the pairing we asked for has been seen running

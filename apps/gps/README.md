@@ -22,9 +22,12 @@ has the details.
 | Satellites | Used of seen |
 | UTC | The time from the satellites |
 
+The keys are in the soft-key bar along the bottom and in the menu on **Tab** (Ctrl + the letter
+runs one straight away):
+
 | Key | Does |
 | --- | --- |
-| Enter | Save this spot: a line in `~/Documents/waypoints.txt` with the time, position and altitude |
+| Enter (menu: M) | Save this spot: a line in `~/Documents/waypoints.txt` with the time, position and altitude |
 | R | Start or stop recording a track, as GPX in `~/Documents/Tracks/` |
 | Esc | Home |
 

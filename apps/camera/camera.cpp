@@ -6,9 +6,11 @@
 // The image installs it as /usr/bin/camera_app.
 //
 // QR codes: ZeroShell's own reader, on this page under "Scan a QR code" (or
-// press Q). A code in view is read at once and the picture freezes on it:
+// press Q). The live picture is a Game screen (docs/UX.md in the OS: no
+// soft-key bar, Esc leaves). A code in view is read at once and the picture
+// freezes on it, with its actions in the soft-key bar and the menu:
 //   a Wi-Fi code (a phone's hotspot, a router's label)   Enter joins it
-//   a link                                               Enter opens it on the monitor (Dock mode)
+//   a link                                               Enter (or O) opens it on the monitor (Dock mode)
 //   a Syncthing device ID                                Enter adds it to Sync
 //   anything                                             S saves the text to ~/Notes/scans.txt
 //   Esc scans again, then leaves the reader.
@@ -22,6 +24,7 @@
 
 #include "apps/common.h"
 #include "hal/qr.h"
+#include "platform/keys.h"
 #include "ui/power.h"
 
 namespace zs {
@@ -85,11 +88,12 @@ public:
     void build(lv_obj_t* root) override {
         root_ = root;
         CameraStatus st = hal().camera();
+        set_start_actions();   // first: the page is laid out above the bar
 
         lv_obj_t* panel = lv_obj_create(root);
         style_panel(panel);
         lv_obj_set_pos(panel, 6, 4);
-        lv_obj_set_size(panel, 308, kContentH - 10);
+        lv_obj_set_size(panel, 308, kBodyH - 8);
         lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_row(panel, 4, 0);
@@ -102,8 +106,8 @@ public:
         const char* help = !st.installed
                                ? "M5Stack's camera program is missing:\nreinstall Camera in Apps."
                            : st.present
-                               ? "Enter takes a photo. H shows every key\n(zoom, pan, gallery). Hold 4 for a second\n"
-                                 "to come back here."
+                               ? "In the viewfinder, Enter takes a photo and H\nshows its keys (zoom, pan, gallery). Hold 4\n"
+                                 "for a second to come back here."
                                : "The Lite model has no camera. On the\nfull model, check the camera cable.\n"
                                  "A USB camera also works: open, then U.";
         lv_obj_t* h = label(panel, help, &zs_font_12, kMuted);
@@ -130,7 +134,7 @@ public:
             static_cast<CameraApp*>(lv_event_get_user_data(e))->open();
         });
         // Deferred: the reader covers (and outlives) the button being clicked.
-        button(ZS_ICON_SEARCH "  Scan a QR code (Q)", 144, 152, [](lv_event_t* e) {
+        button(ZS_ICON_SEARCH "  Scan a QR code", 144, 152, [](lv_event_t* e) {
             lv_async_call(start_scan_cb, lv_event_get_user_data(e));
         });
 
@@ -190,17 +194,22 @@ public:
             return true;
         }
         if (key == LV_KEY_ESC) return false;   // on_back()
+        // The shell's keys: the menu, Ctrl + a letter, and the key sheet once
+        // a code is up (it has actions then).
+        if (key == kKeyNext || is_ctrl_key(key) || (key == '0' && !result_.empty())) return false;
         if (!result_.empty()) {
             if (key == 's' || key == 'S') save_text();
+            else if (key == 'o' || key == 'O') open_link();
             else if (key == LV_KEY_ENTER) act();
         }
-        return true;   // the page's buttons are underneath: keep keys from them
+        return true;   // the page's buttons are underneath: keep keys (1 to 9 too) from them
     }
 
     bool on_back() override {
         if (fake_) {
             lv_obj_delete(fake_);
             fake_ = nullptr;
+            set_start_actions();
             return true;
         }
         if (scan_ && !result_.empty()) {   // back to the live picture
@@ -213,6 +222,7 @@ public:
             hal().scan_stop();
             lv_obj_delete(scan_);
             scan_ = nullptr;
+            set_start_actions();
             return true;
         }
         return false;
@@ -220,6 +230,22 @@ public:
 
 private:
     enum class Kind { Text, Wifi, Link, SyncId };
+
+    void set_start_actions() {
+        shell_set_actions({{"Select", 0, "Enter", nullptr},
+                           {"Open camera", 'c', nullptr, [this] { open(); }},
+                           {"Scan a QR code", 'q', "Q", [this] { start_scan(); }}});
+    }
+
+    // A code is up: Enter does what suits it, S saves it, O opens a link.
+    void set_result_actions(const char* enter) {
+        std::vector<Action> a;
+        a.push_back({enter, 0, "Enter", [this] { act(); }});
+        a.push_back({"Save", 's', "S", [this] { save_text(); }});
+        if (kind_ == Kind::Link) a.push_back({"Open on monitor", 'o', "O", [this] { open_link(); }});
+        a.push_back({"Scan again", 0, "Esc", nullptr});
+        shell_set_actions(std::move(a));
+    }
 
     void open() {
         if (shell_open_camera()) return;
@@ -232,7 +258,8 @@ private:
         if (fake_) return;
         fake_ = lv_obj_create(root_);
         style_plain(fake_);
-        lv_obj_set_size(fake_, kScreenW, kContentH);
+        shell_set_actions({{"Close preview", 0, "Esc", nullptr}});
+        lv_obj_set_size(fake_, kScreenW, kBodyH);
         lv_obj_set_style_bg_color(fake_, c(0x101418), 0);
         lv_obj_set_style_bg_grad_color(fake_, c(0x2a3b4d), 0);
         lv_obj_set_style_bg_grad_dir(fake_, LV_GRAD_DIR_VER, 0);
@@ -247,7 +274,7 @@ private:
         lv_obj_set_style_border_width(frame, 1, 0);
         lv_obj_set_style_border_opa(frame, LV_OPA_60, 0);
         lv_obj_set_style_radius(frame, 4, 0);
-        lv_obj_t* t = label(fake_, "[simulator] On the Cardputer this is the live\nviewfinder. Esc closes this preview.",
+        lv_obj_t* t = label(fake_, "[simulator] On the Cardputer this is the live\nviewfinder.",
                             &zs_font_12, 0xffffff);
         lv_obj_align(t, LV_ALIGN_BOTTOM_LEFT, 8, -6);
         lv_obj_t* z = label(fake_, "1.0x", &zs_font_12, 0xffffff);
@@ -292,9 +319,6 @@ private:
         lv_obj_set_pos(body_, kSideX, 26);
         lv_obj_set_size(body_, kSideW, 72);
         lv_label_set_long_mode(body_, LV_LABEL_LONG_WRAP);
-        hints_ = label(scan_, "", &zs_font_12, kMuted);
-        lv_obj_set_width(hints_, kSideW);
-        lv_obj_align(hints_, LV_ALIGN_BOTTOM_LEFT, kSideX, -4);
 
         result_.clear();
         seq_ = 0;
@@ -306,7 +330,8 @@ private:
     void show_live() {
         lv_label_set_text(title_, "Scan");
         lv_label_set_text(body_, "Point it at a QR code.");
-        lv_label_set_text(hints_, "Esc  back");
+        // A viewfinder: the whole height, no bar (a Game screen).
+        shell_set_actions({});
         state_ = CamState::Off;   // so tick() puts the right message up
     }
 
@@ -353,29 +378,36 @@ private:
         hal().beep(1760, 50);
 
         WifiCode w;
-        std::string body, enter;
+        std::string body;
+        const char* enter = "Save";
         if (parse_wifi(result_, w)) {
             kind_ = Kind::Wifi;
             lv_label_set_text(title_, "Wi-Fi network");
             body = printable(w.ssid, 40) + "\n" + (w.password.empty() ? "Open, no password" : "Password included");
-            enter = "Enter  join\n";
+            enter = "Join";
         } else if (is_link(result_)) {
             kind_ = Kind::Link;
             lv_label_set_text(title_, "Link");
             body = printable(result_, 90);
-            if (hal().display().dock_running) enter = "Enter  on monitor\n";
+            enter = "Open";
         } else if (is_sync_id(result_)) {
             kind_ = Kind::SyncId;
             lv_label_set_text(title_, "Sync device");
             body = result_.substr(0, 15) + "...";
-            enter = "Enter  add to Sync\n";
+            enter = "Add to Sync";
         } else {
             kind_ = Kind::Text;
             lv_label_set_text(title_, "QR code");
             body = printable(result_, 90);
         }
         lv_label_set_text(body_, body.c_str());
-        lv_label_set_text(hints_, (enter + "S  save   Esc  again").c_str());
+        set_result_actions(enter);
+    }
+
+    void open_link() {
+        if (kind_ != Kind::Link) return;
+        if (hal().dock_open("browser", result_)) shell_toast("Opened on the monitor");
+        else shell_toast("Links open on a monitor, in Dock mode");
     }
 
     void act() {
@@ -387,10 +419,7 @@ private:
             lv_refr_now(nullptr);   // connecting takes a few seconds: show the notice first
             shell_toast(hal().wifi_connect(w.ssid, w.password) ? "Connected to " + w.ssid : "Could not connect");
             break;
-        case Kind::Link:
-            if (hal().dock_open("browser", result_)) shell_toast("Opened on the monitor");
-            else shell_toast("Links open on a monitor (Dock). S saves it.");
-            break;
+        case Kind::Link: open_link(); break;
         case Kind::SyncId:
             if (!hal().sync_running()) shell_toast("Turn on Sync first");
             else shell_toast(hal().sync_add_device(result_, "") ? "Added; accept it on the other device too"
@@ -418,7 +447,7 @@ private:
     lv_obj_t* scan_ = nullptr;   // the reader's page, over the rest
     std::vector<uint16_t> pix_;
     lv_image_dsc_t dsc_{};
-    lv_obj_t *img_ = nullptr, *wait_ = nullptr, *title_ = nullptr, *body_ = nullptr, *hints_ = nullptr;
+    lv_obj_t *img_ = nullptr, *wait_ = nullptr, *title_ = nullptr, *body_ = nullptr;
     CamState state_ = CamState::Off;
     uint32_t seq_ = 0;
     int frames_ = 0;

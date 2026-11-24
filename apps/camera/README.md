@@ -25,9 +25,12 @@ code**, where Esc goes home.
 
 ## QR codes
 
-On that page, choose **Scan a QR code** or press **Q**. (Tether's "scan its QR
-code" comes straight here.) A live picture appears; a code in view is read at
+On that page, choose **Scan a QR code** or press **Q** (the bar along the bottom shows it, and it is
+in the menu on **Tab** too). (Tether's "scan its QR code" comes straight here.) A live picture appears; a code in view is read at
 once, with a beep, and the picture freezes with the code outlined.
+
+The bar along the bottom then says what Enter does for that code; the menu on **Tab** has the same
+actions, and **O** (Open on monitor) for a link.
 
 | The code holds | **Enter** | **S** |
 | --- | --- | --- |

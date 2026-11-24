@@ -1,4 +1,4 @@
 # Files: browse the device's files; opens text in Notes, video on the monitor.
 NAME="Files"
 SUMMARY="Browse the files on this device"
-APP_VERSION="1.0.0"
+APP_VERSION="1.1.0"

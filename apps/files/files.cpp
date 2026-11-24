@@ -20,6 +20,7 @@
 #include "apps/kit/ui.h"
 #include "ui/list_view.h"
 #include "ui/remote.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 

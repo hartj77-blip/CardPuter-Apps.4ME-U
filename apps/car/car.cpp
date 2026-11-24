@@ -11,6 +11,7 @@
 // device; the menu (Tab) has Forget, which asks first (Del does the same).
 #include "apps/common.h"
 #include "ui/list_view.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {

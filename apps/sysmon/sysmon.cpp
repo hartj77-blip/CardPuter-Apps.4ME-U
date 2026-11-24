@@ -3,6 +3,7 @@
 //   Memory    where the RAM goes: available, cache, zram, SD swap, the shell
 //             itself, and the five biggest processes
 #include "apps/common.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {

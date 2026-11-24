@@ -4,4 +4,4 @@
 NAME="AI"
 REPLACES="zclaw"   # its old name
 SUMMARY="AI assistant: Claude, ChatGPT, Gemini, Ollama and more"
-APP_VERSION="1.1.0"
+APP_VERSION="1.1.1"

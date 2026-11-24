@@ -14,6 +14,7 @@
 #include "apps/common.h"
 #include "ui/list_view.h"
 #include "ui/sync.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {
@@ -215,7 +216,7 @@ private:
                            : !st_.requests.empty() ? "Someone asks to sync: the request is at the top of the list."
                            : st_.devices.empty() ? "Add this Cardputer in Syncthing on your PC or phone: Show my device ID."
                            : "Notes, Documents and Recordings, the same everywhere.";
-        lv_obj_t* h = label(panel, hint, &zs_font_12, st_.requests.empty() ? kMuted : kAccent);
+        lv_obj_t* h = label(panel, hint, &zs_font_12, st_.requests.empty() ? kMuted : kWarn);
         lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(h, 130);
 
@@ -224,7 +225,7 @@ private:
             const SyncRequest& r = st_.requests[i];
             std::string t = r.is_folder ? r.device_name + ": " + r.folder_label : r.device_name;
             int row = list_.add(r.is_folder ? LV_SYMBOL_DIRECTORY : LV_SYMBOL_PLUS, t, "asks", [this, i] { accept(i); });
-            list_.set_value_color(row, kAccent);
+            list_.set_value_color(row, kWarn);
             refs_.push_back({RowRef::Request, i});
         }
         for (size_t i = 0; i < st_.folders.size(); ++i) {
@@ -270,12 +271,10 @@ private:
 
     lv_obj_t* overlay(int h) {
         input_ = lv_obj_create(root_);
-        style_panel(input_);
+        look::raised(input_);
         lv_obj_set_size(input_, 308, h);
         lv_obj_center(input_);
         lv_obj_remove_flag(input_, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_style_border_color(input_, c(kAccent), 0);
-        lv_obj_set_style_border_width(input_, 1, 0);
         return input_;
     }
 
@@ -319,6 +318,7 @@ private:
         lv_obj_t* o = overlay(74);
         label(o, "Device ID (from Syncthing: Actions > Show ID)", &zs_font_12, kMuted);
         lv_obj_t* ta = lv_textarea_create(o);
+        look::field(ta);
         lv_textarea_set_one_line(ta, true);
         lv_obj_set_width(ta, 288);
         lv_obj_align(ta, LV_ALIGN_BOTTOM_MID, 0, 0);

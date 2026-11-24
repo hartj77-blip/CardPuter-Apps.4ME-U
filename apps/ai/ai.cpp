@@ -26,6 +26,7 @@
 #include "apps/ai/chat.h"
 #include "ui/fileio.h"
 #include "ui/list_view.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {
@@ -180,6 +181,7 @@ private:
         fill_messages();
 
         ta_ = lv_textarea_create(root_);
+        look::field(ta_);
         lv_textarea_set_one_line(ta_, true);
         lv_textarea_set_placeholder_text(ta_, "Ask anything");
         lv_textarea_set_max_length(ta_, 2000);
@@ -308,7 +310,7 @@ private:
             lv_obj_t* l = lv_label_create(chat_);
             lv_label_set_text(l, ((h[i].user ? "You: " : "") + h[i].text).c_str());
             lv_obj_set_style_text_font(l, &zs_font_12, 0);
-            lv_obj_set_style_text_color(l, c(h[i].user ? kAccent : kText), 0);
+            lv_obj_set_style_text_color(l, c(h[i].user ? kMuted : kText), 0);
             lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(l, kScreenW - 24);
         }
@@ -428,14 +430,13 @@ private:
         // A Text screen while it's open: the bar says so.
         shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
-        style_panel(input_);
+        look::raised(input_);
         lv_obj_set_size(input_, 300, 74);
         lv_obj_center(input_);
-        lv_obj_set_style_border_color(input_, c(kAccent), 0);
-        lv_obj_set_style_border_width(input_, 1, 0);
         lv_obj_remove_flag(input_, LV_OBJ_FLAG_SCROLLABLE);
         label(input_, title, &zs_font_12, kMuted);
         lv_obj_t* ta = lv_textarea_create(input_);
+        look::field(ta);
         lv_textarea_set_one_line(ta, true);
         lv_textarea_set_password_mode(ta, password);
         lv_textarea_set_max_length(ta, 1000);

@@ -15,6 +15,7 @@
 #include "apps/common.h"
 #include "radio_link.h"
 #include "memories.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {

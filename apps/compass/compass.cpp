@@ -2,6 +2,7 @@
 #include <cmath>
 
 #include "apps/common.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {

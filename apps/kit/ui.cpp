@@ -2,6 +2,7 @@
 
 #include "apps/common.h"
 #include "apps/kit/run.h"
+#include "apps/kit/look.h"
 
 namespace zs::kit {
 namespace {
@@ -38,9 +39,7 @@ lv_obj_t* input_screen(lv_obj_t* root, lv_group_t* group, const char* title, con
     lv_textarea_set_placeholder_text(ta, placeholder);
     lv_obj_set_size(ta, kScreenW - 20, 36);
     lv_obj_set_pos(ta, 10, 42);
-    lv_obj_set_style_bg_color(ta, c(kSurface), 0);
-    lv_obj_set_style_border_color(ta, c(kAccent), 0);
-    lv_obj_set_style_border_width(ta, 1, 0);
+    look::field(ta);
 
     Cb* cb = new Cb{std::move(on_submit)};
     lv_obj_set_user_data(ta, cb);
@@ -54,7 +53,7 @@ lv_obj_t* input_screen(lv_obj_t* root, lv_group_t* group, const char* title, con
     }, LV_EVENT_DELETE, nullptr);
 
     if (help && *help) {
-        lv_obj_t* h = label(page, help, &zs_font_12, kMuted);
+        lv_obj_t* h = label(page, help, &zs_font_12, look::kMuted);
         lv_obj_set_pos(h, 10, 88);
         lv_obj_set_width(h, kScreenW - 20);
         lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
@@ -73,9 +72,9 @@ int body_h(lv_obj_t* root) {
 }
 
 lv_obj_t* title_row(lv_obj_t* root, const std::string& title, const std::string& note) {
-    lv_obj_t* h = label(root, note.c_str(), &zs_font_12, kMuted);
+    lv_obj_t* h = label(root, note.c_str(), &zs_font_12, look::kMuted);
     lv_obj_align(h, LV_ALIGN_TOP_RIGHT, -4, 3);
-    lv_obj_t* t = label(root, title.c_str(), &zs_font_14, kAccent);
+    lv_obj_t* t = label(root, title.c_str(), &zs_font_14, look::kAccent);
     lv_obj_set_pos(t, 4, 1);
     // Leave room for the note: long titles scroll instead of overlapping.
     lv_obj_update_layout(h);
@@ -88,7 +87,7 @@ lv_obj_t* title_row(lv_obj_t* root, const std::string& title, const std::string&
 
 void OutputView::build(lv_obj_t* root, int top, int bottom_gap) {
     panel_ = lv_obj_create(root);
-    style_panel(panel_);
+    look::style_panel(panel_);
     lv_obj_set_pos(panel_, 4, top);
     lv_obj_set_size(panel_, kScreenW - 8, body_h(root) - top - bottom_gap);
     lv_obj_set_scrollbar_mode(panel_, LV_SCROLLBAR_MODE_ACTIVE);
@@ -96,12 +95,12 @@ void OutputView::build(lv_obj_t* root, int top, int bottom_gap) {
 
     label_ = lv_label_create(panel_);
     lv_obj_set_style_text_font(label_, &zs_font_12, 0);
-    lv_obj_set_style_text_color(label_, c(kText), 0);
+    lv_obj_set_style_text_color(label_, c(look::kText), 0);
     lv_label_set_long_mode(label_, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(label_, kScreenW - 22);
     lv_label_set_text(label_, "");
 
-    placeholder_ = label(panel_, "", &zs_font_12, kMuted);
+    placeholder_ = label(panel_, "", &zs_font_12, look::kMuted);
     lv_obj_center(placeholder_);
     text_.clear();
     lines_ = 0;
@@ -110,7 +109,7 @@ void OutputView::build(lv_obj_t* root, int top, int bottom_gap) {
 void OutputView::set_placeholder(const std::string& text) {
     if (!panel_) return;
     if (!placeholder_ || !lv_obj_is_valid(placeholder_)) {
-        placeholder_ = label(panel_, "", &zs_font_12, kMuted);
+        placeholder_ = label(panel_, "", &zs_font_12, look::kMuted);
         lv_obj_center(placeholder_);
     }
     lv_label_set_text(placeholder_, text.c_str());

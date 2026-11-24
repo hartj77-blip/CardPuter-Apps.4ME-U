@@ -19,6 +19,7 @@
 #include "ui/power.h"
 #include "ui/prefs.h"
 #include "ui/remote.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 
@@ -320,13 +321,12 @@ private:
         done_ = done;
         shell_set_actions({{"Save", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
-        style_panel(input_);
+        look::raised(input_);
         lv_obj_set_size(input_, 300, 74);
         lv_obj_center(input_);
-        lv_obj_set_style_border_color(input_, c(kAccent), 0);
-        lv_obj_set_style_border_width(input_, 1, 0);
         label(input_, title, &zs_font_12, kMuted);
         lv_obj_t* ta = lv_textarea_create(input_);
+        look::field(ta);
         lv_textarea_set_one_line(ta, true);
         lv_textarea_set_text(ta, initial.c_str());
         lv_obj_set_width(ta, 280);

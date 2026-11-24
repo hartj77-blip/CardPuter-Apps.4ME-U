@@ -36,6 +36,7 @@
 #include "hal/hal.h"
 #include "ui/list_view.h"
 #include "ui/power.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {
@@ -532,11 +533,9 @@ private:
         if (!stage_) return;
         if (!toast_) {
             toast_ = label(stage_, "", &zs_font_12, kText);
-            lv_obj_set_style_bg_color(toast_, c(kSurface), 0);
-            lv_obj_set_style_bg_opa(toast_, LV_OPA_80, 0);
+            look::raised(toast_);
             lv_obj_set_style_pad_hor(toast_, 6, 0);
             lv_obj_set_style_pad_ver(toast_, 2, 0);
-            lv_obj_set_style_radius(toast_, 4, 0);
             lv_obj_align(toast_, LV_ALIGN_BOTTOM_MID, 0, -4);
         }
         lv_label_set_text(toast_, text.c_str());

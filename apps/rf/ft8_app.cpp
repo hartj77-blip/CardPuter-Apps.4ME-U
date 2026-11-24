@@ -22,6 +22,7 @@
 #include "rf_state.h"
 #include "aprs.h"
 #include "ui/prefs.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {
@@ -177,7 +178,7 @@ private:
         d.time = time.substr(2, 2) + ":" + time.substr(4, 2);
 
         // What kind of message, for colour; and how far away, if it says where.
-        if (d.text.rfind("CQ ", 0) == 0) d.color = kAccent;
+        if (d.text.rfind("CQ ", 0) == 0) d.color = kGood;
         if (!my_call_.empty() && (" " + d.text + " ").find(" " + my_call_ + " ") != std::string::npos) d.color = kGood;
         std::string last = d.text.substr(d.text.rfind(' ') + 1);
         double lat, lon;

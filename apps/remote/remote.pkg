@@ -2,7 +2,7 @@
 # remote desktop on the monitor (Dock), Taildrop into ~/Downloads.
 NAME="Remote"
 SUMMARY="Tailscale or Headscale sign-in, SSH to your devices, remote desktop, Taildrop"
-APP_VERSION="1.3.0"
+APP_VERSION="1.3.1"
 DEPENDS="tailscale, mosh, freerdp3-wayland"
 # Tailscale is off at boot; ZeroShell starts it when needed (Settings > Tailscale).
 DISABLE_DEPS="tailscaled.service"

@@ -11,6 +11,7 @@
 #include "net_run.h"
 #include "apps/kit/suite.h"
 #include "apps/kit/ui.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 
@@ -110,7 +111,7 @@ protected:
         a.push_back({"New target", 0, "Esc", nullptr});
         shell_set_actions(std::move(a));
 
-        header_ = theme::label(root_, "", &zs_font_14, theme::kAccent);
+        header_ = theme::label(root_, "", &zs_font_14, kit::look::kAccent);
         lv_obj_set_pos(header_, 4, 1);
         lv_label_set_text(header_, fmt("%s  %s", title(), target_.c_str()).c_str());
 

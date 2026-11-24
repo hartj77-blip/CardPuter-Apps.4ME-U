@@ -11,6 +11,7 @@
 #include "aprs.h"
 #include "ui/list_view.h"
 #include "ui/prefs.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {

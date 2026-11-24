@@ -15,6 +15,7 @@
 #include "net_run.h"
 #include "net_sim.h"
 #include "apps/kit/ui.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {

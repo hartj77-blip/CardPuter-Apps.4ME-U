@@ -13,6 +13,7 @@
 #include "background_radio.h"
 #include "apps/common.h"
 #include "radio_link.h"
+#include "apps/kit/look.h"
 
 namespace zs {
 namespace {

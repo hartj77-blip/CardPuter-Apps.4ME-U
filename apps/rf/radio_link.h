@@ -36,16 +36,25 @@ public:
             fresh = true;
             return true;
         }
+        bool waiting = spawned_;
         if (!spawned_) {
             const char* src = std::getenv("ZRF_SOURCE");
             bool device = std::strcmp(ZS_BACKEND_NAME, "device") == 0;
             spawned_ = zrf::spawn_daemon(src && *src ? src : device ? "rtlsdr" : "sim");
-        } else if (++failures_ > 10) {
-            unavailable = true;
         }
+        // Count a daemon that can't be started too (the browser can't start
+        // one), so the app says so instead of "Starting radio..." forever.
+        if ((waiting || !spawned_) && ++failures_ > 10) unavailable = true;
         if (headless()) usleep(50 * 1000);
         retry_in_ = headless() ? 0 : 6;
         return false;
+    }
+
+    // What the apps show when there is no radio service.
+    static const char* unavailable_text() {
+        return std::strcmp(ZS_BACKEND_NAME, "web") == 0
+                   ? "No radio in the browser.\nTry RF Tools on a Cardputer."
+                   : "Radio service not available";
     }
 
     // The daemon went away: start it again on the next ensure().

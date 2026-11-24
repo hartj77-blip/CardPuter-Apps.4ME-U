@@ -2,10 +2,12 @@
 // OpenRouter, Groq, Mistral, an Ollama server on your PC, or any
 // OpenAI-compatible server. Bring your own API key. See docs/AI.md.
 //
-//   Chat page      type, Enter to send. Up/Down scroll the conversation.
-//                  Esc while it's thinking stops the request.
-//   Tab            settings: provider, model, API key, server, new chat,
-//                  save the chat to Notes. Tab or Esc: back to the chat.
+//   Chat page      a Text screen (docs/UX.md in the OS): type, Enter sends.
+//                  Up/Down scroll the conversation; Esc while it's thinking
+//                  stops the request. The Tab menu has a new chat, the
+//                  model, saving to Notes and the settings.
+//   Settings       a list: provider, API key, model, server, personality.
+//                  Esc: back to the chat.
 //
 // The request runs on a worker thread (curl), so the screen never freezes;
 // leaving the app stops it.
@@ -23,6 +25,7 @@
 #include "apps/common.h"
 #include "apps/ai/chat.h"
 #include "ui/fileio.h"
+#include "ui/list_view.h"
 
 namespace zs {
 namespace {
@@ -54,7 +57,6 @@ class AiApp : public App {
 public:
     ~AiApp() override {
         lv_async_call_cancel(rebuild_cb, this);
-        lv_async_call_cancel(run_pending_cb, this);
         stop();
     }
 
@@ -90,21 +92,22 @@ public:
             failed_ = true;
         }
         job_.reset();
-        if (page_ == Page::Chat) fill_messages();
+        if (page_ == Page::Chat) {
+            fill_messages();
+            set_chat_actions();   // Esc no longer stops; Try again may apply
+        }
     }
 
     bool on_key(uint32_t key) override {
         if (input_) return false;
-        if (key == 9) {   // Tab
-            page_ = page_ == Page::Chat ? Page::Settings : Page::Chat;
-            defer_rebuild();
-            return true;
+        if (page_ == Page::Chat) {
+            if (chat_ && (key == LV_KEY_UP || key == LV_KEY_DOWN)) {
+                lv_obj_scroll_by_bounded(chat_, 0, key == LV_KEY_UP ? 48 : -48, LV_ANIM_OFF);
+                return true;
+            }
+            return false;
         }
-        if (page_ == Page::Chat && chat_ && (key == LV_KEY_UP || key == LV_KEY_DOWN)) {
-            lv_obj_scroll_by_bounded(chat_, 0, key == LV_KEY_UP ? 48 : -48, LV_ANIM_OFF);
-            return true;
-        }
-        return false;
+        return list_.key(key);   // Settings and Providers: typing filters
     }
 
     bool on_back() override {
@@ -126,6 +129,7 @@ public:
             stop();
             shell_toast("Stopped");
             fill_messages();
+            set_chat_actions();
             return true;
         }
         return false;
@@ -141,7 +145,8 @@ private:
         if (ta_) draft_ = lv_textarea_get_text(ta_);
         if (group) lv_group_set_editing(group, false);
         lv_obj_clean(root_);
-        chat_ = ta_ = thinking_ = input_ = list_ = nullptr;
+        chat_ = ta_ = thinking_ = input_ = nullptr;
+        list_.reset();
         if (group) lv_group_remove_all_objs(group);
         switch (page_) {
             case Page::Chat: build_chat(); break;
@@ -162,14 +167,13 @@ private:
                                &zs_font_12, kMuted);
         lv_obj_set_pos(head, 8, 2);
         lv_label_set_long_mode(head, LV_LABEL_LONG_DOT);
-        lv_obj_set_width(head, kScreenW - 90);
-        lv_obj_t* hint = label(root_, "Tab: settings", &zs_font_12, kMuted);
-        lv_obj_align(hint, LV_ALIGN_TOP_RIGHT, -8, 2);
+        lv_obj_set_width(head, kScreenW - 16);
+        set_chat_actions();
 
         chat_ = lv_obj_create(root_);
         style_panel(chat_);
         lv_obj_set_pos(chat_, 4, 18);
-        lv_obj_set_size(chat_, kScreenW - 8, kContentH - 58);
+        lv_obj_set_size(chat_, kScreenW - 8, kBodyH - 58);
         lv_obj_set_flex_flow(chat_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_all(chat_, 4, 0);
         lv_obj_set_style_pad_row(chat_, 4, 0);
@@ -177,28 +181,71 @@ private:
 
         ta_ = lv_textarea_create(root_);
         lv_textarea_set_one_line(ta_, true);
-        lv_textarea_set_placeholder_text(ta_, "Ask anything, Enter to send");
+        lv_textarea_set_placeholder_text(ta_, "Ask anything");
         lv_textarea_set_max_length(ta_, 2000);
         lv_textarea_set_text(ta_, draft_.c_str());
         lv_obj_set_width(ta_, kScreenW - 8);
-        lv_obj_set_pos(ta_, 4, kContentH - 37);
+        lv_obj_set_pos(ta_, 4, kBodyH - 37);
         lv_obj_add_event_cb(ta_, on_send, LV_EVENT_READY, this);
         lv_group_add_obj(group, ta_);
         lv_group_focus_obj(ta_);
         lv_group_set_editing(group, true);
     }
 
+    // The chat's actions. Enter and Esc are the text box's and the shell's;
+    // the rest are in the menu.
+    void set_chat_actions() {
+        if (page_ != Page::Chat || input_) return;
+        std::vector<Action> a;
+        a.push_back({"Send", 0, "Enter", nullptr});
+        if (job_) a.push_back({"Stop", 0, "Esc", nullptr});
+        a.push_back({"Scroll", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr});
+        a.push_back({"New chat", 'n', nullptr, [this] { new_chat(); }});
+        Action again{"Try again", 't', nullptr, [this] { retry(); }};
+        again.enabled = can_retry();
+        a.push_back(again);
+        a.push_back({"Model", 'm', nullptr, [this] { ask_model(); }});
+        a.push_back({"Save chat to Notes", 's', nullptr, [this] { save_to_notes(); }});
+        a.push_back({"Settings", 'p', nullptr, [this] {
+                         page_ = Page::Settings;
+                         defer_rebuild();
+                     }});
+        shell_set_actions(std::move(a));
+    }
+
+    // The last question went unanswered (and no request is running).
+    bool can_retry() const { return !job_ && failed_ && !history().empty() && history().back().user; }
+    void retry() {
+        if (can_retry()) send();
+    }
+
+    void new_chat() {
+        stop();
+        history().clear();
+        failed_ = false;
+        page_ = Page::Chat;
+        defer_rebuild();
+        shell_toast("New chat");
+    }
+
+    void ask_model() {
+        ask("Model (empty: the default)", ai::effective_model(cfg_), false, [this](const std::string& v) {
+            cfg_.model = v;
+            store("Model saved");
+        });
+    }
+
     static void on_send(lv_event_t* e) {
         auto* self = static_cast<AiApp*>(lv_event_get_user_data(e));
         std::string text = lv_textarea_get_text(self->ta_);
         if (self->job_) {
-            shell_toast("Still thinking (Esc stops it)");
+            shell_toast("Still thinking");
             return;
         }
         bool blank = text.find_first_not_of(" \t") == std::string::npos;
         if (blank) {
             // Enter on an empty box after a failure: ask again.
-            if (self->failed_ && !history().empty() && history().back().user) self->send();
+            self->retry();
             return;
         }
         // A question that failed and wasn't retried is replaced, so the
@@ -231,6 +278,7 @@ private:
         worker_ = std::thread(run);
 #endif
         fill_messages();
+        set_chat_actions();
     }
 
     // Kill curl and wait for the worker: it must be gone before the app
@@ -267,7 +315,7 @@ private:
         if (job_) {
             thinking_ = label(chat_, "Thinking", &zs_font_12, kMuted);
         } else if (failed_ && !h.empty() && h.back().user) {
-            label(chat_, "Not answered. Enter on an empty box tries again.", &zs_font_12, kBad);
+            label(chat_, "Not answered. Send it again with Try again in the menu.", &zs_font_12, kBad);
         }
         lv_obj_update_layout(chat_);
         lv_obj_scroll_to_y(chat_, LV_COORD_MAX, LV_ANIM_OFF);
@@ -280,105 +328,79 @@ private:
         lv_obj_t* t = label(root_, LV_SYMBOL_SETTINGS " AI settings", &zs_font_12, kAccent);
         lv_obj_set_pos(t, 8, 2);
         lv_obj_t* hint = label(root_, p ? p->key_hint : "", &zs_font_12, kMuted);
-        lv_obj_set_pos(hint, 8, kContentH - 16);
+        lv_obj_set_pos(hint, 8, kBodyH - 16);
         lv_label_set_long_mode(hint, LV_LABEL_LONG_DOT);
         lv_obj_set_width(hint, kScreenW - 16);
+        set_settings_actions();
 
-        list_ = make_list(root_, 4, 18, kScreenW - 8, kContentH - 36);
+        list_.build(root_, 4, 18, kScreenW - 8, kBodyH - 36);
         std::string key = cfg_.key.empty()
                               ? std::string(p && !p->needs_key ? "not needed" : "not set")
                               : "set, ends " + (cfg_.key.size() > 4 ? cfg_.key.substr(cfg_.key.size() - 4) : "");
         std::string url = cfg_.url.empty() ? "default" : cfg_.url;
         if (p && !*p->url && cfg_.url.empty()) url = "not set";
-        add_row(LV_SYMBOL_LIST, "Provider: " + provider_name(), [](AiApp* s) {
-            s->page_ = Page::Providers;
-            s->defer_rebuild();
+        list_.add(LV_SYMBOL_LIST, "Provider", provider_name(), [this] {
+            page_ = Page::Providers;
+            rebuild();
         });
-        add_row(LV_SYMBOL_KEYBOARD, "API key: " + key, [](AiApp* s) {
-            s->ask("API key (paste or type it; empty removes it)", "", true, [s](const std::string& v) {
-                s->cfg_.key = v;
-                s->store("Key saved");
+        list_.add(LV_SYMBOL_KEYBOARD, "API key", key, [this] {
+            ask("API key (paste or type it; empty removes it)", "", true, [this](const std::string& v) {
+                cfg_.key = v;
+                store("Key saved");
             });
         });
-        add_row(LV_SYMBOL_EDIT, "Model: " + ai::effective_model(cfg_), [](AiApp* s) {
-            s->ask("Model (empty: the default)", ai::effective_model(s->cfg_), false,
-                   [s](const std::string& v) {
-                       s->cfg_.model = v;
-                       s->store("Model saved");
-                   });
-        });
-        add_row(LV_SYMBOL_WIFI, "Server: " + url, [](AiApp* s) {
-            s->ask("Server address (empty: the default)", s->cfg_.url, false, [s](const std::string& v) {
-                s->cfg_.url = ai::normalize_url(s->cfg_.provider, v);
-                s->store("Server saved");
+        list_.add(LV_SYMBOL_EDIT, "Model", ai::effective_model(cfg_), [this] { ask_model(); });
+        list_.add(LV_SYMBOL_WIFI, "Server", url, [this] {
+            ask("Server address (empty: the default)", cfg_.url, false, [this](const std::string& v) {
+                cfg_.url = ai::normalize_url(cfg_.provider, v);
+                store("Server saved");
             });
         });
-        add_row(LV_SYMBOL_REFRESH, "New chat", [](AiApp* s) {
-            s->stop();
-            history().clear();
-            s->failed_ = false;
-            s->page_ = Page::Chat;
-            s->defer_rebuild();
-            shell_toast("New chat");
+        list_.add(LV_SYMBOL_EDIT, "Personality", cfg_.system.empty() ? "default" : "your own", [this] {
+            ask("How AI should answer (empty: the default)", cfg_.system, false, [this](const std::string& v) {
+                cfg_.system = v;
+                store("Saved");
+            });
         });
-        add_row(LV_SYMBOL_SAVE, "Save chat to Notes", [](AiApp* s) { s->save_to_notes(); });
-        add_row(LV_SYMBOL_EDIT, "Personality (system prompt)", [](AiApp* s) {
-            s->ask("How AI should answer (empty: the default)", s->cfg_.system, false,
-                   [s](const std::string& v) {
-                       s->cfg_.system = v;
-                       s->store("Saved");
-                   });
-        });
-        finish_list(list_);
+        list_.finish();
+    }
+
+    // Settings is a List screen: its other actions are in the menu.
+    void set_settings_actions() {
+        std::vector<Action> a;
+        a.push_back({"Change", 0, "Enter", nullptr});
+        a.push_back({"Chat", 0, "Esc", nullptr});
+        a.push_back({"New chat", 'n', nullptr, [this] { new_chat(); }});
+        a.push_back({"Save chat to Notes", 's', nullptr, [this] { save_to_notes(); }});
+        shell_set_actions(std::move(a));
     }
 
     void build_providers() {
         lv_obj_t* t = label(root_, "Pick an AI provider", &zs_font_12, kAccent);
         lv_obj_set_pos(t, 8, 2);
-        list_ = make_list(root_, 4, 18, kScreenW - 8, kContentH - 22);
+        shell_set_actions({{"Use", 0, "Enter", nullptr}, {"Back", 0, "Esc", nullptr}});
+        list_.build(root_, 4, 18, kScreenW - 8, kBodyH - 22);
         const auto& all = ai::providers();
-        lv_obj_t* current = nullptr;
+        int current = -1;
         for (size_t i = 0; i < all.size(); ++i) {
             bool on = cfg_.provider == all[i].id;
-            lv_obj_t* b = list_button(list_, on ? LV_SYMBOL_OK : LV_SYMBOL_RIGHT, all[i].name, [](lv_event_t* e) {
-                auto* s = static_cast<AiApp*>(lv_event_get_user_data(e));
-                size_t i = size_t((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
-                s->stop();
-                ai::save(conf_path(), s->cfg_);
-                ai::switch_provider(conf_path(), s->cfg_, ai::providers()[i].id);
-                s->store(std::string("Using ") + ai::providers()[i].name);
-                s->page_ = Page::Settings;
-                s->defer_rebuild();
-            }, this);
-            lv_obj_set_user_data(b, (void*)(intptr_t)i);
-            if (on) current = b;
+            int row = list_.add(on ? LV_SYMBOL_OK : LV_SYMBOL_RIGHT, all[i].name, on ? "in use" : "", [this, i] {
+                stop();
+                ai::save(conf_path(), cfg_);
+                ai::switch_provider(conf_path(), cfg_, ai::providers()[i].id);
+                page_ = Page::Settings;
+                store(std::string("Using ") + ai::providers()[i].name);
+            });
+            if (on) current = row;
         }
-        finish_list(list_);
-        if (current) lv_group_focus_obj(current);
-    }
-
-    using RowFn = void (*)(AiApp*);
-    static void run_pending_cb(void* p) {
-        auto* s = static_cast<AiApp*>(p);
-        if (s->pending_) s->pending_(s);
-    }
-    void add_row(const char* sym, const std::string& text, RowFn fn) {
-        lv_obj_t* b = list_button(list_, sym, text.c_str(), [](lv_event_t* e) {
-            auto* s = static_cast<AiApp*>(lv_event_get_user_data(e));
-            auto f = reinterpret_cast<RowFn>(lv_obj_get_user_data(lv_event_get_target_obj(e)));
-            // Deferred: a row may rebuild the list it's in.
-            s->pending_ = f;
-            lv_async_call(run_pending_cb, s);
-        }, this);
-        lv_obj_set_user_data(b, reinterpret_cast<void*>(fn));
-        lv_obj_t* l = lv_obj_get_child(b, 1);
-        if (l) lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+        list_.finish();
+        if (current >= 0) list_.focus(current);
     }
 
     void store(const std::string& msg) {
         if (ai::save(conf_path(), cfg_)) shell_toast(msg);
         else shell_toast("Couldn't save the settings");
-        if (page_ == Page::Settings) defer_rebuild();
+        defer_rebuild();   // the chat's header shows the model too
     }
 
     void save_to_notes() {
@@ -398,11 +420,13 @@ private:
                                                  : "Couldn't save (card full?)");
     }
 
-    // ---- one-line text box over the screen (Enter accepts, Esc cancels) -------
+    // ---- one-line text box over the screen ------------------------------------
 
     using Done = std::function<void(const std::string&)>;
     void ask(const char* title, const std::string& initial, bool password, Done done) {
         done_ = std::move(done);
+        // A Text screen while it's open: the bar says so.
+        shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
         style_panel(input_);
         lv_obj_set_size(input_, 300, 74);
@@ -437,7 +461,20 @@ private:
         lv_obj_t* in = input_;
         input_ = nullptr;
         lv_obj_delete_async(in);
-        if (list_ && lv_obj_get_child_count(list_)) lv_group_focus_obj(lv_obj_get_child(list_, 0));
+        switch (page_) {
+            case Page::Chat:
+                set_chat_actions();
+                if (ta_) {
+                    lv_group_focus_obj(ta_);
+                    lv_group_set_editing(group, true);
+                }
+                break;
+            case Page::Settings:
+                set_settings_actions();
+                if (list_.focused() >= 0) list_.focus(list_.focused());
+                break;
+            case Page::Providers: break;
+        }
     }
 
     lv_obj_t* root_ = nullptr;
@@ -445,7 +482,7 @@ private:
     lv_obj_t* ta_ = nullptr;
     lv_obj_t* thinking_ = nullptr;
     lv_obj_t* input_ = nullptr;
-    lv_obj_t* list_ = nullptr;
+    ListView list_;
     Page page_ = Page::Chat;
     ai::Settings cfg_;
     std::string draft_;
@@ -454,7 +491,6 @@ private:
     bool failed_ = false;
     int dots_ = 0;
     Done done_;
-    RowFn pending_ = nullptr;
 };
 }  // namespace
 

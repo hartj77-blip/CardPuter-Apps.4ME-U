@@ -130,11 +130,15 @@ private:
 
     // Take the open tool (or the menu) off the screen. The tool goes first,
     // while its widgets still exist: destructors read them and stop timers.
+    // Its widgets leave the focus group before that: deleting the focused
+    // row would otherwise focus the next one, and a FOCUSED handler would
+    // run with the tool already destroyed (RF Tools' Station did, a
+    // use-after-free that crashed the screenshot run).
     void close_tool() {
+        if (group) lv_group_remove_all_objs(group);
         tool_.reset();
         list_.reset();
         if (root_) lv_obj_clean(root_);
-        if (group) lv_group_remove_all_objs(group);
         shell_set_fn_layer(false);
         shell_set_actions({});
     }

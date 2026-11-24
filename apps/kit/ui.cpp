@@ -17,10 +17,16 @@ constexpr int kMaxLines = 300;   // keep the backlog bounded
 
 lv_obj_t* input_screen(lv_obj_t* root, lv_group_t* group, const char* title, const char* placeholder,
                        const std::string& initial, std::function<void(const std::string&)> on_submit,
-                       const char* help) {
+                       const char* help, const char* ok) {
+    Action enter, back;   // hints: the text box and the shell handle the keys
+    enter.label = ok ? ok : "OK";
+    enter.key = "Enter";
+    back.label = "Back";
+    back.key = "Esc";
+    shell_set_actions({enter, back});
     lv_obj_t* page = lv_obj_create(root);
     style_plain(page);
-    lv_obj_set_size(page, kScreenW, kContentH);
+    lv_obj_set_size(page, kScreenW, kBodyH);
     lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* t = label(page, title, &zs_font_14);
@@ -47,10 +53,12 @@ lv_obj_t* input_screen(lv_obj_t* root, lv_group_t* group, const char* title, con
         delete static_cast<Cb*>(lv_obj_get_user_data(lv_event_get_target_obj(e)));
     }, LV_EVENT_DELETE, nullptr);
 
-    lv_obj_t* h = label(page, help, &zs_font_12, kMuted);
-    lv_obj_set_pos(h, 10, 88);
-    lv_obj_set_width(h, kScreenW - 20);
-    lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
+    if (help && *help) {
+        lv_obj_t* h = label(page, help, &zs_font_12, kMuted);
+        lv_obj_set_pos(h, 10, 88);
+        lv_obj_set_width(h, kScreenW - 20);
+        lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
+    }
 
     shell_add_focus(ta);
     lv_group_focus_obj(ta);
@@ -58,12 +66,18 @@ lv_obj_t* input_screen(lv_obj_t* root, lv_group_t* group, const char* title, con
     return page;
 }
 
-lv_obj_t* title_row(lv_obj_t* root, const std::string& title, const std::string& hints) {
-    lv_obj_t* h = label(root, hints.c_str(), &zs_font_12, kMuted);
+int body_h(lv_obj_t* root) {
+    lv_obj_update_layout(root);
+    int h = int(lv_obj_get_height(root));
+    return h > 0 ? h : kContentH;
+}
+
+lv_obj_t* title_row(lv_obj_t* root, const std::string& title, const std::string& note) {
+    lv_obj_t* h = label(root, note.c_str(), &zs_font_12, kMuted);
     lv_obj_align(h, LV_ALIGN_TOP_RIGHT, -4, 3);
     lv_obj_t* t = label(root, title.c_str(), &zs_font_14, kAccent);
     lv_obj_set_pos(t, 4, 1);
-    // Leave room for the hints: long titles scroll instead of overlapping.
+    // Leave room for the note: long titles scroll instead of overlapping.
     lv_obj_update_layout(h);
     int room = kScreenW - 16 - lv_obj_get_width(h);
     if (room < 60) room = 60;
@@ -76,7 +90,7 @@ void OutputView::build(lv_obj_t* root, int top, int bottom_gap) {
     panel_ = lv_obj_create(root);
     style_panel(panel_);
     lv_obj_set_pos(panel_, 4, top);
-    lv_obj_set_size(panel_, kScreenW - 8, kContentH - top - bottom_gap);
+    lv_obj_set_size(panel_, kScreenW - 8, body_h(root) - top - bottom_gap);
     lv_obj_set_scrollbar_mode(panel_, LV_SCROLLBAR_MODE_ACTIVE);
     lv_obj_set_style_pad_all(panel_, 5, 0);
 

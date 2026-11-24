@@ -211,7 +211,7 @@ private:
                                 "No games yet.\n\n"
                                 "Copy your games into ~/Games/<system>/ with Files,\n"
                                 "Sync, Taildrop or scp: nes, gb, gbc, gba, snes,\n"
-                                "md, sms, pce, a26, psx, ws.\n\n"
+                                "md, sms, pce, a26, psx, ws.\n"
                                 "Cores, in the menu, gets emulators for more systems.",
                                 &zs_font_12, kMuted);
             lv_obj_set_pos(l, 10, 26);

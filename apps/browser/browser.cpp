@@ -50,6 +50,10 @@
 #include "ui/fileio.h"
 #include "apps/kit/look.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 extern char** environ;
 
 namespace zs {
@@ -394,11 +398,99 @@ Fetched load(const std::string& url, bool prefer_cache, std::atomic<int>* pid, c
     return f;
 }
 
+
+#ifdef __EMSCRIPTEN__
+// ---- fetching in the browser simulator ------------------------------------------
+//
+// No curl and no threads in a web page: the page's own fetch(), started here
+// and polled from tick(). A web page may only read a site that allows it
+// (CORS): GitHub's raw files, Wikipedia's API and many picture hosts do, most
+// sites don't. The Cardputer itself has no such limit.
+
+EM_JS(int, zs_web_fetch_start, (const char* url, const char* post), {
+    const jobs = Module.zsFetches || (Module.zsFetches = {});
+    const id = Module.zsFetchNext = (Module.zsFetchNext || 0) + 1;
+    const job = jobs[id] = {state: 0};
+    const opts = {credentials: 'omit', redirect: 'follow'};
+    const body = UTF8ToString(post);
+    if (body) {
+        opts.method = 'POST';
+        opts.body = body;
+        opts.headers = {'Content-Type': 'application/x-www-form-urlencoded'};
+    }
+    fetch(UTF8ToString(url), opts).then(async (r) => {
+        job.status = r.status;
+        job.parts = [null, new TextEncoder().encode(r.headers.get('content-type') || ''),
+                     new TextEncoder().encode(r.url || '')];
+        job.parts[0] = new Uint8Array(await r.arrayBuffer());
+        job.state = 1;
+    }).catch(() => { job.state = -1; });
+    return id;
+});
+// 0: still loading, 1: done, -1: couldn't fetch (offline, or the site doesn't allow it).
+EM_JS(int, zs_web_fetch_state, (int id), {
+    const j = (Module.zsFetches || {})[id];
+    return j ? j.state : -1;
+});
+EM_JS(int, zs_web_fetch_status, (int id), { return Module.zsFetches[id].status; });
+// part 0: the body, 1: the content type, 2: the address after redirects
+EM_JS(int, zs_web_fetch_size, (int id, int part), { return Module.zsFetches[id].parts[part].length; });
+EM_JS(void, zs_web_fetch_copy, (int id, int part, char* out), {
+    HEAPU8.set(Module.zsFetches[id].parts[part], out);
+});
+EM_JS(void, zs_web_fetch_free, (int id), {
+    if (Module.zsFetches) delete Module.zsFetches[id];
+});
+
+std::string web_part(int id, int part) {
+    std::string s(size_t(zs_web_fetch_size(id, part)), '\0');
+    if (!s.empty()) zs_web_fetch_copy(id, part, &s[0]);
+    return s;
+}
+
+// Pages here are served over https, so http:// can't be fetched: try https.
+std::string web_url(const std::string& url) {
+    std::string u = url.compare(0, 7, "http://") == 0 ? "https://" + url.substr(7) : url;
+    std::string out;
+    for (char ch : u) out += ch == ' ' ? std::string("%20") : std::string(1, ch);
+    return out;
+}
+
+// A finished fetch as Fetched (false while it is still loading). Frees it.
+bool web_poll(int id, const std::string& url, Fetched& f) {
+    int st = zs_web_fetch_state(id);
+    if (st == 0) return false;
+    f = Fetched{};
+    f.url = url;
+    if (st < 0) {
+        f.error = "The simulator can't open this site: it doesn't let other web pages read it (CORS), "
+                  "or you're offline. The Cardputer opens any site.";
+    } else {
+        int code = zs_web_fetch_status(id);
+        f.content_type = web_part(id, 1);
+        std::string u = web_part(id, 2);
+        if (!u.empty()) f.url = u;
+        if (code < 200 || code >= 300) {
+            f.error = code == 404 ? "Not found (404)" : fmt("The server said %d", code);
+        } else {
+            f.body = web_part(id, 0);
+            if (f.body.size() > kMaxBytes) f.error = "Too large to show";
+            else f.ok = true;
+        }
+    }
+    zs_web_fetch_free(id);
+    return true;
+}
+#endif
+
 struct Job {
     std::mutex m;
     bool done = false;
     Fetched result;
     std::atomic<int> pid{0};
+    int web_id = 0;          // the simulator: the fetch() in flight
+    std::string url, post;   // the simulator: what it is for
+    bool readme_tried = false;   // the simulator: a GitHub folder's README.md was tried
 };
 
 // The pictures of one page, fetched and decoded one after another.
@@ -417,6 +509,14 @@ struct PictureJob {
     std::atomic<bool> cancel{false};
     std::atomic<int> pid{0};
 
+    void add(const Want& w, const std::string& bytes) {
+        auto p = std::make_shared<Picture>();
+        if (!decode_picture(bytes, w.w, w.h, max_w, max_h, kBg, *p)) return;
+        std::lock_guard<std::mutex> l(m);
+        ready.push_back({w.image, std::move(p)});
+    }
+
+    // On its own thread (the Cardputer).
     void run() {
         for (auto& w : wants) {
             if (cancel) break;
@@ -426,14 +526,52 @@ struct PictureJob {
                 if (!f.ok || cancel) continue;
                 bytes = std::move(f.body);
             }
-            auto p = std::make_shared<Picture>();
-            if (!decode_picture(bytes, w.w, w.h, max_w, max_h, kBg, *p)) continue;
-            std::lock_guard<std::mutex> l(m);
-            ready.push_back({w.image, std::move(p)});
+            add(w, bytes);
         }
         std::lock_guard<std::mutex> l(m);
         done = true;
     }
+
+#ifdef __EMSCRIPTEN__
+    // The simulator: one step per tick, a fetch() at a time.
+    size_t next = 0;
+    int web_id = 0;
+
+    void step() {
+        for (int decoded = 0; decoded < 2 && !done;) {
+            if (web_id) {
+                Fetched f;
+                if (!web_poll(web_id, wants[next].url, f)) return;
+                web_id = 0;
+                if (f.ok) {
+                    cache_put(wants[next].url, f);
+                    add(wants[next], f.body);
+                }
+                ++next;
+                ++decoded;
+                continue;
+            }
+            if (next >= wants.size()) {
+                done = true;
+                return;
+            }
+            std::string bytes;
+            Fetched cached;
+            if (data_uri(wants[next].url, bytes) || (cache_get(wants[next].url, cached) && !cached.body.empty())) {
+                add(wants[next], bytes.empty() ? cached.body : bytes);
+                ++next;
+                ++decoded;
+                continue;
+            }
+            web_id = zs_web_fetch_start(web_url(wants[next].url).c_str(), "");
+            return;
+        }
+    }
+
+    ~PictureJob() {
+        if (web_id) zs_web_fetch_free(web_id);
+    }
+#endif
 };
 
 // A decoded picture as LVGL draws it (the descriptor points into pic).
@@ -517,6 +655,32 @@ public:
     void tick() override {
         take_pictures();
         if (!job_) return;
+#ifdef __EMSCRIPTEN__
+        if (job_->web_id) {
+            Fetched f;
+            if (web_poll(job_->web_id, job_->url, f)) {
+                job_->web_id = 0;
+                // A folder on GitHub ("apps/battery" from a README): try its README, as load() does.
+                std::string last = job_->url.substr(job_->url.rfind('/') + 1);
+                if (!f.ok && f.error == "Not found (404)" && !job_->readme_tried &&
+                    job_->url.find("raw.githubusercontent.com/") != std::string::npos &&
+                    last.find('.') == std::string::npos) {
+                    job_->readme_tried = true;
+                    std::string alt = job_->url + (job_->url.back() == '/' ? "" : "/") + "README.md";
+                    job_->web_id = zs_web_fetch_start(alt.c_str(), "");
+                } else {
+                    Fetched cached;
+                    if (f.ok) cache_put(job_->url, f);
+                    else if (job_->post.empty() && cache_get(job_->url, cached)) {
+                        cached.error = f.error;   // shown as "offline copy"
+                        f = std::move(cached);
+                    }
+                    job_->result = std::move(f);
+                    job_->done = true;
+                }
+            }
+        }
+#endif
         {
             std::lock_guard<std::mutex> l(job_->m);
             if (!job_->done) {
@@ -662,16 +826,23 @@ private:
         auto job = job_;
         bool cache = from_history;
         std::string post = v.post;
-        auto run = [job, url, cache, post] {
+#ifdef __EMSCRIPTEN__
+        Fetched cached;
+        if (cache && post.empty() && cache_get(url, cached)) {
+            job->result = std::move(cached);
+            job->done = true;
+            return;
+        }
+        job->url = url;
+        job->post = post;
+        job->web_id = zs_web_fetch_start(web_url(url).c_str(), post.c_str());
+#else
+        worker_ = std::thread([job, url, cache, post] {
             Fetched f = load(url, cache, &job->pid, post);
             std::lock_guard<std::mutex> l(job->m);
             job->result = std::move(f);
             job->done = true;
-        };
-#ifdef __EMSCRIPTEN__
-        run();
-#else
-        worker_ = std::thread(run);
+        });
 #endif
     }
 
@@ -684,6 +855,9 @@ private:
     }
 
     void stop() {
+#ifdef __EMSCRIPTEN__
+        if (job_ && job_->web_id) zs_web_fetch_free(job_->web_id);   // its answer is ignored
+#endif
         if (job_)
             if (int pid = job_->pid.load()) kill(pid, SIGTERM);
         if (worker_.joinable()) worker_.join();
@@ -871,9 +1045,6 @@ private:
 
     void start_pictures() {
         if (!pictures_on_ || doc_.images.empty()) return;
-#ifdef __EMSCRIPTEN__
-        return;   // no threads or network in the browser demo
-#else
         auto job = std::make_shared<PictureJob>();
         job->max_w = kScreenW - 2 * kPad;
         job->max_h = view_h() - 8;
@@ -886,7 +1057,8 @@ private:
         }
         if (job->wants.empty()) return;
         pictures_ = job;
-        picture_worker_ = std::thread([job] { job->run(); });
+#ifndef __EMSCRIPTEN__
+        picture_worker_ = std::thread([job] { job->run(); });   // the simulator steps it in take_pictures()
 #endif
     }
 
@@ -901,6 +1073,9 @@ private:
     // Pictures that arrived since the last tick go into the page.
     void take_pictures() {
         if (!pictures_) return;
+#ifdef __EMSCRIPTEN__
+        pictures_->step();
+#endif
         std::vector<std::pair<int, std::shared_ptr<Picture>>> got;
         bool done;
         {
@@ -1090,7 +1265,8 @@ private:
         lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
         if (!url.empty()) {
             lv_obj_t* u = label(view_, short_url(url).c_str(), &zs_font_12, kMuted);
-            lv_obj_set_pos(u, kPad, 30);
+            lv_obj_update_layout(l);   // under the message, however many lines it took
+            lv_obj_set_pos(u, kPad, 8 + lv_obj_get_height(l) + 8);
             lv_obj_set_width(u, kScreenW - 2 * kPad);
             lv_label_set_long_mode(u, LV_LABEL_LONG_WRAP);
         }

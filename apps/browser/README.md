@@ -82,6 +82,14 @@ runs one straight away) and **0** shows every key. On a page, letters are shortc
 
 Space does nothing on a page (Page Down is on the Fn layer).
 
+## In the browser simulator
+
+Browser works in the [browser simulator](https://hartj77-blip.github.io/emu-cardputer-os.4me-u/)
+too, with one limit the Cardputer doesn't have: a web page may only read sites that allow it
+(CORS). GitHub READMEs and docs (the home page's bookmarks), raw files and many picture hosts
+work; most other sites (Google, DuckDuckGo) show "The simulator can't open this site". There it
+fetches with the page's own `fetch()` instead of curl, and doesn't keep cookies.
+
 ## Offline
 
 Every page and picture that loads is kept in `~/.cache/zeroos/browser/`. Going back uses that

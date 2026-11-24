@@ -2,10 +2,13 @@
 // and READMEs. Markdown is shown as formatted text, HTML pages as their
 // text and links, anything else as plain text. Images aren't shown yet.
 //
-//   Up / Down      scroll a line        Space / Backspace   page down / up
-//   Left / Right   previous / next link Enter               open the link
-//   Esc            back                 G                   type an address
-//   C  contents (jump to a heading)     F  find on the page
+// A page is a Control screen (docs/UX.md in the OS): its letters work as
+// they are, and every one is in its action list, so the soft-key bar, the
+// Tab menu and the key sheet (0) show them:
+//   Up / Down, J / K  scroll a line      Space / Backspace   page down / up
+//   Left / Right   previous / next link  Enter               open the link
+//   Esc            back                  G                   type an address
+//   C  contents (a List of the headings) F  find on the page
 //   R  reload      H  home (bookmarks)
 //
 // GitHub links open the file behind them (github.com/o/r is its README.md),
@@ -33,6 +36,7 @@
 #include "apps/browser/page.h"
 #include "apps/common.h"
 #include "platform/keys.h"
+#include "ui/list_view.h"
 #include "ui/fileio.h"
 
 extern char** environ;
@@ -52,8 +56,6 @@ const char* const kOs = "https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob
 std::string home_page() {
     std::string os = kOs;
     std::string md =
-        "**Left/Right** pick a link, **Enter** opens it, **Esc** goes back. **G** types an address, "
-        "**C** lists a page's headings, **F** finds text. **Tab** shows everything.\n\n"
         "## ZeroOS\n\n"
         "- [ZeroOS README](https://github.com/hartj77-blip/CardPuter-OS.4ME-U)\n"
         "- [Apps README](https://github.com/hartj77-blip/CardPuter-Apps.4ME-U)\n\n"
@@ -346,10 +348,7 @@ uint32_t color_for(Style s) {
 
 class BrowserApp : public App {
 public:
-    ~BrowserApp() override {
-        lv_async_call_cancel(contents_pick_cb, this);
-        stop();
-    }
+    ~BrowserApp() override { stop(); }
 
     void build(lv_obj_t* root) override {
         root_ = root;
@@ -395,7 +394,8 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (input_ || contents_) return false;   // typing, or the contents list
+        if (input_) return false;   // typing
+        if (contents_) return contents_list_.key(key);
         switch (key) {
             case LV_KEY_DOWN: case 'j': scroll(1); return true;
             case LV_KEY_UP: case 'k': scroll(-1); return true;
@@ -447,16 +447,17 @@ private:
 
     void set_actions() {
         std::vector<Action> a;
-        a.push_back({"Open link", 0, "Enter", nullptr});
-        a.push_back({"Page down", 0, "Space", nullptr});
-        a.push_back({"Go to address", 'g', "G", [this] { ask_address(); }});
+        a.push_back({"Open", 0, "Enter", nullptr});
+        a.push_back({"Page " LV_SYMBOL_DOWN, 0, "Space", nullptr});
+        a.push_back({"Address", 'g', "G", [this] { ask_address(); }});
         a.push_back({"Links", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
         a.push_back({"Contents", 'c', "C", [this] { open_contents(); }});
         a.push_back({"Find on page", 'f', "F", [this] { ask_find(); }});
         a.push_back({"Reload", 'r', "R", [this] { reload(); }});
         a.push_back({"Home", 'h', "H", [this] { go(kHomeUrl); }});
         a.push_back({"Back", 0, "Esc", nullptr});
-        a.push_back({"Page up", 0, "Bksp", nullptr});
+        a.push_back({"Page " LV_SYMBOL_UP, 0, "Bksp", nullptr});
+        a.push_back({"Scroll", 0, "J K", nullptr});
         shell_set_actions(std::move(a));
     }
 
@@ -592,7 +593,7 @@ private:
 
     void follow() {
         if (focus_ < 0 || size_t(focus_) >= doc_.links.size()) {
-            shell_toast("Pick a link with Left / Right first");
+            shell_toast("No link chosen");
             return;
         }
         std::string href = doc_.links[size_t(focus_)];
@@ -710,8 +711,6 @@ private:
             lv_obj_set_pos(u, kPad, 30);
             lv_obj_set_width(u, kScreenW - 2 * kPad);
             lv_label_set_long_mode(u, LV_LABEL_LONG_WRAP);
-            lv_obj_t* h = label(view_, "R tries again, Esc goes back.", &zs_font_12, kMuted);
-            lv_obj_set_pos(h, kPad, 64);
         }
     }
 
@@ -769,9 +768,10 @@ private:
     // ---- address, find, contents
 
     using Done = std::function<void(const std::string&)>;
-    // One-line text box over the page. Enter accepts, Esc cancels.
+    // One-line text box over the page (a Text screen while it is up).
     void ask(const char* title, const std::string& initial, Done done, const std::string& hint = "") {
         done_ = std::move(done);
+        shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
         style_panel(input_);
         lv_obj_set_size(input_, 300, 64);
@@ -806,6 +806,7 @@ private:
         lv_obj_t* in = input_;
         input_ = nullptr;
         lv_obj_delete_async(in);
+        set_actions();
     }
 
     void ask_address() {
@@ -859,28 +860,27 @@ private:
             shell_toast("No headings on this page");
             return;
         }
+        // A List screen over the page: typing narrows the headings.
+        shell_set_actions({{"Go to", 0, "Enter", nullptr}, {"Close", 0, "Esc", nullptr}});
         contents_ = lv_obj_create(root_);
         style_panel(contents_);
         lv_obj_set_size(contents_, kScreenW - 8, kBodyH - 4);
         lv_obj_set_pos(contents_, 4, 2);
         lv_obj_set_style_pad_all(contents_, 2, 0);
         lv_obj_remove_flag(contents_, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_t* list = make_list(contents_, 0, 0, kScreenW - 12, kBodyH - 8);
-        lv_obj_t* focus = nullptr;
+        contents_list_.build(contents_, 0, 0, kScreenW - 12, kBodyH - 8);
+        contents_list_.set_empty_text("No headings");
+        int focus = 0;
         size_t here = lines_.empty() ? 0 : lines_[top_].block;
         for (size_t b : heads) {
             const Block& blk = doc_.blocks[b];
             std::string t(size_t(blk.level - 1) * 3, ' ');
             for (auto& r : blk.runs) t += r.text;
-            lv_obj_t* btn = list_button(list, nullptr, t.c_str(), on_contents_pick, this);
-            lv_obj_set_user_data(btn, (void*)(uintptr_t)b);
-            if (b <= here) focus = btn;
+            int row = contents_list_.add(nullptr, t, "", [this, b] { contents_pick(b); });
+            if (b <= here) focus = row;
         }
-        finish_list(list);
-        if (focus) {
-            lv_group_focus_obj(focus);
-            lv_obj_scroll_to_view(focus, LV_ANIM_OFF);
-        }
+        contents_list_.finish();
+        contents_list_.focus(focus);
     }
 
     void close_contents() {
@@ -888,26 +888,22 @@ private:
         lv_obj_t* c = contents_;
         contents_ = nullptr;
         lv_group_remove_all_objs(group);
+        contents_list_.reset();
         lv_obj_delete_async(c);
+        set_actions();
     }
 
-    static void on_contents_pick(lv_event_t* e) {
-        auto* self = static_cast<BrowserApp*>(lv_event_get_user_data(e));
-        self->pick_ = size_t((uintptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
-        lv_async_call(contents_pick_cb, self);   // the list is deleted: not from its own event
-    }
-
-    static void contents_pick_cb(void* p) {
-        auto* self = static_cast<BrowserApp*>(p);
-        self->close_contents();
-        for (size_t i = 0; i < self->lines_.size(); ++i)
-            if (self->lines_[i].block >= self->pick_) {
-                self->top_ = std::min(i, self->max_top());
+    // Enter on a heading (ListView runs it after the key, so the list may go).
+    void contents_pick(size_t block) {
+        close_contents();
+        for (size_t i = 0; i < lines_.size(); ++i)
+            if (lines_[i].block >= block) {
+                top_ = std::min(i, max_top());
                 break;
             }
-        if (!self->history_.empty()) self->history_.back().top = self->top_;
-        self->focus_ = -1;
-        self->render();
+        if (!history_.empty()) history_.back().top = top_;
+        focus_ = -1;
+        render();
     }
 
     lv_obj_t* root_ = nullptr;
@@ -916,6 +912,7 @@ private:
     lv_obj_t* view_ = nullptr;
     lv_obj_t* input_ = nullptr;
     lv_obj_t* contents_ = nullptr;
+    ListView contents_list_;
     Done done_;
 
     Metrics metrics_;
@@ -924,7 +921,7 @@ private:
     std::vector<int> link_line_;   // first line of each link
     std::string page_url_, title_text_, loading_url_, pending_frag_, find_;
     std::vector<Visit> history_;
-    size_t top_ = 0, restore_top_ = 0, pick_ = 0;
+    size_t top_ = 0, restore_top_ = 0;
     int focus_ = -1;
     int dots_ = 0;
 

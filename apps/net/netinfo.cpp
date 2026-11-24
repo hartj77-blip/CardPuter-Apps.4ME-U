@@ -87,7 +87,7 @@ private:
         addsec(net::sim::ip_route());
         addsec(net::sim::ss_listen());
         for (auto& l : net::sim::resolv()) simv.push_back(l);
-        job_.start({"sh", "-c", kScript}, /*root=*/false, simv, 0);
+        job_.start({"sh", "-c", kScript}, simv, 0);
     }
 
     void parse() {

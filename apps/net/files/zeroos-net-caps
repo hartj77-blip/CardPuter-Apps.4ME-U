@@ -1,0 +1,60 @@
+#!/bin/sh
+# Net Tools (README.md, "Permissions"): let the home-screen user run arp-scan
+# (Discover) and tcpdump (Capture) without root.
+#
+# Instead of a sudo rule (tcpdump's -z option runs any program, so sudo
+# tcpdump would be sudo anything), each binary gets only the network
+# capabilities it needs, and only the netdev group (which ZeroShell runs in)
+# may run it:
+#   arp-scan  cap_net_raw                 send and read raw ARP frames
+#   tcpdump   cap_net_raw,cap_net_admin   capture, promiscuous mode
+# A program tcpdump starts (-z) gets none of them, and the files it writes
+# belong to you.
+#
+#   apply   set the group, mode and capabilities (at boot, at install, and
+#           whenever an upgrade of arp-scan or tcpdump replaces the file)
+#   clear   put the files back the way their packages ship them (on remove)
+set -eu
+
+TOOLS="/usr/sbin/arp-scan:cap_net_raw=ep
+/usr/bin/arp-scan:cap_net_raw=ep
+/usr/bin/tcpdump:cap_net_admin,cap_net_raw=ep
+/usr/sbin/tcpdump:cap_net_admin,cap_net_raw=ep"
+GROUP=netdev
+
+files() {
+    echo "$TOOLS" | while IFS=: read -r f caps; do
+        # A real file only: never follow a link somewhere else.
+        if [ -f "$f" ] && [ ! -L "$f" ]; then echo "$f:$caps"; fi
+    done
+}
+
+apply() {
+    getent group "$GROUP" >/dev/null || { echo "net-caps: no $GROUP group, leaving the tools root-only" >&2; exit 1; }
+    files | while IFS=: read -r f caps; do
+        # Already done: change nothing (the .path unit sees attribute changes).
+        if [ "$(stat -c %U:%G:%a "$f")" = "root:$GROUP:750" ] &&
+           setcap -q -v "$caps" "$f"; then
+            continue
+        fi
+        # chown drops file capabilities, so it goes first, and the file is
+        # out of reach of everyone else before it gets any.
+        chown "root:$GROUP" "$f"
+        chmod 0750 "$f"
+        setcap "$caps" "$f"
+    done
+}
+
+clear() {
+    files | while IFS=: read -r f caps; do
+        setcap -r "$f" 2>/dev/null || true
+        chown root:root "$f"
+        chmod 0755 "$f"
+    done
+}
+
+case "${1:-}" in
+    apply) apply ;;
+    clear) clear ;;
+    *) echo "usage: $0 apply|clear" >&2; exit 2 ;;
+esac

@@ -1,0 +1,8 @@
+# Started by zeroos-net-caps.path after an upgrade of arp-scan or tcpdump.
+[Unit]
+Description=Net Tools: restore arp-scan and tcpdump capabilities after an upgrade
+ConditionPathExists=/usr/lib/zeroos/net-caps
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/zeroos/net-caps apply

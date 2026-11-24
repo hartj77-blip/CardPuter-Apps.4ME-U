@@ -1,0 +1,16 @@
+# Net Tools: give arp-scan and tcpdump the network capabilities Discover and
+# Capture need, so they run as the home-screen user, not root
+# (/usr/lib/zeroos/net-caps). Stopping it, which removing the app does, takes
+# them away again.
+[Unit]
+Description=Net Tools: let arp-scan and tcpdump run without root
+Before=zeroshell.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/zeroos/net-caps apply
+ExecStop=/usr/lib/zeroos/net-caps clear
+
+[Install]
+WantedBy=multi-user.target

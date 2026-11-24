@@ -45,7 +45,7 @@ public:
             using net::Done;
             Done d = job_.status();
             if (d == Done::Missing) out_.append("tcpdump is not installed.");
-            else if (packets_ == 0) out_.append("Could not start capture (needs root / an interface).");
+            else if (packets_ == 0) out_.append("Could not start capture (no permission, or no interface).");
             stop();
         }
     }
@@ -86,7 +86,7 @@ private:
         // flushing each packet (-U) so a stop leaves a complete file.
         std::vector<std::string> argv = {"tcpdump", "-n", "-U", "-l", "--print", "-w", pcap_};
         if (iface_ != 0) { argv.push_back("-i"); argv.push_back(iface_name()); }
-        job_.start(argv, /*root=*/true, net::sim::tcpdump());
+        job_.start(argv, net::sim::tcpdump());
         update_header();
     }
 

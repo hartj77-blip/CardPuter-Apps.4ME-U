@@ -65,7 +65,7 @@ This is where things stand.
 | Every app loads as a module into a real ZeroShell | Yes, in CI |
 | Every app installs, side by side with all the others, and removes cleanly with the real apt on Debian trixie arm64 | Yes, in CI, in a container with Raspberry Pi's repository added |
 | The apps still build against the next ZeroOS (its `main` branch) | Yes, in CI, as a second build of everything |
-| Unit tests for the parts that can run without a screen (AI requests, Desktop's host list, Grove's LED effects, RF Tools' DSP, Router's script) | Yes, in CI |
+| Unit tests for the parts that can run without a screen (AI requests, Browser's page engine, Desktop's host list, Grove's LED effects, RF Tools' DSP, Router's script) | Yes, in CI |
 | The apps on a real Cardputer Zero | Mostly not yet. Owners have run some; most have only been run in the simulator and CI |
 | Hardware add-ons: GPS module, Cap LoRa-1262, LED strip, RTL-SDR dongle, USB stick mode in a car, USB networking to a laptop | Not checked on a device yet. Each app's README has a "to confirm" list |
 
@@ -160,6 +160,7 @@ the app. It all goes again when you remove the app.
 | [Terminal](apps/terminal/README.md) | `terminal` | A Linux terminal on the built-in screen (53 x 14), in tmux, so sessions keep running when you leave | nothing (tmux is in ZeroOS) |
 | [Files](apps/files/README.md) | `files` | Browse the device's files. Opens text in Notes, plays music, plays video on a monitor, sends a file with Taildrop | nothing |
 | [Notes](apps/notes/README.md) | `notes` | A plain-text notepad that saves as you type | nothing |
+| [Browser](apps/browser/README.md) | `browser` | Read the web as text: the ZeroOS docs and READMEs (bookmarked on its home page), Markdown, simple HTML pages and local files. Keeps pages to read offline | nothing (pages are fetched with curl, which is in ZeroOS) |
 | [Clock](apps/clock/README.md) | `clock` | Time and date from the battery-backed clock, and a stopwatch | nothing |
 | [Battery](apps/battery/README.md) | `battery` | Charge, time left, power draw, battery health, and the power profile | nothing |
 | [System](apps/sysmon/README.md) | `sysmon` | CPU, memory and what uses it, storage, temperature, versions | nothing |
@@ -179,7 +180,7 @@ the app. It all goes again when you remove the app.
 
 | App | Id | What it does | Brings |
 | --- | --- | --- | --- |
-| [Remote](apps/remote/README.md) | `remote` | Tailscale: sign in with a QR code, SSH or mosh to your devices, remote desktop, Taildrop files into `~/Downloads` | tailscale (from Tailscale's repository), mosh, FreeRDP |
+| [Remote](apps/remote/README.md) | `remote` | Tailscale or your own Headscale server: sign in with a QR code or an auth key, SSH or mosh to your devices, remote desktop, Taildrop files into `~/Downloads` | tailscale (from Tailscale's repository), mosh, FreeRDP |
 | [Desktop](apps/desktop/README.md) | `desktop` | Remote desktop to a PC or Mac (RDP or VNC), on the built-in screen or full size on a monitor | libvncclient, FreeRDP 3, gvncviewer |
 | [Dock](apps/dock/README.md) | `dock` | Plug into an HDMI monitor and get a desktop: browser, video player, terminal, file manager | nothing (the desktop is part of ZeroOS) |
 | [Sync](apps/sync/README.md) | `sync` | Keep Notes, Documents and Recordings the same on your PC and phone, with Syncthing | syncthing, python3 |
@@ -226,6 +227,7 @@ Terminal, SSH, or another computer.
 | `~/Games/` | Your games (a folder per console), saves, downloaded cores | you, Games |
 | `~/Code/` | Your projects | Dev Tools |
 | `~/IR/` | Remotes you taught or saved | IR Remote |
+| `~/.cache/zeroos/browser/` | Pages you opened, to read offline. Safe to delete | Browser |
 | `~/.config/zeroos/ai.conf` | AI's settings and API keys (mode 600) | AI |
 | `~/.config/zeroos/desktop-hosts` | Computers you saved in Desktop | Desktop |
 | `~/.config/zeroos/rf-memories.tsv` | Saved frequencies | RF Tools |
@@ -527,7 +529,7 @@ with Games are Debian's.
 
 | App | What it adds | Why |
 | --- | --- | --- |
-| Net Tools | `/etc/sudoers.d/zeroos-net`: your user may run `arp-scan` and `tcpdump` as root with no password | Discover and Capture need raw sockets. Be aware that `tcpdump` run through sudo can be made to run other commands, so treat this as giving your user passwordless root |
+| Net Tools | File capabilities on `arp-scan` (`cap_net_raw`) and `tcpdump` (`cap_net_raw,cap_net_admin`), which become `root:netdev 0750`, so members of `netdev` can scan and capture. Nothing runs as root. Removing the app puts both back to `root:root 0755` | Discover and Capture need raw sockets. Version 2.0 used a sudo rule instead, which amounted to passwordless root (`sudo tcpdump -z` runs any program); 2.1 removes it, so upgrade |
 | Router | A polkit rule letting your user start and stop `zeroos-router@ethernet` and `zeroos-router@usb` | Router turns routing on and off without asking for a password |
 | RF Tools | A udev rule giving your user the RTL-SDR dongle, and a modprobe rule keeping the kernel's DVB-T driver off it | So the radio daemon runs as you, not as root |
 | Car | Loads the `uinput` and `libcomposite` kernel modules at boot | The car's buttons become key presses; the Cardputer can act as a USB stick |
@@ -536,8 +538,8 @@ with Games are Debian's.
 curl through a private temporary file so they never appear in the process list. Media uses your
 Jellyfin password once to get a sign-in token, keeps the token, and doesn't keep the password.
 Sync shares only the three folders it names. Nothing in these apps sends usage data anywhere.
-AI sends what you type to the provider you picked; nothing else talks to a service you didn't
-set up.
+AI sends what you type to the provider you picked, and Browser fetches the pages you open (its
+home page links point at GitHub); nothing else talks to a service you didn't set up.
 
 **Use the network tools on your own networks.** Net Tools' port scanner and packet capture, and
 RF Tools' receivers, are for networks and radio you're allowed to look at. The rules on
@@ -555,7 +557,7 @@ shows here before the OS is released.
 | --- | --- | --- |
 | Every changed app has a new version | `tools/check-versions.sh`: compares each app folder with `main`; a change to a kit file counts for every app that uses it. README and test changes don't count | An app that changed without a new version, which devices would never be offered |
 | Simulator and headless builds | Builds every app into the SDL and headless ZeroShell | Code that doesn't compile |
-| Unit tests | `ctest`: AI's requests, replies and settings (no network); Desktop's host list; Grove's LED effects; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
+| Unit tests | `ctest`: AI's requests, replies and settings (no network); Browser's Markdown and HTML parsing, layout and addresses; Desktop's host list; Grove's LED effects; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
 | App script tests | `apps/<id>/tests/*-test.sh`: Router's routing script against stand-ins | A broken helper script |
 | Open every app | `tools/screenshots.sh`: drives the headless build through the home screen and every app, and every tool inside Net Tools and RF Tools, and saves a screenshot of each (uploaded as an artifact). Games plays a test-pattern core; AI gets a canned answer; RF Tools runs against a simulated radio | An app that crashes or hangs when opened |
 | Apps as modules | Builds every app as a module and loads each into a ZeroShell that has none built in | A module with a missing symbol or the wrong app level |
@@ -683,7 +685,7 @@ place of the old one (AI was once called `zclaw`).
 
    | Order | Apps |
    | --- | --- |
-   | 10 to 90 | Terminal 10, Remote 20, Desktop 25, Sync 30, Files 40, Notes 50, Recorder 55, AI 60, Media 70, Grove 75, Camera 80, Car 90 |
+   | 10 to 90 | Terminal 10, Remote 20, Desktop 25, Sync 30, Files 40, Notes 50, Recorder 55, AI 60, Browser 65, Media 70, Grove 75, Camera 80, Car 90 |
    | 100 | the OS's own apps |
    | 110 to 190 | Tether 110, Router 115, IR Remote 120, GPS 130, Mesh 140, Compass 150, Battery 160, Clock 170, Dock 180, System 190 |
    | 200 to 220 | the OS's own apps, Net Tools 220 |

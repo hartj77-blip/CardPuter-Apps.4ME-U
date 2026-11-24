@@ -6,11 +6,14 @@
 //                   terminal, D = remote desktop: the Desktop app if it is
 //                   installed, else RDP on the monitor (Dock mode).
 //                   Files' S key sends a file here: Enter then sends it.
-// Also: Connect to any host, the SSH user name, mosh on/off, sign out.
+// Also: Connect to any host, the SSH user name, mosh on/off, sign out, and
+// the control server: Tailscale's own or a Headscale server of your own,
+// with an auth key instead of the sign-in link if you like.
 #include <vector>
 
 #include "apps/common.h"
 #include "ui/power.h"
+#include "ui/prefs.h"
 #include "ui/remote.h"
 
 namespace zs {
@@ -26,6 +29,31 @@ void terminal_run(const std::string& cmd) {
     }
     remote_note_use();
     shell_open_app("terminal", cmd);
+}
+
+// Headscale: the shell reads these when it starts Tailscale ("tailscale up
+// --login-server", and --authkey once). "" is Tailscale's own server.
+std::string ts_server() { return prefs::get_str("tailscale.server", ""); }
+
+// "https://hs.example.com:8080/" -> "hs.example.com:8080"; "" -> "Tailscale".
+std::string server_name(std::string s) {
+    size_t i = s.find("://");
+    if (i != std::string::npos) s = s.substr(i + 3);
+    while (!s.empty() && (s.back() == '/' || s.back() == ' ')) s.pop_back();
+    return s.empty() ? "Tailscale" : s;
+}
+
+// A new server signs in again: now if Tailscale is on, else when it starts.
+void set_server(const std::string& v) {
+    std::string was = ts_server();
+    prefs::set_str("tailscale.server", v);
+    if (server_name(v) == server_name(was)) return;
+    if (hal().tailscale().running) {
+        hal().tailscale_start();
+        shell_toast("Signing in to " + server_name(v) + "...");
+    } else {
+        shell_toast("Next time: " + server_name(v));
+    }
 }
 
 const char* os_symbol(const std::string& os) {
@@ -139,7 +167,10 @@ private:
             lv_qrcode_update(qr, ts_.auth_url.c_str(), uint32_t(ts_.auth_url.size()));
             lv_obj_set_style_border_color(qr, c(0xffffff), 0);
             lv_obj_set_style_border_width(qr, 4, 0);
-            lv_obj_t* l = label(panel, "Scan to sign in", &zs_font_12, kText);
+            // Headscale: an admin approves the device on the server
+            // ("headscale nodes register"); the link's page says how.
+            lv_obj_t* l = label(panel, ts_server().empty() ? "Scan to sign in" : "Approve on Headscale",
+                                &zs_font_12, kText);
             (void)l;
         } else {
             const char* head = !ts_.installed            ? "Not installed"
@@ -187,6 +218,16 @@ private:
                 shell_toast("Starting Tailscale...");
             }, this);
         }
+        if (ts_.installed && ts_.state != "Running") {
+            list_button(list, LV_SYMBOL_EDIT, "Use auth key", [](lv_event_t* e) {
+                static_cast<RemoteApp*>(lv_event_get_user_data(e))->ask("Auth key", "", [](const std::string& v) {
+                    if (v.empty()) return;
+                    prefs::set_str("tailscale.authkey", v);   // the shell uses it once, then clears it
+                    hal().tailscale_start();
+                    shell_toast("Signing in with the key...");
+                });
+            }, this);
+        }
         list_button(list, LV_SYMBOL_KEYBOARD, "Connect to...", [](lv_event_t* e) {
             static_cast<RemoteApp*>(lv_event_get_user_data(e))->ask("Host (user@host)", "", [](const std::string& v) {
                 if (!v.empty()) terminal_run((use_mosh() ? "mosh " : "ssh ") + v);
@@ -202,6 +243,11 @@ private:
             set_use_mosh(!use_mosh());
             auto* self = static_cast<RemoteApp*>(lv_event_get_user_data(e));
             self->dirty_ = true;
+        }, this);
+        std::string server = "Server: " + server_name(ts_server());
+        list_button(list, LV_SYMBOL_HOME, server.c_str(), [](lv_event_t* e) {
+            static_cast<RemoteApp*>(lv_event_get_user_data(e))
+                ->ask("Headscale server (empty: Tailscale)", ts_server(), [](const std::string& v) { set_server(v); });
         }, this);
         if (ts_.running) {
             list_button(list, LV_SYMBOL_POWER, "Turn off Tailscale", [](lv_event_t* e) {

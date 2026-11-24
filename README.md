@@ -173,7 +173,7 @@ the app. It all goes again when you remove the app.
 
 | App | Id | What it does | Brings |
 | --- | --- | --- | --- |
-| [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, over a file explorer, in eight themes: music on the SD card, USB drives and mounted server shares (SMB, NFS), and http(s) addresses | mpv |
+| [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, over a file explorer, with pixel-art skins (a 1970s hi-fi, liquid chrome): music on the SD card, USB drives and mounted server shares (SMB, NFS), and http(s) addresses | mpv |
 | [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: home screen cards, Continue Watching, a now-playing bar | mpv, libmpv |
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |

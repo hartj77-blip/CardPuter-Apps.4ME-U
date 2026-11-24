@@ -1,9 +1,9 @@
 # Media (README.md): a classic desktop MP3 player over a file explorer, for
-# music on the SD card, a USB drive or a mounted server share, in eight
-# themes. Music plays through the shell's player (mpv, part of ZeroOS for
+# music on the SD card, a USB drive or a mounted server share, in three
+# skins. Music plays through the shell's player (mpv, part of ZeroOS for
 # Dock). Jellyfin moved to its own app; voice notes to the Recorder app.
 NAME="Media"
-SUMMARY="Classic MP3 player with a file explorer and eight themes: music from the SD card, USB drives and servers"
-APP_VERSION="3.1.0"
+SUMMARY="Classic MP3 player with a file explorer and pixel-art skins: music from the SD card, USB drives and servers"
+APP_VERSION="3.2.0"
 DEPENDS="mpv"
 NEEDS="mpv"

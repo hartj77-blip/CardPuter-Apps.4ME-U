@@ -105,6 +105,7 @@ sudo zeroos-apps install media            # install one app by its id
 sudo zeroos-apps remove media
 sudo zeroos-apps upgrade                  # every app with a newer version
 zeroos-apps sources                       # where apps come from, most trusted first
+sudo zeroos-apps source-up <owner/repo>   # move a source up the list (source-down: down)
 sudo zeroos-apps install-file zeroos-app-media_2.0.0-abi3_arm64.deb   # a package you copied over
 ```
 
@@ -118,7 +119,8 @@ they are published. They are made for M5's own launcher, which ZeroOS replaces, 
 ordinary Debian packages, so ZeroOS installs them too. This needs a ZeroOS newer than 0.4.0.
 
 - **In Apps** they're in the same list as the apps from this repository, marked **M5**, with ids
-  `m5-<package>`. An app's page says it's from M5Stack's store, and shows the notes M5's store
+  `m5-<package>`. To see only M5's apps, press **Left** or **Right** on the source row at the top
+  of Apps (or **Tab > S**) until it says **M5Stack** (ZeroOS 0.5.1 or newer). An app's page says it's from M5Stack's store, and shows the notes M5's store
   gives ("Runs in the background", "Needs extra hardware").
 - **Installing** reads M5's list (`registry.json`, published from CardputerZero/packages), checks
   the download against the SHA-256 it names, and installs it with apt, the same way as any app.
@@ -139,7 +141,8 @@ How they differ from the apps here:
 
 M5's store is the last source in the list, so if an app here and an app there ever shared an id,
 this repository's would win (they can't, in practice: M5's ids all start with `m5-`). To take
-M5's store out of the list: **Apps > Tab > P**, highlight it, **Tab > D**. To put it back, **Add
+M5's store out of the list: **Apps > Tab > P**, highlight it, **Tab > D**. On the same page,
+**Tab > K** and **Tab > J** move a source up and down (ZeroOS 0.5.1 or newer). To put it back, **Add
 a GitHub repo** and type `m5stack`. How it works on the device is in the OS's
 [apps guide](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/APPS.md#m5stacks-app-store).
 

@@ -1,12 +1,15 @@
 // Desktop: remote desktop to your other computers, VNC or RDP.
 //
-//   List     your saved computers, then Tailscale devices not saved yet.
-//            Enter = connect on the built-in screen, M = open on the monitor
-//            (Dock mode), E = edit.
-//   Edit     name, address, VNC/RDP, user, password, RDP size, domain.
-//   Viewer   the remote screen in the 320 x 150 app area. Keys type on the
-//            remote computer; Esc opens a menu of the rest (mouse mode, zoom,
-//            Ctrl/Alt/Win, Ctrl+Alt+Del, F-keys, leave).
+//   List     your saved computers, then Tailscale devices not saved yet (a
+//            List screen: typing filters). Enter connects on the built-in
+//            screen; the menu has N New, E Edit, M Open on the monitor (Dock
+//            mode) and D Delete.
+//   Edit     name, address, VNC/RDP, user, password, RDP size, domain, as
+//            rows; the menu has D Delete. Esc saves and goes back.
+//   Viewer   the remote screen in the 320 x 150 app area, like a Game
+//            screen: no soft-key bar, and keys type on the remote computer.
+//            Esc opens a menu of the rest (mouse mode, zoom, Ctrl/Alt/Win,
+//            Ctrl+Alt+Del, F-keys, leave).
 //
 // The connection runs in zeroos-desktop-view (view/view.cpp), a process of
 // its own: it hands the screen over in shared memory (frame.h) and takes
@@ -31,6 +34,7 @@
 #include "apps/common.h"
 #include "apps/desktop/frame.h"
 #include "apps/desktop/hosts.h"
+#include "ui/list_view.h"
 #include "ui/power.h"
 #include "ui/prefs.h"
 #include "ui/remote.h"
@@ -708,28 +712,19 @@ public:
         if (viewer_ || input_) return;
         if (page_ == Page::List && ++n_ % 30 == 0) {
             remote_note_use();
-            if (peers_signature() != peers_sig_) rebuild();
+            if (peers_signature() != peers_sig_ && list_.filter().empty()) {
+                keep_row_ = list_.focused();
+                rebuild();
+            }
         }
     }
 
     bool on_key(uint32_t key) override {
         if (viewer_) return viewer_->key(key);
         if (input_) return false;
-        if (page_ != Page::List) return false;
-        int i = focused_host();
-        if (i < 0) return false;
-        if (key == 'm' || key == 'M') {
-            open_on_monitor(hosts_[size_t(i)]);
-            return true;
-        }
-        if (key == 'e' || key == 'E') {
-            edit_ = hosts_[size_t(i)];
-            edit_index_ = i;
-            page_ = Page::Edit;
-            dirty_ = true;
-            return true;
-        }
-        return false;
+        bool used = list_.key(key);
+        if (page_ == Page::List) set_actions();   // Enter's word follows the row in focus
+        return used;
     }
 
     bool on_back() override {
@@ -754,50 +749,108 @@ private:
     void rebuild() {
         lv_obj_clean(root_);
         input_ = nullptr;
-        host_btns_.clear();
+        list_.reset();
         if (group) lv_group_remove_all_objs(group);
         if (page_ == Page::Edit) build_edit();
         else build_list();
+        if (!input_) set_actions();   // (a new computer opens straight on its address box)
+    }
+
+    // The soft-key bar and the Tab menu (docs/UX.md in the OS). Both pages
+    // are List screens, so the letters are menu actions, not plain keys.
+    void set_actions() {
+        std::vector<Action> a;
+        if (page_ == Page::Edit) {
+            a.push_back({"Change", 0, "Enter", nullptr});
+            a.push_back({"Save", 0, "Esc", nullptr});
+            Action del{"Delete", 'd', nullptr, [this] { delete_host(edit_index_); }};
+            del.enabled = edit_index_ >= 0;
+            del.danger = true;
+            del.confirm = "Delete " + edit_.name + "?";
+            a.push_back(del);
+            shell_set_actions(std::move(a));
+            return;
+        }
+        int i = focused_host();
+        a.push_back({i >= 0 ? "Connect" : "Add", 0, "Enter", nullptr});
+        a.push_back({"New computer", 'n', nullptr, [this] { new_host(); }});
+        Action edit{"Edit", 'e', nullptr, [this] { edit_host(focused_host()); }};
+        edit.enabled = i >= 0;
+        a.push_back(edit);
+        Action mon{"Open on the monitor", 'm', nullptr, [this] {
+                       int k = focused_host();
+                       if (k >= 0) open_on_monitor(hosts_[size_t(k)]);
+                   }};
+        mon.enabled = i >= 0 && power().docked();
+        a.push_back(mon);
+        Action del{"Delete", 'd', nullptr, [this] { delete_host(focused_host()); }};
+        del.enabled = i >= 0;
+        del.danger = true;
+        del.confirm = i >= 0 ? "Delete " + hosts_[size_t(i)].name + "?" : "";
+        a.push_back(del);
+        shell_set_actions(std::move(a));
+    }
+
+    void new_host() {
+        edit_ = Host{};
+        edit_.name.clear();
+        edit_index_ = -1;
+        page_ = Page::Edit;
+        dirty_ = true;
+        ask_address_ = true;
+    }
+
+    void edit_host(int i) {
+        if (i < 0 || i >= int(hosts_.size())) return;
+        edit_ = hosts_[size_t(i)];
+        edit_index_ = i;
+        page_ = Page::Edit;
+        dirty_ = true;
+    }
+
+    void delete_host(int i) {
+        if (i < 0 || i >= int(hosts_.size())) return;
+        std::string name = hosts_[size_t(i)].name;
+        hosts_.erase(hosts_.begin() + i);
+        save_hosts(home_dir(), hosts_);
+        shell_toast("Deleted " + name);
+        edit_index_ = -1;
+        focus_ = 0;
+        page_ = Page::List;
+        dirty_ = true;
     }
 
     void build_list() {
         lv_obj_t* panel = lv_obj_create(root_);
         style_panel(panel);
         lv_obj_set_pos(panel, 6, 4);
-        lv_obj_set_size(panel, 120, kContentH - 10);
+        lv_obj_set_size(panel, 120, kBodyH - 8);
         lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_row(panel, 4, 0);
         label(panel, ZS_ICON_LAPTOP " Desktop", &zs_font_16, kText);
-        std::string help = hosts_.empty() ? "Reach a Windows PC (RDP), a Mac or Linux (VNC) from here."
-                                          : "Enter: connect\nM: on monitor\nE: edit";
-        lv_obj_t* h = label(panel, help.c_str(), &zs_font_12, kMuted);
+        lv_obj_t* h = label(panel, "Reach a Windows PC (RDP), a Mac or Linux (VNC) from here.", &zs_font_12, kMuted);
         lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(h, 106);
         if (power().docked()) {
-            lv_obj_t* d = label(panel, "Docked: M shows it on the monitor", &zs_font_12, kAccent);
+            lv_obj_t* d = label(panel, "Docked: a computer can open on the monitor too.", &zs_font_12, kAccent);
             lv_label_set_long_mode(d, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(d, 106);
         }
 
-        lv_obj_t* list = make_list(root_, 132, 4, 182, kContentH - 10);
+        // Saved computers first, so a row's index is its host's.
+        list_.build(root_, 132, 4, 182, kBodyH - 8);
         for (size_t i = 0; i < hosts_.size(); ++i) {
-            std::string t = hosts_[i].name + "  " + proto_name(hosts_[i].proto);
-            lv_obj_t* b = list_button(list, ZS_ICON_DESKTOP, t.c_str(), on_host, this);
-            host_btns_.push_back(b);
+            int k = int(i);
+            list_.add(ZS_ICON_DESKTOP, hosts_[i].name, proto_name(hosts_[i].proto), [this, k] {
+                focus_ = k;
+                connect_after_ = k;
+                dirty_ = true;
+            });
         }
-        list_button(list, LV_SYMBOL_PLUS, "Add a computer", [](lv_event_t* e) {
-            auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-            self->edit_ = Host{};
-            self->edit_.name.clear();
-            self->edit_index_ = -1;
-            self->page_ = Page::Edit;
-            self->dirty_ = true;
-            self->ask_address_ = true;
-        }, this);
+        list_.add(LV_SYMBOL_PLUS, "Add a computer", "", [this] { new_host(); });
         // Tailscale devices that could be added with a key press.
         peers_sig_ = peers_signature();
-        peer_names_.clear();
         TsStatus ts = hal().tailscale();
         if (ts.state == "Running") {
             for (const TsPeer& p : ts.peers) {
@@ -809,101 +862,69 @@ private:
                     if (split_address(hh.address, 0, host, port) && (host == p.name || host == p.ip)) saved = true;
                 }
                 if (saved) continue;
-                std::string t = p.name + (p.online ? "" : "  (off)");
-                lv_obj_t* b = list_button(list, LV_SYMBOL_PLUS, t.c_str(), on_peer, this);
-                lv_obj_set_style_text_color(b, c(p.online ? kText : kMuted), 0);
-                lv_obj_set_user_data(b, reinterpret_cast<void*>(peer_names_.size()));
-                peer_names_.push_back(p.name + ":" + p.os);
+                std::string peer = p.name + ":" + p.os;
+                int r = list_.add(LV_SYMBOL_PLUS, p.name, p.online ? "" : "off", [this, peer] {
+                    open_peer(peer);
+                    dirty_ = true;
+                });
+                list_.set_value_color(r, kMuted);
             }
         }
-        finish_list(list);
-        if (focus_ >= 0 && focus_ < int(host_btns_.size())) lv_group_focus_obj(host_btns_[size_t(focus_)]);
+        list_.finish();
+        int want = keep_row_ >= 0 ? keep_row_ : focus_;
+        keep_row_ = -1;
+        if (want >= 0) list_.focus(want);
     }
 
+    // The form: a row per field (Enter types it), Type and Size as value
+    // rows (Left / Right). Deleting is in the menu (D), with the shell's
+    // confirm box.
     void build_edit() {
         Host& h = edit_;
-        lv_obj_t* list = make_list(root_, 6, 4, kScreenW - 12, kContentH - 10);
-        auto row = [&](const char* sym, const std::string& text, lv_event_cb_t cb) {
-            list_button(list, sym, text.c_str(), cb, this);
-        };
-        row(LV_SYMBOL_EDIT, "Name: " + (h.name.empty() ? std::string("(as the address)") : h.name), [](lv_event_t* e) {
-            auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-            self->ask("Name", self->edit_.name, false, [self](const std::string& v) { self->edit_.name = v; });
+        list_.build(root_, 6, 4, kScreenW - 12, kBodyH - 8);
+        list_.add(LV_SYMBOL_EDIT, "Name", h.name.empty() ? std::string("as the address") : h.name, [this] {
+            ask("Name", edit_.name, false, [this](const std::string& v) { edit_.name = v; });
         });
-        row(LV_SYMBOL_GPS, "Address: " + (h.address.empty() ? std::string("(none)") : h.address), [](lv_event_t* e) {
-            auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-            self->ask_address();
+        list_.add(LV_SYMBOL_GPS, "Address", h.address.empty() ? std::string("none") : h.address,
+                  [this] { ask_address(); });
+        list_.add_choice(LV_SYMBOL_SHUFFLE, "Type", {"VNC (Mac, Linux)", "RDP (Windows, xrdp)"},
+                         h.proto == Proto::Vnc ? 0 : 1, [this](int i) {
+                             edit_.proto = i == 0 ? Proto::Vnc : Proto::Rdp;
+                             refocus_ = 2;
+                             dirty_ = true;   // RDP has more rows
+                         });
+        list_.add(LV_SYMBOL_HOME, "User", h.user.empty() ? std::string(h.proto == Proto::Vnc ? "none" : "ask") : h.user,
+                  [this] {
+                      ask("User name (a Mac's needs one; most VNC servers don't)", edit_.user, false,
+                          [this](const std::string& v) { edit_.user = v; });
+                  });
+        list_.add(LV_SYMBOL_EYE_CLOSE, "Password", h.password.empty() ? "ask each time" : "saved", [this] {
+            ask("Password to save (empty: ask each time)", "", true, [this](const std::string& v) { edit_.password = v; });
         });
-        row(LV_SYMBOL_SHUFFLE, std::string("Type: ") + (h.proto == Proto::Vnc ? "VNC (Mac, Linux)" : "RDP (Windows, xrdp)"),
-            [](lv_event_t* e) {
-                auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-                self->edit_.proto = self->edit_.proto == Proto::Vnc ? Proto::Rdp : Proto::Vnc;
-                self->refocus_ = 2;
-                self->dirty_ = true;
-            });
-        row(LV_SYMBOL_HOME, "User: " + (h.user.empty() ? std::string(h.proto == Proto::Vnc ? "(none)" : "(ask)") : h.user),
-            [](lv_event_t* e) {
-                auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-                self->ask("User name (a Mac's needs one; most VNC servers don't)", self->edit_.user, false,
-                          [self](const std::string& v) { self->edit_.user = v; });
-            });
-        row(LV_SYMBOL_EYE_CLOSE, std::string("Password: ") + (h.password.empty() ? "ask each time" : "saved"),
-            [](lv_event_t* e) {
-                auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-                self->ask("Password to save (empty: ask each time)", "", true,
-                          [self](const std::string& v) { self->edit_.password = v; });
-            });
         if (h.proto == Proto::Rdp) {
-            const RdpSize& sz = rdp_sizes()[size_t(std::clamp(h.size, 0, int(rdp_sizes().size()) - 1))];
-            row(LV_SYMBOL_IMAGE, std::string("Size: ") + sz.label, [](lv_event_t* e) {
-                auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-                self->edit_.size = (self->edit_.size + 1) % int(rdp_sizes().size());
-                self->refocus_ = 5;
-                self->dirty_ = true;
-            });
-            row(LV_SYMBOL_LIST, "Domain: " + (h.domain.empty() ? std::string("(none)") : h.domain), [](lv_event_t* e) {
-                auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-                self->ask("Windows domain (usually empty)", self->edit_.domain, false,
-                          [self](const std::string& v) { self->edit_.domain = v; });
+            std::vector<std::string> sizes;
+            for (auto& sz : rdp_sizes()) sizes.push_back(sz.label);
+            list_.add_choice(LV_SYMBOL_IMAGE, "Size", sizes, std::clamp(h.size, 0, int(sizes.size()) - 1),
+                             [this](int i) { edit_.size = i; });
+            list_.add(LV_SYMBOL_LIST, "Domain", h.domain.empty() ? std::string("none") : h.domain, [this] {
+                ask("Windows domain (usually empty)", edit_.domain, false,
+                    [this](const std::string& v) { edit_.domain = v; });
             });
         }
-        row(LV_SYMBOL_PLAY, "Connect", [](lv_event_t* e) {
-            auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-            if (!self->save_edit()) return;
-            self->page_ = Page::List;
-            self->connect_after_ = self->focus_;
-            self->dirty_ = true;
+        list_.add(LV_SYMBOL_PLAY, "Connect", "", [this] {
+            if (!save_edit()) return;
+            page_ = Page::List;
+            connect_after_ = focus_;
+            dirty_ = true;
         });
         if (power().docked()) {
-            row(ZS_ICON_DESKTOP, "Open on the monitor", [](lv_event_t* e) {
-                auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-                if (!self->save_edit()) return;
-                self->open_on_monitor(self->edit_);
+            list_.add(ZS_ICON_DESKTOP, "Open on the monitor", "", [this] {
+                if (!save_edit()) return;
+                open_on_monitor(edit_);
             });
         }
-        if (edit_index_ >= 0) {
-            row(LV_SYMBOL_TRASH, delete_armed_ ? "Press again to delete" : "Delete", [](lv_event_t* e) {
-                auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-                if (!self->delete_armed_) {
-                    self->delete_armed_ = true;
-                    self->refocus_ = -2;   // the last row
-                    self->dirty_ = true;
-                    return;
-                }
-                self->delete_armed_ = false;
-                self->hosts_.erase(self->hosts_.begin() + self->edit_index_);
-                save_hosts(home_dir(), self->hosts_);
-                shell_toast("Deleted " + self->edit_.name);
-                self->edit_index_ = -1;
-                self->focus_ = 0;
-                self->page_ = Page::List;
-                self->dirty_ = true;
-            });
-        }
-        finish_list(list);
-        uint32_t n = lv_obj_get_child_count(list);
-        int want = refocus_ == -2 ? int(n) - 1 : refocus_;
-        if (want > 0 && want < int(n)) lv_group_focus_obj(lv_obj_get_child(list, want));
+        list_.finish();
+        if (refocus_ > 0) list_.focus(refocus_);
         refocus_ = 0;
         if (ask_address_) {
             ask_address_ = false;
@@ -920,31 +941,12 @@ private:
         return s;
     }
 
-    int focused_host() {
-        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
-        for (size_t i = 0; i < host_btns_.size(); ++i)
-            if (host_btns_[i] == f) return int(i);
-        return -1;
-    }
-
-    static void on_host(lv_event_t* e) {
-        auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-        lv_obj_t* t = lv_event_get_target_obj(e);
-        for (size_t i = 0; i < self->host_btns_.size(); ++i)
-            if (self->host_btns_[i] == t) {
-                self->focus_ = int(i);
-                self->connect_after_ = int(i);
-                self->dirty_ = true;
-            }
-    }
-
-    static void on_peer(lv_event_t* e) {
-        auto* self = static_cast<DesktopApp*>(lv_event_get_user_data(e));
-        size_t i = reinterpret_cast<size_t>(lv_obj_get_user_data(lv_event_get_target_obj(e)));
-        if (i < self->peer_names_.size()) {
-            self->open_peer(self->peer_names_[i]);
-            self->dirty_ = true;
-        }
+    // The saved computer in focus on the list page, or -1 (the Add row, a
+    // Tailscale device, or the edit page).
+    int focused_host() const {
+        if (page_ != Page::List || input_) return -1;
+        int i = list_.focused();
+        return i >= 0 && i < int(hosts_.size()) ? i : -1;
     }
 
     // "NAME:OS", from the list or from Remote's D key: the saved computer
@@ -960,7 +962,7 @@ private:
             if (split_address(hosts_[i].address, 0, host, port) && host == name) {
                 focus_ = int(i);
                 page_ = Page::List;
-                shell_toast("Enter: connect   M: on the monitor");
+                shell_toast(hosts_[i].name + " is saved already");
                 return;
             }
         }
@@ -975,7 +977,6 @@ private:
     }
 
     bool save_edit() {
-        delete_armed_ = false;
         std::string host;
         int port = 0;
         if (edit_.address.empty()) {
@@ -1047,8 +1048,11 @@ private:
         connected_index_ = i;
         lv_obj_clean(root_);
         input_ = nullptr;
-        host_btns_.clear();
+        list_.reset();
         if (group) lv_group_remove_all_objs(group);
+        // Like a Game screen: the remote computer has the keys and the whole
+        // app area (kViewH), so no soft-key bar. Its own menu is on Esc.
+        shell_set_actions({});
         viewer_ = std::make_unique<Viewer>(root_, hosts_[size_t(i)], pass);
     }
 
@@ -1093,8 +1097,9 @@ private:
     using Done = std::function<void(const std::string&)>;
     void ask(const std::string& title, const std::string& initial, bool secret, Done done) {
         done_ = std::move(done);
-        lv_obj_t* was = group ? lv_group_get_focused(group) : nullptr;
-        ask_focus_ = was ? int(lv_obj_get_index(was)) : 0;
+        ask_focus_ = std::max(0, list_.focused());
+        // A Text screen while it's open: letters and digits type.
+        shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
         style_panel(input_);
         lv_obj_set_size(input_, 300, 74);
@@ -1153,20 +1158,19 @@ private:
     Done done_;
     std::function<void()> after_input_;
     std::vector<Host> hosts_;
-    std::vector<lv_obj_t*> host_btns_;
-    std::vector<std::string> peer_names_;
+    ListView list_;
+    int keep_row_ = -1;   // the list row to keep in focus over a rebuild
     std::string peers_sig_;
     std::unique_ptr<Viewer> viewer_;
     Page page_ = Page::List;
     Host edit_;
     int edit_index_ = -1;
     int focus_ = 0;
-    int refocus_ = 0;     // the edit row to focus after a rebuild (-2: the last)
+    int refocus_ = 0;     // the edit row to focus after a rebuild
     int ask_focus_ = 0;   // the row the text box was opened from
     int connect_after_ = -1;
     int connected_index_ = 0;
     std::string pending_pass_;
-    bool delete_armed_ = false;
     bool ask_address_ = false;
     bool dirty_ = false;
     int n_ = 0;

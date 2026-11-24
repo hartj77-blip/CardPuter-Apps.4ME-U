@@ -4,7 +4,8 @@ The **Media** app plays your own music. On top it's a classic desktop MP3
 player: an LCD with the time and a spectrum analyser, the title scrolling
 past, transport buttons. Underneath, where the playlist used to be, is a file
 explorer: the music on the SD card, USB drives, and shares on a server. It
-comes in eight themes.
+comes in three skins: the classic look, a 1970s hi-fi receiver and a
+liquid-chrome player from 2001.
 
 Media is for music only. Up to 3.0 it also played video files; that's gone,
 so video files aren't listed any more.
@@ -33,21 +34,23 @@ OGG..., NET for a stream), where you are in the queue, whether shuffle is on,
 and the volume. The title bar says where you are. The explorer marks the
 track that's playing and the row you're on; folders have their own colour.
 
-## Themes
+## Skins
 
-Press **T** (or pick **Theme** in the Tab menu) to go to the next theme.
+Press **T** (or pick **Skin** in the Tab menu) to go to the next skin.
 Media remembers the one you leave it on.
 
-| Theme | Look |
+| Skin | Look |
 | --- | --- |
-| **Classic** | Gunmetal case, black LCD with green digits, a blue selection |
-| **Amber** | An old amber terminal |
-| **Ice** | A blue backlit LCD on dark steel |
-| **Cherry** | Pink on near-black |
-| **Vapor** | Purple with neon cyan and pink |
-| **Forest** | Deep green and lime |
-| **Silver** | Light: brushed silver, a grey-green LCD with dark digits |
-| **Mono** | Black and white |
+| **Classic** | The player above: gunmetal case, black LCD with green digits, the explorer underneath |
+| **Hi-Fi Receiver** | Walnut and brushed aluminium. The amber tuning dial is the seek bar: its red needle sweeps across the track's time, and a second scale shows your place in the queue. Two VU meters, the track name in a big amber window, latching piano keys, Shuffle and Mute switches, a volume knob |
+| **Liquid Chrome** | A molten-metal body whose reflections ripple, an oval screen with big digits, the title in large scrolling letters and an analyser, jelly buttons, and a glass tube that fills as the track plays |
+
+The two skins are pixel art at the screen's own size, and each has two
+screens: the player, and the playlist (the explorer). **L** flips between
+them; Up, Down or Enter on the player go to the playlist. On the Hi-Fi's
+playlist the preset keys **1** to **6** open that row.
+
+Up to 3.1 Media had eight colour themes instead; they're gone.
 
 ## Places
 
@@ -95,12 +98,14 @@ ends (see [Remote](../remote/README.md)), a share at home works from anywhere.
 | C V B N M | The five buttons, left to right: previous, play, pause, stop, next |
 | Space | Pause / resume (with nothing playing, plays the row you're on) |
 | S | Shuffle on or off (from the next track you pick) |
-| T | The next theme |
+| T | The next skin |
+| L | In a skin: the playlist or the player |
+| 1 to 6 | In a skin's playlist: open that row |
 | + / - | Volume |
 | **Fn + Q** | Play / pause. With nothing playing, plays the row you're on |
 | **Fn + W / Fn + E** | Previous / next track |
 | Fn + S / Fn + D, Fn + A | Volume down / up, sound off (anywhere) |
-| Tab | The menu: search, shuffle, stop, theme, open an address, places, rescan |
+| Tab | The menu: search, shuffle, stop, skin, open an address, places, rescan |
 
 The media keys (Fn + Q, W, E) work in every app, not only this one, and so do a
 Bluetooth headset's or car's buttons. The queue belongs to ZeroShell, not the
@@ -112,8 +117,8 @@ The marquee shows the artist as the folder two up from the track
 
 ## Limits
 
-- The spectrum analyser is for the look: the player doesn't hand the sound to
-  the app, so it dances to the beat of a random number generator.
+- The spectrum analyser, and the skins' VU meters, are for the look: the
+  player doesn't hand the sound to the app, so they dance to a made-up beat.
 - No tags: titles come from file names, artists from folder names. Track
   lengths show once a track plays.
 - Media doesn't mount shares itself; mount them as above.

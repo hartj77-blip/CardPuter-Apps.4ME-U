@@ -10,10 +10,16 @@
 //   X            play the focused file, or everything in a folder
 //   C V B N M    the five buttons: previous, play, pause, stop, next
 //   Space        pause / resume           S            shuffle on or off
-//   T            the next theme           + / -        volume
+//   T            the next skin            L            playlist / player (in a skin)
+//   + / -        volume
 //   Fn+Q/W/E     the keyboard's media keys: play/pause, previous, next
 //   /            search this folder       Esc / Del    up a folder, or clear the search
-//   Tab          the menu (themes, open an address, shuffle, stop, rescan)
+//   Tab          the menu (skins, open an address, shuffle, stop, rescan)
+//
+// Skins (skins.h): besides the classic look, whole-screen pixel-art skins
+// with a player screen and a playlist screen. In a skin the app draws the
+// explorer itself, so it moves the selection here rather than through
+// LVGL's focus.
 //
 // Playing goes through the shell's queue (ui/player.h), so it carries on to
 // the next track after you leave the app or the screen turns off.
@@ -28,6 +34,7 @@
 #include <random>
 
 #include "apps/common.h"
+#include "skins.h"
 #include "platform/keys.h"
 #include "ui/player.h"
 #include "ui/power.h"
@@ -37,48 +44,26 @@ namespace zs {
 namespace {
 using namespace theme;
 
-// The looks. Each is a set of colours for the same player: the case
-// (chrome), the LCDs, the gold-ish accents of the title bar, the playlist's
-// selected row, the buttons and the spectrum analyser. T or the menu goes to
-// the next; the choice is kept (media.theme).
-struct Theme {
-    const char* name;
-    uint32_t chrome, chrome_hi, chrome_lo;   // the case, its light and dark edges
-    uint32_t lcd, text, text_dim;            // LCD background, digits, unlit digits
-    uint32_t accent, accent_dim;             // title bar, seek bar, flashed button
-    uint32_t select, select_text;            // the selected row
-    uint32_t button, button_text;
-    uint32_t folder;                         // folders in the list
-    uint32_t spec_lo, spec_hi, peak;         // analyser: bottom, top, peak caps
-};
+// The classic look: gunmetal chrome, a black LCD with green digits, a blue
+// bar on the playlist's selected row.
+constexpr uint32_t kChrome = 0x262637;
+constexpr uint32_t kChromeHi = 0x50506e;
+constexpr uint32_t kChromeLo = 0x101018;
+constexpr uint32_t kLcd = 0x000000;
+constexpr uint32_t kGreen = 0x00e000;
+constexpr uint32_t kGreenDim = 0x0f5a0f;
+constexpr uint32_t kGold = 0xdcb85a;
+constexpr uint32_t kGoldDim = 0x6e5c2c;
+constexpr uint32_t kSelect = 0x1414b4;
+constexpr uint32_t kSelectText = 0xffffff;
+constexpr uint32_t kButton = 0x3a3a55;
+constexpr uint32_t kButtonText = 0xc4c4d8;
+constexpr uint32_t kFolder = 0xdcb85a;
+constexpr uint32_t kSpecLo = 0x10c010, kSpecHi = 0xe01e00, kPeak = 0x9a9aa8;
 
-constexpr Theme kThemes[] = {
-    // Gunmetal chrome, a black LCD with green digits, a blue selection.
-    {"Classic", 0x262637, 0x50506e, 0x101018, 0x000000, 0x00e000, 0x0f5a0f, 0xdcb85a, 0x6e5c2c, 0x1414b4,
-     0xffffff, 0x3a3a55, 0xc4c4d8, 0xdcb85a, 0x10c010, 0xe01e00, 0x9a9aa8},
-    // An old amber terminal.
-    {"Amber", 0x2a2118, 0x5a4630, 0x120d08, 0x0c0700, 0xffb000, 0x5c3c00, 0xffcc66, 0x7a5a28, 0x7a3e00,
-     0xfff0d0, 0x3e3022, 0xe8d4b0, 0xffcc66, 0xff8c00, 0xffe066, 0xc0a080},
-    // A blue backlit LCD on dark steel.
-    {"Ice", 0x1c2633, 0x46607a, 0x0a1018, 0x020a14, 0x5ad2ff, 0x164a66, 0xa8e4ff, 0x3d6680, 0x0f5a8c,
-     0xffffff, 0x2a3a4e, 0xc8dcf0, 0xa8e4ff, 0x1e78ff, 0xb4f0ff, 0xdceaf5},
-    // Pink, ZeroOS Media's own colour.
-    {"Cherry", 0x2e1a24, 0x6a3a52, 0x140a10, 0x0e0308, 0xff5c9a, 0x5c1c38, 0xffb3d1, 0x7a4058, 0xa0205a,
-     0xffffff, 0x46263a, 0xf0c8da, 0xffb3d1, 0xd6336c, 0xffd0e4, 0xe0b0c8},
-    // Purple and neon cyan.
-    {"Vapor", 0x241a3a, 0x5a3e8c, 0x0e0a1a, 0x0a0614, 0x3cf0e6, 0x1a5c5a, 0xff71ce, 0x7a3a66, 0x6b2fb3,
-     0xffffff, 0x382a5a, 0xd8ccf0, 0xff71ce, 0x01cdfe, 0xff71ce, 0xfffb96},
-    // Deep green and lime, like a radio at night.
-    {"Forest", 0x16241a, 0x3a5a40, 0x08100a, 0x020a04, 0x9cff57, 0x2a5418, 0xd8e8a0, 0x5a6a3a, 0x2f6b2a,
-     0xffffff, 0x243a28, 0xcce0c8, 0xd8e8a0, 0x2fa84f, 0xe8ff80, 0xb0c8a0},
-    // Brushed silver with a grey-green LCD and dark digits: a light theme.
-    {"Silver", 0xc8c8d0, 0xf4f4f8, 0x7c7c88, 0x9aa88a, 0x1a2414, 0x7a8870, 0x26263a, 0x6a6a78, 0x2a4aa0,
-     0xffffff, 0xdcdce4, 0x26263a, 0x4a3c08, 0x2c3a24, 0x2c3a24, 0x50604a},
-    // Black and white, as plain and as clear as it gets.
-    {"Mono", 0x000000, 0x9a9a9a, 0x2a2a2a, 0x000000, 0xffffff, 0x5a5a5a, 0xffffff, 0x8a8a8a, 0xffffff,
-     0x000000, 0x1e1e1e, 0xffffff, 0xc8c8c8, 0xffffff, 0xffffff, 0x8a8a8a},
-};
-constexpr int kThemeCount = int(sizeof(kThemes) / sizeof(kThemes[0]));
+// The skins T steps through; 0 is the classic look above.
+const char* const kSkinNames[] = {"Classic", "Hi-Fi Receiver", "Liquid Chrome"};
+constexpr int kSkinCount = 3;
 
 constexpr int kH = kBodyH;            // the soft-key bar takes the bottom
 constexpr int kBars = 19;             // spectrum analyser columns
@@ -224,9 +209,9 @@ public:
     void build(lv_obj_t* root) override {
         root_ = root;
         shuffle_ = prefs::get_str("media.shuffle", "0") == "1";
-        std::string want = prefs::get_str("media.theme", kThemes[0].name);
-        for (int i = 0; i < kThemeCount; ++i)
-            if (want == kThemes[i].name) theme_ = i;
+        std::string want = prefs::get_str("media.skin", kSkinNames[0]);
+        for (int i = 0; i < kSkinCount; ++i)
+            if (want == kSkinNames[i]) skin_ = i;
         // Back where you were last time, if it is still there.
         std::string last = prefs::get_str("media.folder", "");
         std::string base = prefs::get_str("media.place", "");
@@ -246,6 +231,7 @@ public:
         auto& h = hal();
         PlaybackState pb = h.playback();
         playing_ = !pb.path.empty() && !pb.paused;
+        if (skin_) return;   // the skin draws on its own timer
 
         // The LCD: state, time, and what is playing.
         const char* glyph = pb.path.empty() ? LV_SYMBOL_STOP : pb.paused ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY;
@@ -253,7 +239,7 @@ public:
         // Paused: the time blinks, as it always has on these players.
         bool blink_off = pb.paused && (lv_tick_get() / 500) % 2;
         lv_label_set_text(time_, pb.path.empty() ? "0:00" : blink_off ? "" : mmss(pb.pos_ms).c_str());
-        lv_obj_set_style_text_color(time_, c(pb.path.empty() ? T().text_dim : T().text), 0);
+        lv_obj_set_style_text_color(time_, c(pb.path.empty() ? kGreenDim : kGreen), 0);
 
         const QueueItem* q = player_current();
         int at = -1;
@@ -274,7 +260,7 @@ public:
         }
         lv_label_set_text(kind_, pb.path.empty() ? "---" : format_of(pb.path).c_str());
         lv_label_set_text(pos_, at >= 0 ? fmt("%d/%zu", at + 1, queue_paths_.size()).c_str() : "-/-");
-        lv_obj_set_style_text_color(shuf_, c(shuffle_ ? T().text : T().text_dim), 0);
+        lv_obj_set_style_text_color(shuf_, c(shuffle_ ? kGreen : kGreenDim), 0);
         lv_bar_set_value(vol_, h.muted() ? 0 : h.volume(), LV_ANIM_OFF);
         int permille = pb.dur_ms > 0 ? int(1000LL * pb.pos_ms / pb.dur_ms) : 0;
         lv_bar_set_value(seek_, permille, LV_ANIM_OFF);
@@ -287,13 +273,14 @@ public:
         for (int i = 0; i < 5; ++i)
             if (flash_at_[i] && now - flash_at_[i] > 180) {
                 flash_at_[i] = 0;
-                lv_obj_set_style_bg_color(buttons_[i], c(T().button), 0);
-                lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(T().button_text), 0);
+                lv_obj_set_style_bg_color(buttons_[i], c(kButton), 0);
+                lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(kButtonText), 0);
             }
     }
 
     bool on_key(uint32_t key) override {
         if (input_) return false;   // typing in the text box
+        if (skin_ && skin_key(key)) return true;
         auto& h = hal();
         switch (key) {
             case LV_KEY_LEFT:
@@ -350,7 +337,7 @@ public:
                 flash(kPlay);
                 play_focused();
                 return true;
-            case 't': case 'T': next_theme(); return true;
+            case 't': case 'T': next_skin(); return true;
             case 's': case 'S': toggle_shuffle(); return true;
             case '+': case '=':
                 h.set_volume(std::min(100, h.volume() + 5));
@@ -383,51 +370,60 @@ public:
 private:
     enum Button { kPrev, kPlay, kPause, kStop, kNext };
 
-    const Theme& T() const { return kThemes[theme_]; }
 
     // ---- Building the screen --------------------------------------------
 
-    // The whole player in the current theme. Called again to change it.
+    // The whole player in the current skin. Called again to change it.
     void build_player() {
-        lv_obj_t* frame = box(root_, 0, 0, kScreenW, kH, T().chrome, T().chrome);
-        lv_obj_set_style_border_width(frame, 0, 0);
-        build_title_bar(frame);
-        build_main_window(frame);
+        if (skin_ == 0) {
+            skin_obj_.reset();
+            lv_obj_t* frame = box(root_, 0, 0, kScreenW, kH, kChrome, kChrome);
+            lv_obj_set_style_border_width(frame, 0, 0);
+            build_title_bar(frame);
+            build_main_window(frame);
+            return;
+        }
+        skin_obj_ = skin_ == 1 ? media::make_hifi_skin() : media::make_chrome_skin();
+        pixels_.assign(size_t(kScreenW) * kH, 0);
+        canvas_ = lv_canvas_create(root_);
+        lv_canvas_set_buffer(canvas_, pixels_.data(), kScreenW, kH, LV_COLOR_FORMAT_RGB565);
+        lv_obj_set_pos(canvas_, 0, 0);
     }
 
-    // T: the next look. Everything is rebuilt in its colours; the place in
-    // the list stays.
-    void next_theme() {
+    // T: the next skin. Everything is rebuilt; the place in the list stays.
+    void next_skin() {
         if (input_) return;
         int keep = focused_index();
         std::string keep_path = keep >= 0 && keep < int(entries_.size()) ? entries_[size_t(keep)].path : "";
-        theme_ = (theme_ + 1) % kThemeCount;
-        prefs::set_str("media.theme", T().name);
+        skin_ = (skin_ + 1) % kSkinCount;
+        prefs::set_str("media.skin", kSkinNames[skin_]);
         lv_group_remove_all_objs(group);
         lv_obj_clean(root_);
         list_ = nullptr;
+        canvas_ = nullptr;
         for (int i = 0; i < kBars; ++i) level_[i] = peak_[i] = peak_hold_[i] = 0;
         for (auto& f : flash_at_) f = 0;
         shown_marquee_.clear();
         build_player();
         set_actions();
         rebuild_list(keep_path, false);
-        tick();
-        shell_toast(std::string("Theme: ") + T().name);
+        if (skin_ == 0) tick();
+        else render_skin();
+        shell_toast(std::string("Skin: ") + kSkinNames[skin_]);
     }
 
     void build_title_bar(lv_obj_t* frame) {
-        lv_obj_t* t = label(frame, "ZEROOS MEDIA", &zs_font_12, T().accent);
+        lv_obj_t* t = label(frame, "ZEROOS MEDIA", &zs_font_12, kGold);
         lv_obj_set_pos(t, 6, 0);
         lv_obj_update_layout(t);
         int x = 6 + lv_obj_get_width(t) + 8;
         // The grip ridges between the name and where you are.
         for (int k = 0; k < 2; ++k) {
-            lv_obj_t* r = box(frame, x, 5 + k * 3, kScreenW - x - 6, 1, T().accent_dim, T().accent_dim);
+            lv_obj_t* r = box(frame, x, 5 + k * 3, kScreenW - x - 6, 1, kGoldDim, kGoldDim);
             lv_obj_set_style_border_width(r, 0, 0);
         }
-        crumb_ = label(frame, "", &zs_font_12, T().accent);
-        lv_obj_set_style_bg_color(crumb_, c(T().chrome), 0);
+        crumb_ = label(frame, "", &zs_font_12, kGold);
+        lv_obj_set_style_bg_color(crumb_, c(kChrome), 0);
         lv_obj_set_style_bg_opa(crumb_, LV_OPA_COVER, 0);
         lv_obj_set_style_pad_left(crumb_, 5, 0);
         lv_obj_align(crumb_, LV_ALIGN_TOP_RIGHT, -6, 0);
@@ -435,11 +431,11 @@ private:
 
     void build_main_window(lv_obj_t* frame) {
         // The LCD: play state, time, spectrum analyser.
-        lv_obj_t* lcd = box(frame, 4, 16, kLcdW, kLcdH, T().lcd, T().chrome_hi);
+        lv_obj_t* lcd = box(frame, 4, 16, kLcdW, kLcdH, kLcd, kChromeHi);
         lv_obj_set_style_border_side(lcd, lv_border_side_t(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
-        state_ = label(lcd, LV_SYMBOL_STOP, &zs_font_12, T().text);
+        state_ = label(lcd, LV_SYMBOL_STOP, &zs_font_12, kGreen);
         lv_obj_set_pos(state_, 5, 5);
-        time_ = label(lcd, "0:00", &zs_font_20, T().text_dim);
+        time_ = label(lcd, "0:00", &zs_font_20, kGreenDim);
         lv_obj_set_style_text_align(time_, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_set_width(time_, 84);
         lv_obj_set_pos(time_, 24, 0);
@@ -448,40 +444,40 @@ private:
             // Each column is the whole gradient (the theme's bottom colour
             // to its top one), covered from the top down to its level; a
             // cap marks the peak.
-            lv_obj_t* g = box(lcd, x, y, 4, kBarH, T().spec_hi, 0);
+            lv_obj_t* g = box(lcd, x, y, 4, kBarH, kSpecHi, 0);
             lv_obj_set_style_border_width(g, 0, 0);
-            lv_obj_set_style_bg_grad_color(g, c(T().spec_lo), 0);
+            lv_obj_set_style_bg_grad_color(g, c(kSpecLo), 0);
             lv_obj_set_style_bg_main_stop(g, 40, 0);
             lv_obj_set_style_bg_grad_dir(g, LV_GRAD_DIR_VER, 0);
-            mask_[i] = box(lcd, x, y, 4, kBarH, T().lcd, 0);
+            mask_[i] = box(lcd, x, y, 4, kBarH, kLcd, 0);
             lv_obj_set_style_border_width(mask_[i], 0, 0);
-            peak_obj_[i] = box(lcd, x, y + kBarH - 1, 4, 1, T().peak, 0);
+            peak_obj_[i] = box(lcd, x, y + kBarH - 1, 4, 1, kPeak, 0);
             lv_obj_set_style_border_width(peak_obj_[i], 0, 0);
         }
 
         // The title, scrolling, in its own strip of LCD.
-        lv_obj_t* strip = box(frame, kRightX, 16, kRightW, 16, T().lcd, T().chrome_hi);
+        lv_obj_t* strip = box(frame, kRightX, 16, kRightW, 16, kLcd, kChromeHi);
         lv_obj_set_style_border_side(strip, lv_border_side_t(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
-        marquee_ = label(strip, "", &zs_font_12, T().text);
+        marquee_ = label(strip, "", &zs_font_12, kGreen);
         lv_obj_set_width(marquee_, kRightW - 6);
         lv_label_set_long_mode(marquee_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_pos(marquee_, 3, 0);
 
         // Small LCD boxes: the format, place in the queue, shuffle; volume.
         auto lcd_box = [&](int x, int w, const char* text) {
-            lv_obj_t* b = box(frame, x, 35, w, 14, T().lcd, T().chrome_hi);
+            lv_obj_t* b = box(frame, x, 35, w, 14, kLcd, kChromeHi);
             lv_obj_set_style_border_side(b, lv_border_side_t(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
-            lv_obj_t* l = label(b, text, &zs_font_12, T().text);
+            lv_obj_t* l = label(b, text, &zs_font_12, kGreen);
             lv_obj_center(l);
             return l;
         };
         kind_ = lcd_box(kRightX, 38, "---");
         pos_ = lcd_box(kRightX + 41, 50, "-/-");
         shuf_ = lcd_box(kRightX + 94, 38, "SHUF");
-        lv_obj_t* vl = label(frame, "VOL", &zs_font_12, T().accent_dim);
+        lv_obj_t* vl = label(frame, "VOL", &zs_font_12, kGoldDim);
         lv_obj_set_pos(vl, kRightX + 136, 35);
-        vol_ = thin_bar(frame, kRightW - 164, 5, T().text);
-        lv_obj_set_style_bg_color(vol_, c(T().chrome_lo), LV_PART_MAIN);
+        vol_ = thin_bar(frame, kRightW - 164, 5, kGreen);
+        lv_obj_set_style_bg_color(vol_, c(kChromeLo), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(vol_, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_pos(vol_, kRightX + 162, 40);
         lv_bar_set_range(vol_, 0, 100);
@@ -490,12 +486,12 @@ private:
         static const char* const syms[5] = {LV_SYMBOL_PREV, LV_SYMBOL_PLAY, LV_SYMBOL_PAUSE, LV_SYMBOL_STOP,
                                             LV_SYMBOL_NEXT};
         for (int i = 0; i < 5; ++i) {
-            buttons_[i] = box(frame, kRightX + i * 25, 53, 22, 13, T().button, T().chrome_hi);
+            buttons_[i] = box(frame, kRightX + i * 25, 53, 22, 13, kButton, kChromeHi);
             lv_obj_set_style_border_side(buttons_[i], lv_border_side_t(LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT), 0);
-            lv_obj_center(label(buttons_[i], syms[i], &zs_font_12, T().button_text));
+            lv_obj_center(label(buttons_[i], syms[i], &zs_font_12, kButtonText));
         }
-        seek_ = thin_bar(frame, kRightW - 130, 4, T().accent);
-        lv_obj_set_style_bg_color(seek_, c(T().chrome_lo), LV_PART_MAIN);
+        seek_ = thin_bar(frame, kRightW - 130, 4, kGold);
+        lv_obj_set_style_bg_color(seek_, c(kChromeLo), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(seek_, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_pos(seek_, kRightX + 128, 58);
         lv_bar_set_range(seek_, 0, 1000);
@@ -503,17 +499,28 @@ private:
 
     // A transport button lights up for a moment when its key is pressed.
     void flash(Button b) {
+        if (skin_) {
+            skin_flash_ = b;
+            skin_flash_at_ = lv_tick_get();
+            return;
+        }
         flash_at_[b] = lv_tick_get() | 1;
-        lv_obj_set_style_bg_color(buttons_[b], c(T().accent), 0);
-        lv_obj_set_style_text_color(lv_obj_get_child(buttons_[b], 0), c(T().chrome), 0);
+        lv_obj_set_style_bg_color(buttons_[b], c(kGold), 0);
+        lv_obj_set_style_text_color(lv_obj_get_child(buttons_[b], 0), c(kChrome), 0);
         for (int i = 0; i < 5; ++i)
-            if (i != b) lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(T().button_text), 0);
+            if (i != b) lv_obj_set_style_text_color(lv_obj_get_child(buttons_[i], 0), c(kButtonText), 0);
     }
 
     // The analyser: lively while something plays, falling flat otherwise.
     // (It is for the look: the player doesn't hand over the sound itself.)
     void animate() {
         if (power().screen_off()) return;
+        if (skin_) {
+            // Full speed while music plays; otherwise a few frames a second
+            // keep the slow things moving (keys redraw at once anyway).
+            if (playing_ || ++idle_frames_ % 4 == 0) render_skin();
+            return;
+        }
         if (!playing_ && idle_frames_ > 40) return;   // settled: nothing to draw
         idle_frames_ = playing_ ? 0 : idle_frames_ + 1;
         for (int i = 0; i < kBars; ++i) {
@@ -553,7 +560,9 @@ private:
         a.push_back({"Next", 0, "M", nullptr});
         a.push_back({shuffle_ ? "Shuffle off" : "Shuffle on", 's', "S", [this] { toggle_shuffle(); }});
         a.push_back({"Volume", 0, "+ -", nullptr});
-        a.push_back({std::string("Theme: ") + T().name + " (next)", 'e', "T", [this] { next_theme(); }});
+        if (skin_)
+            a.push_back({list_view_ ? "Show the player" : "Show the playlist", 'l', "L", [this] { show_list(!list_view_); }});
+        a.push_back({std::string("Skin: ") + kSkinNames[skin_] + " (next)", 'e', "T", [this] { next_skin(); }});
         a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
         a.push_back({"Places", 'h', nullptr, [this] { go_places(); }});
         a.push_back({"Rescan", 'r', nullptr, [this] {
@@ -569,6 +578,173 @@ private:
         std::string up = e.substr(1);
         for (auto& ch : up) ch = char(std::toupper((unsigned char)ch));
         return up;
+    }
+
+    // ---- Skins ------------------------------------------------------------
+
+    // The explorer as rows for the skin; select keep_path, else what is
+    // playing, else the first row.
+    void skin_rows(const std::string& keep_path) {
+        rows_.clear();
+        row_entry_.clear();
+        std::string playing = hal().playback().path;
+        listed_playing_ = playing;
+        auto add_note = [&](const std::string& t) {
+            media::Row r;
+            r.text = t;
+            r.note = true;
+            rows_.push_back(r);
+            row_entry_.push_back(-1);
+        };
+        if (!cwd_.empty() && entries_.empty()) {
+            add_note(is_dir(cwd_) ? "No music here" : "Can't open this folder");
+            if (place_ == home_dir() + "/Music") add_note("Copy music to ~/Music on the SD card");
+        }
+        int files = 0, focus = -1, now = -1;
+        for (size_t i = 0; i < entries_.size(); ++i) {
+            const Entry& e = entries_[i];
+            if (!shown(e)) continue;
+            media::Row r;
+            r.path = e.path;
+            switch (e.type) {
+                case Entry::Place:
+                case Entry::Address:
+                    r.icon = e.icon;
+                    r.text = e.name;
+                    r.right = e.note;
+                    r.folder = true;
+                    break;
+                case Entry::Dir:
+                    r.icon = LV_SYMBOL_DIRECTORY;
+                    r.text = e.name;
+                    r.folder = true;
+                    break;
+                case Entry::List:
+                    r.icon = LV_SYMBOL_LIST;
+                    r.text = stem(e.name);
+                    r.right = "M3U";
+                    break;
+                case Entry::Audio:
+                    r.text = fmt("%d. ", ++files) + stem(e.name);
+                    r.right = format_of(e.name);
+                    break;
+            }
+            if (!keep_path.empty() && e.path == keep_path) focus = int(rows_.size());
+            if (!playing.empty() && e.path == playing) now = int(rows_.size());
+            rows_.push_back(r);
+            row_entry_.push_back(int(i));
+        }
+        if (!entries_.empty() && rows_.empty()) add_note("Nothing matches \"" + filter_ + "\" (Esc clears)");
+        sel_ = focus >= 0 ? focus : now >= 0 ? now : 0;
+        // The first row that can be opened, not a note.
+        while (sel_ < int(rows_.size()) - 1 && row_entry_[size_t(sel_)] < 0) ++sel_;
+        top_ = 0;
+        scroll_to_sel();
+        render_skin();
+    }
+
+    void scroll_to_sel() {
+        int shown_n = skin_obj_ ? skin_obj_->rows_shown() : 6;
+        if (sel_ < top_) top_ = sel_;
+        if (sel_ >= top_ + shown_n) top_ = sel_ - shown_n + 1;
+        top_ = std::max(0, std::min(top_, int(rows_.size()) - shown_n));
+    }
+
+    void show_list(bool on) {
+        if (list_view_ == on) return;
+        list_view_ = on;
+        set_actions();
+        render_skin();
+    }
+
+    void move_sel(int d) {
+        if (rows_.empty()) return;
+        sel_ = std::max(0, std::min(int(rows_.size()) - 1, sel_ + d));
+        scroll_to_sel();
+        render_skin();
+    }
+
+    // Keys a skin handles itself: the moving about LVGL's focus does in the
+    // classic look, the screen flip, and the preset keys 1-6.
+    bool skin_key(uint32_t key) {
+        int page = skin_obj_ ? skin_obj_->rows_shown() : 6;
+        switch (key) {
+            case 'l': case 'L':
+                show_list(!list_view_);
+                return true;
+            case LV_KEY_UP:
+            case LV_KEY_DOWN:
+                if (!list_view_) show_list(true);
+                else move_sel(key == LV_KEY_UP ? -1 : 1);
+                return true;
+            case kKeyPageUp:
+            case kKeyPageDown:
+                show_list(true);
+                move_sel(key == kKeyPageUp ? -page : page);
+                return true;
+            case LV_KEY_ENTER:
+                if (!list_view_) show_list(true);
+                else activate(focused_index());
+                return true;
+        }
+        // On the playlist, 1-6 are the preset keys: open that row.
+        if (list_view_ && key >= '1' && key < uint32_t('1' + page)) {
+            int r = top_ + int(key - '1');
+            if (r < int(rows_.size())) {
+                sel_ = r;
+                activate(focused_index());
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // One frame of the skin: what is playing, and the explorer.
+    void render_skin() {
+        if (!skin_obj_ || !canvas_) return;
+        auto& h = hal();
+        PlaybackState pb = h.playback();
+        // Opening and playing reload the list; the rows follow what is playing.
+        if (pb.path != listed_playing_) {
+            listed_playing_ = pb.path;
+            for (size_t i = 0; i < rows_.size(); ++i)
+                if (!pb.path.empty() && rows_[i].path == pb.path && !list_view_) {
+                    sel_ = int(i);
+                    scroll_to_sel();
+                }
+        }
+        media::View v;
+        v.t = float(lv_tick_get() % 3600000u) / 1000.f;
+        v.stopped = pb.path.empty();
+        v.paused = pb.paused;
+        v.pos_ms = pb.pos_ms;
+        v.dur_ms = pb.dur_ms;
+        v.playing_path = pb.path;
+        if (!v.stopped) {
+            const QueueItem* q = player_current();
+            v.title = q ? q->title : stem(pb.path);
+            v.artist = q ? q->artist : "";
+            if (!is_url(pb.path)) {
+                std::string dir = parent_of(pb.path);
+                std::string album = dir.substr(dir.rfind('/') + 1);
+                if (album != v.artist) v.album = album;
+            }
+            v.format = format_of(pb.path);
+            for (size_t i = 0; i < queue_paths_.size(); ++i)
+                if (queue_paths_[i] == pb.path) v.q_at = int(i);
+            if (v.q_at >= 0) v.q_n = int(queue_paths_.size());
+        }
+        v.shuffle = shuffle_;
+        v.muted = h.muted();
+        v.volume = h.volume();
+        if (skin_flash_ >= 0 && lv_tick_get() - skin_flash_at_ < 180) v.flash = skin_flash_;
+        v.rows = &rows_;
+        v.sel = sel_;
+        v.top = top_;
+        v.crumb = crumb_text();
+        v.list = list_view_;
+        skin_obj_->draw(canvas_, pixels_.data(), v);
+        lv_obj_invalidate(canvas_);
     }
 
     // ---- The explorer -----------------------------------------------------
@@ -665,11 +841,11 @@ private:
         lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
         for (lv_style_selector_t st : {lv_style_selector_t(LV_STATE_FOCUSED), lv_style_selector_t(LV_STATE_FOCUS_KEY),
                                        lv_style_selector_t(LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY)}) {
-            lv_obj_set_style_bg_color(b, c(T().select), st);
+            lv_obj_set_style_bg_color(b, c(kSelect), st);
             lv_obj_set_style_bg_opa(b, LV_OPA_COVER, st);
-            lv_obj_set_style_text_color(b, c(T().select_text), st);
+            lv_obj_set_style_text_color(b, c(kSelectText), st);
         }
-        lv_obj_set_style_text_color(b, c(now ? T().select_text : color), 0);
+        lv_obj_set_style_text_color(b, c(now ? kSelectText : color), 0);
         lv_obj_set_style_radius(b, 0, 0);
         lv_obj_set_style_border_width(b, 0, 0);
         lv_obj_set_style_outline_width(b, 0, LV_STATE_FOCUS_KEY);
@@ -692,7 +868,7 @@ private:
     void note(const std::string& text) {
         lv_obj_t* t = lv_list_add_text(list_, text.c_str());
         lv_obj_set_style_bg_opa(t, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_text_color(t, c(T().text_dim), 0);
+        lv_obj_set_style_text_color(t, c(kGreenDim), 0);
         lv_obj_set_style_text_font(t, &zs_font_12, 0);
         lv_obj_set_style_pad_ver(t, 0, 0);
         lv_obj_set_style_pad_hor(t, 3, 0);
@@ -705,6 +881,10 @@ private:
         std::string keep_path = !focus_path.empty() ? focus_path
                                 : keep >= 0 && keep < int(entries_.size()) ? entries_[size_t(keep)].path
                                                                            : std::string();
+        if (skin_) {
+            skin_rows(keep_path);
+            return;
+        }
         if (list_) {
             lv_group_remove_all_objs(group);
             lv_obj_delete(list_);
@@ -712,16 +892,16 @@ private:
         list_ = lv_list_create(root_);
         lv_obj_set_pos(list_, 4, kListY);
         lv_obj_set_size(list_, kScreenW - 8, kH - kListY - 2);
-        lv_obj_set_style_bg_color(list_, c(T().lcd), 0);
+        lv_obj_set_style_bg_color(list_, c(kLcd), 0);
         lv_obj_set_style_bg_opa(list_, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_color(list_, c(T().chrome_hi), 0);
+        lv_obj_set_style_border_color(list_, c(kChromeHi), 0);
         lv_obj_set_style_border_width(list_, 1, 0);
         lv_obj_set_style_border_side(list_, lv_border_side_t(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
         lv_obj_set_style_radius(list_, 0, 0);
         lv_obj_set_style_pad_all(list_, 1, 0);
         lv_obj_set_style_pad_row(list_, 0, 0);
         lv_obj_set_scrollbar_mode(list_, LV_SCROLLBAR_MODE_ACTIVE);
-        lv_obj_set_style_bg_color(list_, c(T().text_dim), LV_PART_SCROLLBAR);
+        lv_obj_set_style_bg_color(list_, c(kGreenDim), LV_PART_SCROLLBAR);
 
         listed_playing_ = hal().playback().path;
         lv_obj_t* focus = nullptr;
@@ -739,13 +919,13 @@ private:
             switch (e.type) {
                 case Entry::Place:
                 case Entry::Address:
-                    b = add_row(e.icon, e.name, e.note, int(i), T().text);
+                    b = add_row(e.icon, e.name, e.note, int(i), kGreen);
                     break;
-                case Entry::Dir: b = add_row(LV_SYMBOL_DIRECTORY, e.name, "", int(i), T().folder); break;
-                case Entry::List: b = add_row(LV_SYMBOL_LIST, stem(e.name), "M3U", int(i), T().text); break;
+                case Entry::Dir: b = add_row(LV_SYMBOL_DIRECTORY, e.name, "", int(i), kFolder); break;
+                case Entry::List: b = add_row(LV_SYMBOL_LIST, stem(e.name), "M3U", int(i), kGreen); break;
                 case Entry::Audio: {
                     bool now = e.path == listed_playing_;
-                    b = add_row(nullptr, fmt("%d. ", ++files) + stem(e.name), format_of(e.name), int(i), T().text, now);
+                    b = add_row(nullptr, fmt("%d. ", ++files) + stem(e.name), format_of(e.name), int(i), kGreen, now);
                     if (now) now_row = b;
                     break;
                 }
@@ -774,6 +954,7 @@ private:
     }
 
     int focused_index() {
+        if (skin_) return sel_ >= 0 && sel_ < int(row_entry_.size()) ? row_entry_[size_t(sel_)] : -1;
         lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
         if (!f || !list_ || lv_obj_get_parent(f) != list_) return -1;
         return int((intptr_t)lv_obj_get_user_data(f));
@@ -977,21 +1158,21 @@ private:
     using Done = std::function<void(const std::string&)>;
     void ask(const char* title, const std::string& initial, bool password, Done done) {
         done_ = std::move(done);
-        input_ = box(root_, 0, 0, 300, 50, T().chrome, T().accent);
+        input_ = box(root_, 0, 0, 300, 50, kChrome, kGold);
         lv_obj_align(input_, LV_ALIGN_TOP_MID, 0, 30);
         lv_obj_set_style_pad_all(input_, 5, 0);
-        label(input_, title, &zs_font_12, T().accent);
+        label(input_, title, &zs_font_12, kGold);
         lv_obj_t* ta = lv_textarea_create(input_);
         lv_textarea_set_one_line(ta, true);
         lv_textarea_set_password_mode(ta, password);
         lv_textarea_set_text(ta, initial.c_str());
         lv_obj_set_width(ta, 288);
-        lv_obj_set_style_bg_color(ta, c(T().lcd), 0);
-        lv_obj_set_style_text_color(ta, c(T().text), 0);
-        lv_obj_set_style_border_color(ta, c(T().chrome_hi), 0);
+        lv_obj_set_style_bg_color(ta, c(kLcd), 0);
+        lv_obj_set_style_text_color(ta, c(kGreen), 0);
+        lv_obj_set_style_border_color(ta, c(kChromeHi), 0);
         lv_obj_set_style_radius(ta, 0, 0);
         lv_obj_set_style_pad_ver(ta, 2, 0);
-        lv_obj_set_style_bg_color(ta, c(T().text), LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_bg_color(ta, c(kGreen), LV_PART_CURSOR | LV_STATE_FOCUSED);
         lv_obj_align(ta, LV_ALIGN_BOTTOM_MID, 0, 0);
         lv_obj_add_event_cb(ta, [](lv_event_t* e) {
             auto* self = static_cast<MediaApp*>(lv_event_get_user_data(e));
@@ -1015,6 +1196,7 @@ private:
         input_ = nullptr;
         lv_obj_delete_async(in);
         // Focus goes back to the list (its first row).
+        if (!list_) return;
         int n = int(lv_obj_get_child_count(list_));
         for (int i = 0; i < n; ++i) {
             lv_obj_t* ch = lv_obj_get_child(list_, i);
@@ -1073,7 +1255,18 @@ private:
     std::string filter_;               // the search, within this folder
     std::vector<std::string> queue_paths_;   // what we queued, for "3/12"
     bool shuffle_ = false;
-    int theme_ = 0;                    // kThemes[theme_]
+    int skin_ = 0;                     // kSkinNames[skin_]; 0 is the classic look
+
+    // A skin: it draws the whole app area into one canvas.
+    std::unique_ptr<media::Skin> skin_obj_;
+    lv_obj_t* canvas_ = nullptr;
+    std::vector<uint16_t> pixels_;
+    std::vector<media::Row> rows_;     // what the explorer shows, as the skin draws it
+    std::vector<int> row_entry_;       // rows_ -> entries_ index (-1: a note)
+    int sel_ = 0, top_ = 0;            // the selected row; the first shown
+    bool list_view_ = false;           // the skin's playlist screen, else its player
+    int skin_flash_ = -1;
+    uint32_t skin_flash_at_ = 0;
     std::string listed_playing_;       // what the list last marked as playing
     std::string last_address_;
     int pending_ = -1;

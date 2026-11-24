@@ -173,7 +173,7 @@ the app. It all goes again when you remove the app.
 | [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, for `~/Music` and every library on a Jellyfin server, music and video | mpv, libmpv |
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
-| [Games](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
+| [Games](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
 | [Car](apps/car/README.md) | `car` | Music in the car: the Cardputer as a USB stick of your music, or Bluetooth audio with the car's buttons | mtools, dosfstools, fdisk |
 
 ### Networks and other computers
@@ -225,6 +225,9 @@ Terminal, SSH, or another computer.
 | `~/Pictures/DCIM/Camera/` | Photos | Camera |
 | `~/Downloads/` | Files sent to the Cardputer with Taildrop | Remote |
 | `~/Games/` | Your games (a folder per console), saves, downloaded cores | you, Games |
+| `~/Games/states/` | Save states, and `<game>.resume.state` to carry on where you left off | Games |
+| `~/Games/borders/` | PNG border pictures (`<game>.png`, `<console>.png` or `default.png`) | you; Games reads it |
+| `~/Games/settings` | Games' border, picture and carry-on settings | Games |
 | `~/Code/` | Your projects | Dev Tools |
 | `~/IR/` | Remotes you taught or saved | IR Remote |
 | `~/.cache/zeroos/browser/` | Pages you opened, to read offline. Safe to delete | Browser |
@@ -859,6 +862,7 @@ Parts built in or shipped from elsewhere, each described in that app's README:
 | --- | --- | --- |
 | [LVGL](https://lvgl.io) 9.2 | every app, through ZeroShell | MIT |
 | [quirc](https://github.com/dlbeer/quirc) | Camera's QR reader | ISC |
+| [stb_image.h](https://github.com/nothings/stb) v2.34 | Games' PNG border pictures | Public domain or MIT, see [apps/games/third_party](apps/games/third_party/README.md) |
 | [M5Stack CameraApp](https://github.com/CardputerZero/CameraApp) | Camera (installed as M5's own package) | MIT |
 | [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) | IR Remote's code database | CC0-1.0, see [apps/ir/README.md](apps/ir/README.md#licence) |
 | ft8_lib and others | RF Tools | see [apps/rf/files/THIRD_PARTY.md](apps/rf/files/THIRD_PARTY.md) |

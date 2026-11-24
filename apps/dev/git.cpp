@@ -1,12 +1,19 @@
 // Git: the repositories in ~/Code. Status, log and diff at a glance; commit
 // everything, pull and push with one key; clone a new one.
 //
-//   Repositories  Enter open          (last row: clone a repository)
-//   Repository    S status  L log  D diff (V: full diff in the terminal)
-//                 C commit all  P pull  U push  F fetch  T terminal here
+//   Repositories  Enter open          (last row, or C in the menu: clone one)
+//   Repository    S status  L log  D changes (V: full diff in the terminal)
+//                 C commit all  P push  U pull  F fetch  T terminal here
+//
+// The repositories are a List screen (docs/UX.md in the OS): typing filters
+// them. A repository's page is a Control screen: its letters are shortcuts,
+// each one in the screen's actions, so the soft-key bar and the Tab menu
+// show them.
 //
 // Git never asks for a password here (GIT_TERMINAL_PROMPT=0): if a push
-// needs one, T opens the terminal in the repository to do it there, once.
+// needs one, Terminal here opens the terminal in the repository to do it
+// there, once.
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -14,6 +21,7 @@
 #include "apps/dev/dev.h"
 #include "apps/kit/run.h"
 #include "apps/kit/ui.h"
+#include "ui/list_view.h"
 
 namespace zs {
 namespace {
@@ -64,13 +72,6 @@ public:
     }
 
     void tick() override {
-        if (pending_row_ >= 0) {
-            int i = pending_row_;
-            pending_row_ = -1;
-            if (size_t(i) < repos_.size()) open_repo(repos_[size_t(i)]);
-            else ask_clone();
-            return;
-        }
         if (pending_submit_) {
             pending_submit_ = false;
             submitted();
@@ -93,24 +94,14 @@ public:
     }
 
     bool on_key(uint32_t key) override {
+        if (page_ == Page::Repos) return list_.key(key);
         if (page_ != Page::Repo) return false;
-        switch (key) {
-            case 's': case 'S': status(); return true;
-            case 'l': case 'L':
-                run("Log", {"git", "--no-pager", "log", "--oneline", "--decorate", "-n", "40", "--reverse"}, sim::log());
+        for (auto& c : commands())
+            if (key == uint32_t(c.letter) || key == uint32_t(c.letter - 'a' + 'A')) {
+                c.run();
                 return true;
-            case 'd': case 'D':
-                run("Changes", {"sh", "-c", "git --no-pager diff --stat; git --no-pager diff --stat --cached"},
-                    sim::diff());
-                return true;
-            case 'v': case 'V': kit::terminal_run("git diff; git diff --cached", repo_); return true;
-            case 'p': case 'P': run("Pull", {"git", "pull", "--ff-only"}, sim::pull()); return true;
-            case 'f': case 'F': run("Fetch", {"git", "fetch", "--prune"}, {"From github.com:you/weather-station"}); return true;
-            case 'u': case 'U': push(); return true;
-            case 'c': case 'C': ask_commit(); return true;
-            case 't': case 'T': kit::terminal_run("bash", repo_); return true;
-            default: return false;
-        }
+            }
+        return false;
     }
 
     bool on_back() override {
@@ -128,13 +119,38 @@ private:
     enum class Page { Repos, Repo, Commit, Clone, Cloning };
 
     void clear() {
-        lv_obj_clean(root_);
         if (group) lv_group_remove_all_objs(group);
+        list_.reset();
+        lv_obj_clean(root_);
     }
 
-    static void on_click(lv_event_t* e) {
-        auto* self = static_cast<GitApp*>(lv_event_get_user_data(e));
-        self->pending_row_ = int(lv_obj_get_index(lv_event_get_target_obj(e)));
+    // A repository's commands: its keys, the soft-key bar and the menu.
+    struct Command {
+        const char* label;
+        char letter;
+        const char* key;
+        std::function<void()> run;
+    };
+    std::vector<Command> commands() {
+        return {
+            {"Status", 's', "S", [this] { status(); }},
+            {"Commit all", 'c', "C", [this] { ask_commit(); }},
+            {"Push", 'p', "P", [this] { push(); }},
+            {"Pull", 'u', "U", [this] { run("Pull", {"git", "pull", "--ff-only"}, sim::pull()); }},
+            {"Log", 'l', "L", [this] {
+                 run("Log", {"git", "--no-pager", "log", "--oneline", "--decorate", "-n", "40", "--reverse"},
+                     sim::log());
+             }},
+            {"Changes", 'd', "D", [this] {
+                 run("Changes", {"sh", "-c", "git --no-pager diff --stat; git --no-pager diff --stat --cached"},
+                     sim::diff());
+             }},
+            {"Full diff", 'v', "V", [this] { kit::terminal_run("git diff; git diff --cached", repo_); }},
+            {"Fetch", 'f', "F", [this] {
+                 run("Fetch", {"git", "fetch", "--prune"}, {"From github.com:you/weather-station"});
+             }},
+            {"Terminal here", 't', "T", [this] { kit::terminal_run("bash", repo_); }},
+        };
     }
 
     // ---- The list of repositories
@@ -142,11 +158,13 @@ private:
         page_ = Page::Repos;
         clear();
         repos_ = dev::git_repos();
+        shell_set_actions({{"Open", 0, "Enter", nullptr},
+                           {"Clone a repository", 'c', nullptr, [this] { ask_clone(); }}});
         kit::title_row(root_, "Repositories", "in ~/Code");
-        lv_obj_t* list = make_list(root_, 0, 18, kScreenW, kContentH - 18);
-        for (auto& r : repos_) list_button(list, LV_SYMBOL_SHUFFLE, base_name(r).c_str(), on_click, this);
-        list_button(list, LV_SYMBOL_DOWNLOAD, "Clone a repository", on_click, this);
-        finish_list(list);
+        list_.build(root_, 2, 20, kScreenW - 4, kit::body_h(root_) - 20);
+        for (auto& r : repos_) list_.add(LV_SYMBOL_SHUFFLE, base_name(r), "", [this, r] { open_repo(r); });
+        list_.add(LV_SYMBOL_DOWNLOAD, "Clone a repository", "", [this] { ask_clone(); });
+        list_.finish();
         if (!kit::have("git")) shell_toast("git is not installed (sudo apt install git)");
     }
 
@@ -162,14 +180,15 @@ private:
         page_ = Page::Repo;
         repo_ = path;
         clear();
+        std::vector<Action> a;
+        for (auto& c : commands()) a.push_back({c.label, c.letter, c.key, c.run});
+        shell_set_actions(std::move(a));
         std::string b = branch();
         title_ = kit::title_row(root_, base_name(repo_) + (b.empty() ? "" : "  " LV_SYMBOL_SHUFFLE " " + b), "");
         lv_obj_set_width(title_, kScreenW - 90);
         what_ = label(root_, "", &zs_font_12, kMuted);
         lv_obj_align(what_, LV_ALIGN_TOP_RIGHT, -4, 3);
-        out_.build(root_, 18, 16);
-        lv_obj_t* keys = label(root_, "S stat  L log  D diff  C commit  P pull  U push  T term", &zs_font_12, kMuted);
-        lv_obj_align(keys, LV_ALIGN_BOTTOM_LEFT, 6, -1);
+        out_.build(root_, 18);
         status();
     }
 
@@ -213,10 +232,10 @@ private:
         if (job_.status() == Done::Missing) out_.append("git is not installed (sudo apt install git).");
         else if (job_.lines_seen() == 0 && job_.status() == Done::Ok) out_.append("Nothing to show.");
         if (need_auth_)
-            out_.append("Sign-in needed. Press T and run the command in the terminal once, "
+            out_.append("Sign-in needed. Run the command once in Terminal here (in the menu), "
                         "or add an SSH key to your Git host.");
         if (need_name_)
-            out_.append("Set your name first. Press T, then: git config --global user.name \"You\" "
+            out_.append("Set your name first. In Terminal here (in the menu): git config --global user.name \"You\" "
                         "and git config --global user.email you@example.com");
         // The branch may have changed (pull, first commit).
         std::string b = branch();
@@ -231,7 +250,7 @@ private:
         title_ = what_ = nullptr;
         kit::input_screen(root_, group, "Commit all changes", "what changed, e.g. Read the sensor",
                           "", [this](const std::string& v) { typed_ = v; pending_submit_ = true; },
-                          "Enter commits every change (git add -A)    Esc cancels");
+                          "Every change is committed (git add -A).", "Commit");
     }
 
     // ---- Clone
@@ -239,7 +258,7 @@ private:
         page_ = Page::Clone;
         clear();
         kit::input_screen(root_, group, "Clone into ~/Code", "https://github.com/you/project.git", "",
-                          [this](const std::string& v) { typed_ = v; pending_submit_ = true; });
+                          [this](const std::string& v) { typed_ = v; pending_submit_ = true; }, nullptr, "Clone");
     }
 
     void submitted() {
@@ -267,7 +286,8 @@ private:
             page_ = Page::Cloning;
             clear();
             title_ = what_ = nullptr;
-            kit::title_row(root_, "Cloning " + clone_name_, "Esc stop");
+            shell_set_actions({{"Stop", 0, "Esc", nullptr}});
+            kit::title_row(root_, "Cloning " + clone_name_);
             out_.build(root_, 18);
             out_.set_placeholder("Cloning " + v + " ...");
             finished_ = false;
@@ -288,7 +308,7 @@ private:
     std::string repo_, typed_, clone_name_;
     kit::OutputView out_;
     kit::Job job_;
-    int pending_row_ = -1;
+    ListView list_;
     bool pending_submit_ = false;
     bool finished_ = true;
     bool need_auth_ = false, need_name_ = false;

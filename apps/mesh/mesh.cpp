@@ -1,12 +1,17 @@
 // Mesh: the Cardputer as a Meshtastic LoRa node (Cap LoRa-1262), for text
 // messages with no phone signal or internet. meshtasticd runs the radio.
 //   Chat page (as soon as the mesh is on): messages on the primary channel;
-//     type and press Enter to send to everyone. The text box takes typing
-//     while the radio is still connecting. Tab: the info page.
+//     a Text screen (docs/UX.md in the OS): type and press Enter to send to
+//     everyone. The text box takes typing while the radio is still
+//     connecting.
 //   Info page: on/off, QR code for the web client (chat from a phone),
-//     open it on the monitor in Dock mode, GPS. Tab or Esc: back to chat.
+//     open it on the monitor in Dock mode, GPS. Esc: back to chat.
+// The two pages are tabs: Left / Right switch (from the chat, while the box
+// is empty, so they never take the cursor from what you're typing), and the
+// Tab menu has Info and Chat.
 // See docs/EXPANSION.md.
 #include "apps/common.h"
+#include "ui/list_view.h"
 #include "ui/power.h"
 #include "ui/tracker.h"
 
@@ -36,10 +41,16 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (key != 9 || !can_chat()) return false;   // Tab: chat <-> info
-        info_ = !info_;
-        dirty_ = true;
-        return true;
+        if ((key == LV_KEY_LEFT || key == LV_KEY_RIGHT) && can_chat()) {
+            bool empty = !ta_ || !*lv_textarea_get_text(ta_);
+            if (info_ || empty) {
+                switch_page(!info_);
+                return true;
+            }
+            return false;   // the cursor, in what's being typed
+        }
+        if (ta_) return false;   // typing
+        return list_.key(key);
     }
 
     bool on_back() override {
@@ -62,6 +73,11 @@ private:
     // finished connecting to it: typing never waits on the radio.
     bool can_chat() const { return st_.running && !st_.failing; }
 
+    void switch_page(bool info) {
+        info_ = info;
+        dirty_ = true;
+    }
+
     void rebuild() {
         st_ = hal().mesh();
         sig_ = sig(st_);
@@ -69,16 +85,25 @@ private:
         if (ta_) draft_ = lv_textarea_get_text(ta_);
         lv_obj_clean(root_);
         chat_ = ta_ = head_ = nullptr;
+        list_.reset();
         if (group) lv_group_remove_all_objs(group);
         if (can_chat() && !info_) {
             build_chat();
             return;
         }
 
+        std::vector<Action> acts;
+        acts.push_back({"Select", 0, "Enter", nullptr});
+        if (can_chat()) {
+            acts.push_back({"Chat", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+            acts.push_back({"Chat", 'c', nullptr, [this] { switch_page(false); }});
+        }
+        shell_set_actions(std::move(acts));
+
         lv_obj_t* panel = lv_obj_create(root_);
         style_panel(panel);
         lv_obj_set_pos(panel, 6, 4);
-        lv_obj_set_size(panel, 150, kContentH - 10);
+        lv_obj_set_size(panel, 150, kBodyH - 10);
         lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -118,51 +143,47 @@ private:
             lv_obj_set_width(h, 136);
         }
 
-        lv_obj_t* list = make_list(root_, 162, 4, 152, kContentH - 10);
+        list_.build(root_, 162, 4, 152, kBodyH - 10);
         if (st_.installed) {
             if (!st_.running && !starting_) {
-                list_button(list, LV_SYMBOL_POWER, "Turn on mesh", [](lv_event_t* e) {
+                list_.add(LV_SYMBOL_POWER, "Turn on mesh", "", [this] {
                     hal().mesh_start();
-                    auto* self = static_cast<MeshApp*>(lv_event_get_user_data(e));
-                    self->starting_ = true;
-                    self->dirty_ = true;
+                    starting_ = true;
+                    dirty_ = true;
                     shell_toast("Starting the radio...");
-                }, this);
+                });
             } else {
-                list_button(list, LV_SYMBOL_POWER, "Turn off mesh", [](lv_event_t* e) {
+                list_.add(LV_SYMBOL_POWER, "Turn off mesh", "", [this] {
                     hal().mesh_stop();
                     if (!track_state().recording) hal().set_ext_power(false);   // a track still needs the GPS
-                    auto* self = static_cast<MeshApp*>(lv_event_get_user_data(e));
-                    self->starting_ = false;
-                    self->dirty_ = true;
+                    starting_ = false;
+                    dirty_ = true;
                     shell_toast("Mesh off");
-                }, this);
+                });
             }
             if (st_.running) {
-                list_button(list, LV_SYMBOL_IMAGE, "Open on monitor", [](lv_event_t* e) {
-                    auto* self = static_cast<MeshApp*>(lv_event_get_user_data(e));
+                list_.add(LV_SYMBOL_IMAGE, "Open on monitor", "", [] {
                     if (!power().docked()) {
                         shell_toast("Needs Dock mode (a monitor)");
                         return;
                     }
                     hal().dock_open("browser", "https://localhost:9443");
-                    (void)self;
                     shell_toast("Opening Meshtastic on the monitor");
-                }, this);
+                });
             }
         }
-        if (can_chat()) {
-            list_button(list, LV_SYMBOL_ENVELOPE, "Chat (Tab)", [](lv_event_t* e) {
-                auto* self = static_cast<MeshApp*>(lv_event_get_user_data(e));
-                self->info_ = false;
-                self->dirty_ = true;
-            }, this);
-        }
-        list_button(list, LV_SYMBOL_GPS, "GPS", [](lv_event_t*) { shell_open_app("gps"); }, nullptr);
-        finish_list(list);
+        if (can_chat()) list_.add(LV_SYMBOL_ENVELOPE, "Chat", "", [this] { switch_page(false); });
+        list_.add(LV_SYMBOL_GPS, "GPS", "", [] { shell_open_app("gps"); });
+        list_.finish();
     }
 
     void build_chat() {
+        std::vector<Action> acts;
+        acts.push_back({"Send", 0, "Enter", nullptr});
+        acts.push_back({"Info", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+        acts.push_back({"Node info", 'i', nullptr, [this] { switch_page(true); }});
+        shell_set_actions(std::move(acts));
+
         head_ = label(root_, "", &zs_font_12, kMuted);
         lv_obj_set_pos(head_, 8, 2);
         lv_label_set_long_mode(head_, LV_LABEL_LONG_DOT);
@@ -172,7 +193,7 @@ private:
         chat_ = lv_obj_create(root_);
         style_panel(chat_);
         lv_obj_set_pos(chat_, 4, 18);
-        lv_obj_set_size(chat_, kScreenW - 8, kContentH - 58);
+        lv_obj_set_size(chat_, kScreenW - 8, kBodyH - 58);
         lv_obj_set_flex_flow(chat_, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_all(chat_, 4, 0);
         lv_obj_set_style_pad_row(chat_, 2, 0);
@@ -180,18 +201,18 @@ private:
 
         ta_ = lv_textarea_create(root_);
         lv_textarea_set_one_line(ta_, true);
-        lv_textarea_set_placeholder_text(ta_, "Message everyone, Enter to send");
+        lv_textarea_set_placeholder_text(ta_, "Message everyone");
         lv_textarea_set_max_length(ta_, 200);
         lv_textarea_set_text(ta_, draft_.c_str());
         lv_obj_set_width(ta_, kScreenW - 8);
-        lv_obj_set_pos(ta_, 4, kContentH - 37);
+        lv_obj_set_pos(ta_, 4, kBodyH - 37);
         lv_obj_add_event_cb(ta_, [](lv_event_t* e) {
             auto* self = static_cast<MeshApp*>(lv_event_get_user_data(e));
             std::string text = lv_textarea_get_text(self->ta_);
             if (text.empty()) return;
             MeshStatus m = hal().mesh();
             if (m.no_radio) {
-                shell_toast("Not sent: no radio found (Tab: info)");
+                shell_toast("Not sent: no radio found");
             } else if (!m.connected) {
                 shell_toast("Not sent yet: radio still connecting");   // the text stays in the box
             } else if (hal().mesh_send(text)) {
@@ -210,13 +231,13 @@ private:
         MeshStatus m = hal().mesh();
         std::string h;
         if (m.no_radio) {
-            h = "No radio found  |  Tab: info";
+            h = "No radio found";
             lv_obj_set_style_text_color(head_, c(kBad), 0);
         } else if (!m.connected) {
-            h = "Connecting to the radio...  |  Tab: info";
+            h = "Connecting to the radio...";
             lv_obj_set_style_text_color(head_, c(kMuted), 0);
         } else {
-            h = (m.my_name.empty() ? std::string("Mesh") : m.my_name) + fmt("  |  %d nodes  |  Tab: info", m.nodes);
+            h = (m.my_name.empty() ? std::string("Mesh") : m.my_name) + fmt("  |  %d nodes", m.nodes);
             lv_obj_set_style_text_color(head_, c(kMuted), 0);
         }
         lv_label_set_text(head_, h.c_str());
@@ -249,6 +270,7 @@ private:
     lv_obj_t* chat_ = nullptr;
     lv_obj_t* ta_ = nullptr;
     lv_obj_t* head_ = nullptr;
+    ListView list_;
     MeshStatus st_;
     std::string sig_, draft_;
     bool starting_ = false, dirty_ = false, info_ = false;

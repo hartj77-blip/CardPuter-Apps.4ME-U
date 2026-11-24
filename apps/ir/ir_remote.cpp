@@ -1,18 +1,25 @@
 // IR Remote: a universal remote built on Flipper-IRDB (docs/IR.md).
 //
 //   My remotes   ~/IR/*.ir: saved from the database, learned from your own
-//                remotes (L relearns a button, A adds one, D deletes), or
+//                remotes (L relearns a button, N adds one, D deletes), or
 //                .ir files copied from a Flipper Zero
 //   Universal    every Power (Vol +, Mute, ...) code for TVs, projectors,
 //                audio, ACs, fans and lights, most common first: Enter sends
 //                them one after another; press any key when the device
 //                reacts, then O opens that brand's remotes
 //   Browse       2,000 remotes by kind, brand and model; type to search
+//
+// The lists are List screens (docs/UX.md in the OS): typing filters them and
+// their actions are in the Tab menu. A remote's keypad and the universal
+// sender are Control screens: their letters are shortcuts, each one listed
+// in the screen's actions so the soft-key bar shows it.
 #include <algorithm>
 #include <functional>
 
 #include "apps/common.h"
 #include "ir/db.h"
+#include "platform/keys.h"
+#include "ui/list_view.h"
 
 namespace zs {
 namespace {
@@ -25,6 +32,7 @@ std::string thousands(size_t n) {
 }
 
 bool printable(uint32_t key) { return key >= 32 && key < 127 && key != '`'; }
+bool digit(uint32_t key) { return key >= '0' && key <= '9'; }
 
 class IrApp : public App {
 public:
@@ -65,20 +73,20 @@ public:
             case Page::Remote: return remote_key(key);
             case Page::Universal: return universal_key(key);
             case Page::Kinds:
-            case Page::Brands:
-            case Page::Models:
-                if (printable(key) && (key != ' ' || !filter_.empty())) {
+                // The first Browse page searches every remote, not just its
+                // own rows, so it keeps its own search.
+                if (printable(key) && !digit(key) && (key != ' ' || !filter_.empty())) {
                     filter_ += char(key);
                     show();
                     return true;
                 }
-                if (key == LV_KEY_BACKSPACE && !filter_.empty()) {
+                if ((key == LV_KEY_BACKSPACE || key == LV_KEY_DEL) && !filter_.empty()) {
                     filter_.pop_back();
                     show();
                     return true;
                 }
-                return false;
-            default: return false;
+                return list_.key(key);
+            default: return list_.key(key);   // typing filters the list
         }
     }
 
@@ -135,7 +143,9 @@ private:
         show();
     }
 
+    // The focused row, or button on a remote's keypad.
     int focused_index() {
+        if (page_.kind != Page::Remote) return std::max(0, list_.focused());
         lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
         for (size_t i = 0; i < focusables_.size(); ++i)
             if (focusables_[i] == f) return int(i);
@@ -148,9 +158,8 @@ private:
         if (group) lv_group_set_editing(group, false);
         lv_obj_clean(root_);
         lv_group_remove_all_objs(group);
-        actions_.clear();
+        list_.reset();
         focusables_.clear();
-        list_ = nullptr;
         info_ = status_ = bar_ = nullptr;
         input_ = ta_ = nullptr;   // deleted with the page
         switch (page_.kind) {
@@ -165,7 +174,10 @@ private:
         if (!focusables_.empty()) {
             int f = std::clamp(want, 0, int(focusables_.size()) - 1);
             lv_group_focus_obj(focusables_[size_t(f)]);
+        } else if (list_.size() > 0) {
+            list_.focus(std::clamp(want, 0, list_.size() - 1));
         }
+        set_actions();
         if (page_.kind == Page::Remote) show_info(std::clamp(want, 0, std::max(0, int(sigs_.size()) - 1)));
         if (page_.kind == Page::Universal) update_universal();
     }
@@ -174,84 +186,107 @@ private:
     void list_page(const std::string& title, const std::string& right) {
         lv_obj_t* t = label(root_, title.c_str(), &zs_font_12, kText);
         lv_obj_set_pos(t, 6, 3);
-        lv_obj_set_width(t, right.empty() ? 308 : 220);
+        lv_obj_set_width(t, right.empty() ? 308 : 200);
         lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
         if (!right.empty()) {
             lv_obj_t* r = label(root_, right.c_str(), &zs_font_12, kMuted);
             lv_obj_align(r, LV_ALIGN_TOP_RIGHT, -6, 3);
         }
-        list_ = make_list(root_, 0, 20, 320, kContentH - 20);
+        list_.build(root_, 2, 20, 316, kBodyH - 20);
     }
 
-    lv_obj_t* row(const char* symbol, const std::string& text, std::function<void()> action) {
-        actions_.push_back(std::move(action));
-        lv_obj_t* b = list_button(list_, symbol, text.c_str(), on_row, this);
-        lv_obj_set_user_data(b, (void*)(intptr_t)(actions_.size() - 1));
-        focusables_.push_back(b);
-        return b;
+    void row(const char* symbol, const std::string& text, const std::string& value, std::function<void()> action) {
+        list_.add(symbol, text, value, std::move(action));
     }
 
-    void heading(const char* text) {
-        lv_obj_t* t = lv_list_add_text(list_, text);
-        heads_.push_back(t);
-    }
-
-    void finish() {
-        finish_list(list_);
-        for (auto* t : heads_) {   // section headings: plain muted text, not rows
-            lv_obj_set_style_bg_opa(t, LV_OPA_TRANSP, 0);
-            lv_obj_set_style_text_color(t, c(kMuted), 0);
-            lv_obj_set_style_pad_ver(t, 2, 0);
+    // Each screen's actions: Enter's first, then the menu's.
+    void set_actions() {
+        if (input_) return;
+        std::vector<Action> a;
+        switch (page_.kind) {
+            case Page::Home:
+                a.push_back({"Open", 0, "Enter", nullptr});
+                a.push_back({"New remote", 'n', nullptr, [this] { new_remote(); }});
+                break;
+            case Page::Kinds:
+            case Page::Brands:
+            case Page::Models:
+                a.push_back({"Open", 0, "Enter", nullptr});
+                a.push_back({"Back", 0, "Esc", nullptr});
+                break;
+            case Page::Remote: {
+                bool any = !sigs_.empty();
+                a.push_back({"Send", 0, "Enter", nullptr});
+                if (page_.mine) {
+                    Action learn_it{"Learn", 'l', "L", [this] { learn_focused(); }};
+                    learn_it.enabled = any;
+                    a.push_back(learn_it);
+                    a.push_back({"New button", 'n', "N", [this] { new_button(); }});
+                    Action del{"Delete", 'd', "D", [this] { delete_button(); }};
+                    del.enabled = any;
+                    del.danger = true;
+                    del.confirm = "Delete this button?";
+                    a.push_back(del);
+                } else {
+                    a.push_back({"Save to My remotes", 's', "S", [this] { save_copy(); }});
+                }
+                break;
+            }
+            case Page::Universal:
+                switch (run_) {
+                    case Run::Idle:
+                    case Run::Done: a.push_back({"Send all", 0, "Enter", nullptr}); break;
+                    case Run::Sending: a.push_back({"Stop", 0, "Any key", nullptr}); break;
+                    case Run::Stopped:
+                        a.push_back({"Send again", 0, "Enter", nullptr});
+                        a.push_back({"Try nearby", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+                        a.push_back({"Open brand", 'o', "O", [this] { open_brand(); }});
+                        break;
+                }
+                break;
         }
-        heads_.clear();
+        actions_run_ = run_;
+        shell_set_actions(std::move(a));
     }
 
-    std::string search_title(const std::string& normal) const {
-        return filter_.empty() ? normal : std::string(ZS_ICON_SEARCH " ") + filter_ + "_";
-    }
 
     // --- pages ------------------------------------------------------------
     void build_home() {
-        list_page("IR Remote", index_.empty() ? "" : thousands(index_.size()) + " remotes");
-        heading("My remotes");
+        list_page("IR Remote", index_.empty() ? "No code database (docs/IR.md)" : thousands(index_.size()) + " remotes");
         for (auto& p : ir::user_remotes())
-            row(LV_SYMBOL_POWER, ir::stem(p), [this, p] { go(nav(Page::Remote, "", "", p, true)); });
-        row(LV_SYMBOL_PLUS, "New remote (learn buttons)", [this] {
-            ask("Name for the new remote", "", [this](const std::string& name) {
-                std::string p = ir::user_remote_path(name);
-                if (!ir::save(p, {})) {
-                    shell_toast("Couldn't save to ~/IR");
-                    return;
-                }
-                go(nav(Page::Remote, "", "", p, true));
-            });
-        });
-        if (!universals_.empty()) heading("Universal: send every code");
+            row(LV_SYMBOL_POWER, ir::stem(p), "Mine", [this, p] { go(nav(Page::Remote, "", "", p, true)); });
+        row(LV_SYMBOL_PLUS, "New remote (learn buttons)", "", [this] { new_remote(); });
         for (auto& u : universals_)
-            row(LV_SYMBOL_SHUFFLE, ir::display(u), [this, u] { go(nav(Page::Universal, "", "", u, false)); });
-        heading("Find your remote");
-        if (index_.empty()) {
-            heading("No code database installed (docs/IR.md)");
-        } else {
-            row(ZS_ICON_SEARCH, "Browse or search " + thousands(index_.size()) + " remotes",
-                [this] { go(nav(Page::Kinds)); });
-        }
-        finish();
+            row(LV_SYMBOL_SHUFFLE, ir::display(u), "Universal", [this, u] { go(nav(Page::Universal, "", "", u, false)); });
+        if (!index_.empty())
+            row(ZS_ICON_SEARCH, "Browse or search", thousands(index_.size()), [this] { go(nav(Page::Kinds)); });
+        list_.finish();
+    }
+
+    void new_remote() {
+        ask("Name for the new remote", "", [this](const std::string& name) {
+            std::string p = ir::user_remote_path(name);
+            if (!ir::save(p, {})) {
+                shell_toast("Couldn't save to ~/IR");
+                return;
+            }
+            go(nav(Page::Remote, "", "", p, true));
+        });
     }
 
     void build_kinds() {
         if (!filter_.empty()) {   // search everything: brand, model or kind
             int found = 0;
-            list_page(search_title(""), "");
+            list_page(std::string(ZS_ICON_SEARCH " ") + filter_ + "_", "");
+            list_.set_empty_text("Nothing found");
             for (auto& r : index_) {
                 if (!ir::contains(r.brand + " " + r.model, filter_) && !ir::contains(ir::display(r.category), filter_))
                     continue;
                 if (++found > 150) break;
-                row(nullptr, r.brand + "  " + r.model + "  · " + ir::display(r.category),
+                row(nullptr, r.brand + "  " + r.model, ir::display(r.category),
                     [this, r] { go(nav(Page::Remote, r.category, r.brand, db_ + "/" + r.path, false)); });
             }
-            if (!found) heading("Nothing found");
-            finish();
+            list_.finish();
             return;
         }
         list_page("Browse: type to search", "");
@@ -262,10 +297,9 @@ private:
         }
         for (auto& k : kinds) {
             std::string cat = k.first;
-            row(LV_SYMBOL_DIRECTORY, ir::display(cat) + "  (" + std::to_string(k.second) + ")",
-                [this, cat] { go(nav(Page::Brands, cat)); });
+            row(LV_SYMBOL_DIRECTORY, ir::display(cat), std::to_string(k.second), [this, cat] { go(nav(Page::Brands, cat)); });
         }
-        finish();
+        list_.finish();
     }
 
     void build_brands() {
@@ -275,31 +309,25 @@ private:
             if (brands.empty() || brands.back().first != r.brand) brands.push_back({r.brand, 0});
             brands.back().second++;
         }
-        list_page(search_title(ir::display(page_.category)), std::to_string(brands.size()) + " brands");
-        int shown = 0;
+        list_page(ir::display(page_.category), std::to_string(brands.size()) + " brands");
+        list_.set_empty_text("No brand matches");
         for (auto& b : brands) {
-            if (!filter_.empty() && !ir::contains(b.first, filter_)) continue;
-            ++shown;
             std::string brand = b.first;
-            row(nullptr, brand + (b.second > 1 ? "  (" + std::to_string(b.second) + ")" : ""),
+            row(nullptr, brand, b.second > 1 ? std::to_string(b.second) : "",
                 [this, brand] { go(nav(Page::Models, page_.category, brand)); });
         }
-        if (!shown) heading("No brand matches; Backspace to edit");
-        finish();
+        list_.finish();
     }
 
     void build_models() {
-        list_page(search_title(ir::display(page_.category) + "  " LV_SYMBOL_RIGHT "  " + page_.brand), "");
-        int shown = 0;
+        list_page(ir::display(page_.category) + "  " LV_SYMBOL_RIGHT "  " + page_.brand, "");
+        list_.set_empty_text("No model matches");
         for (auto& r : index_) {
             if (r.category != page_.category || r.brand != page_.brand) continue;
-            if (!filter_.empty() && !ir::contains(r.model, filter_)) continue;
-            ++shown;
-            row(nullptr, r.model + "  (" + std::to_string(r.buttons) + " buttons)",
+            row(nullptr, r.model, std::to_string(r.buttons) + " buttons",
                 [this, r] { go(nav(Page::Remote, r.category, r.brand, db_ + "/" + r.path, false)); });
         }
-        if (!shown) heading("No model matches; Backspace to edit");
-        finish();
+        list_.finish();
     }
 
     // The remote: a pad of its buttons, and a side panel.
@@ -308,7 +336,7 @@ private:
         ir::load(page_.path, sigs_);
         lv_obj_t* grid = lv_obj_create(root_);
         style_plain(grid);
-        lv_obj_set_size(grid, 220, kContentH);
+        lv_obj_set_size(grid, 220, kBodyH);
         lv_obj_set_pos(grid, 0, 0);
         lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
         lv_obj_set_style_pad_all(grid, 4, 0);
@@ -338,7 +366,7 @@ private:
             focusables_.push_back(b);
         }
         if (sigs_.empty()) {
-            lv_obj_t* e = label(grid, page_.mine ? "No buttons yet.\n\nPress A to add one:\nname it, then point\nyour old remote at\nthe Cardputer and\npress its button."
+            lv_obj_t* e = label(grid, page_.mine ? "No buttons yet.\n\nAdd one with New\nbutton: name it, then\npoint your old remote\nat the Cardputer and\npress its button."
                                                  : "This remote has no\nbuttons ZeroOS can send.",
                                 &zs_font_12, kMuted);
             lv_obj_set_width(e, 200);
@@ -347,7 +375,7 @@ private:
         lv_obj_t* side = lv_obj_create(root_);
         style_panel(side);
         lv_obj_set_pos(side, 222, 4);
-        lv_obj_set_size(side, 94, kContentH - 8);
+        lv_obj_set_size(side, 94, kBodyH - 8);
         lv_obj_remove_flag(side, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_pad_all(side, 5, 0);
         lv_obj_t* t = label(side, page_.mine ? ir::stem(page_.path).c_str() : page_.brand.c_str(), &zs_font_12, kMuted);
@@ -359,9 +387,6 @@ private:
         lv_label_set_long_mode(info_, LV_LABEL_LONG_WRAP);
         status_ = label(side, "", &zs_font_12, kGood);
         lv_obj_set_pos(status_, 0, 64);
-        const char* hint = page_.mine ? "Enter send\nL learn  A add\nD delete" : "Enter send\nS save to\nMy remotes";
-        lv_obj_t* h = label(side, hint, &zs_font_12, kMuted);
-        lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, 0, 0);
         show_info(std::clamp(page_.focus, 0, std::max(0, int(sigs_.size()) - 1)));
     }
 
@@ -386,45 +411,55 @@ private:
             case LV_KEY_DOWN: if (n) lv_group_focus_obj(focusables_[size_t(std::min(n - 1, i + cols))]); return true;
             case LV_KEY_UP: if (n) lv_group_focus_obj(focusables_[size_t(std::max(0, i - cols))]); return true;
         }
-        if (key != 'd' && key != 'D' && key != LV_KEY_DEL && key != LV_KEY_BACKSPACE) delete_armed_ = -1;
         if (!page_.mine) {
             if (key == 's' || key == 'S') {
-                std::string name = page_.brand + " " + ir::stem(page_.path);
-                std::string p = ir::user_remote_path(name);
-                std::string rel = page_.path.rfind(db_ + "/", 0) == 0 ? page_.path.substr(db_.size() + 1) : page_.path;
-                if (ir::save(p, sigs_, "From Flipper-IRDB: " + rel)) shell_toast("Saved to My remotes: " + ir::stem(p));
-                else shell_toast("Couldn't save to ~/IR");
+                save_copy();
                 return true;
             }
             return false;
         }
         switch (key) {
             case 'l':
-            case 'L':
-                if (n) learn(i, sigs_[size_t(i)].name);
-                return true;
-            case 'a':
-            case 'A':
-                ask("Name for the new button", "", [this](const std::string& name) {
-                    if (!name.empty()) learn(int(sigs_.size()), name);
-                });
-                return true;
+            case 'L': learn_focused(); return true;
+            case 'n':
+            case 'N': new_button(); return true;
             case 'd':
             case 'D':
             case LV_KEY_DEL:
             case LV_KEY_BACKSPACE:
                 if (!n) return true;
-                if (delete_armed_ != i) {
-                    delete_armed_ = i;
-                    shell_toast("Press D again to delete " + ir::pretty_name(sigs_[size_t(i)].name));
-                    return true;
-                }
-                delete_armed_ = -1;
-                sigs_.erase(sigs_.begin() + i);
-                save_mine(std::max(0, i - 1));
+                shell_confirm("Delete " + ir::pretty_name(sigs_[size_t(i)].name) + "?", "From " + ir::stem(page_.path),
+                              "Delete", [this] { delete_button(); });
                 return true;
         }
         return false;
+    }
+
+    void save_copy() {
+        std::string name = page_.brand + " " + ir::stem(page_.path);
+        std::string p = ir::user_remote_path(name);
+        std::string rel = page_.path.rfind(db_ + "/", 0) == 0 ? page_.path.substr(db_.size() + 1) : page_.path;
+        if (ir::save(p, sigs_, "From Flipper-IRDB: " + rel)) shell_toast("Saved to My remotes: " + ir::stem(p));
+        else shell_toast("Couldn't save to ~/IR");
+    }
+
+    void learn_focused() {
+        int i = focused_index();
+        if (i < int(sigs_.size())) learn(i, sigs_[size_t(i)].name);
+    }
+
+    void new_button() {
+        ask("Name for the new button", "", [this](const std::string& name) {
+            if (!name.empty()) learn(int(sigs_.size()), name);
+        });
+    }
+
+    // The focused button goes (the confirm box has asked).
+    void delete_button() {
+        int i = focused_index();
+        if (i >= int(sigs_.size())) return;
+        sigs_.erase(sigs_.begin() + i);
+        save_mine(std::max(0, i - 1));
     }
 
     // Learn into button i (a new one when i == size).
@@ -458,9 +493,9 @@ private:
     // Universal: the buttons on the left, what is being sent on the right.
     void build_universal() {
         ir::load_universal(db_, page_.path, uni_);
-        list_ = make_list(root_, 0, 0, 132, kContentH);
+        list_.build(root_, 2, 2, 132, kBodyH - 2);
         for (size_t i = 0; i < uni_.buttons.size(); ++i) {
-            row(nullptr, ir::pretty_name(uni_.buttons[i]) + "  " + std::to_string(uni_.codes[i].size()), [this, i] {
+            row(nullptr, ir::pretty_name(uni_.buttons[i]), std::to_string(uni_.codes[i].size()), [this, i] {
                 if (page_.focus != int(i) || run_ == Run::Idle || run_ == Run::Done) {
                     page_.focus = int(i);
                     pos_ = 0;
@@ -472,13 +507,12 @@ private:
                 }
                 update_universal();
             });
-            lv_obj_add_event_cb(focusables_.back(), on_uni_focus, LV_EVENT_FOCUSED, this);
         }
-        finish();
+        list_.finish();
         lv_obj_t* side = lv_obj_create(root_);
         style_panel(side);
         lv_obj_set_pos(side, 136, 4);
-        lv_obj_set_size(side, 180, kContentH - 8);
+        lv_obj_set_size(side, 180, kBodyH - 8);
         lv_obj_remove_flag(side, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_pad_all(side, 6, 0);
         info_ = label(side, "", &zs_font_16, kText);
@@ -506,19 +540,19 @@ private:
             case Run::Idle:
                 lv_bar_set_value(bar_, 0, LV_ANIM_OFF);
                 lv_label_set_text(info_, (ir::display(uni_.name) + ": " + button).c_str());
-                lv_label_set_text(status_, fmt("Point at the device and press Enter: %d codes go out, most common "
-                                               "first. Press any key as soon as it reacts.", n).c_str());
+                lv_label_set_text(status_, fmt("Point at the device and send: %d codes go out, most common "
+                                               "first. Stop as soon as it reacts.", n).c_str());
                 break;
             case Run::Sending:
                 lv_bar_set_value(bar_, pos_ + 1, LV_ANIM_OFF);
                 lv_label_set_text(info_, fmt("%s  %d / %d", button.c_str(), at + 1, n).c_str());
-                lv_label_set_text(status_, (brand + "\n\nAny key: stop").c_str());
+                lv_label_set_text(status_, brand.c_str());
                 break;
             case Run::Stopped:
                 lv_bar_set_value(bar_, at + 1, LV_ANIM_OFF);
                 lv_label_set_text(info_, fmt("Stopped at %d / %d", at + 1, n).c_str());
-                lv_label_set_text(status_, (brand + "\nLeft / Right try the codes around it, Enter sends again, O "
-                                            "opens " + brand + " remotes").c_str());
+                lv_label_set_text(status_, (brand + "\nNot quite? Try the codes either side of it, or open " + brand +
+                                            "'s remotes.").c_str());
                 break;
             case Run::Done:
                 lv_bar_set_value(bar_, n, LV_ANIM_OFF);
@@ -527,6 +561,7 @@ private:
                                            "remote under Browse.");
                 break;
         }
+        if (run_ != actions_run_) set_actions();
     }
 
     bool universal_key(uint32_t key) {
@@ -540,29 +575,51 @@ private:
             }
             return false;
         }
-        if (run_ != Run::Stopped || uni_.buttons.empty()) return false;
-        auto& codes = uni_.codes[size_t(page_.focus)];
-        int n = int(codes.size());
-        if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-            pos_ = std::clamp(pos_ + (key == LV_KEY_RIGHT ? 1 : -1), 0, n - 1);
-            send(codes[size_t(pos_)]);
+        if (run_ == Run::Stopped && !uni_.buttons.empty()) {
+            auto& codes = uni_.codes[size_t(page_.focus)];
+            int n = int(codes.size());
+            if ((key == LV_KEY_LEFT || key == LV_KEY_RIGHT) && n) {
+                pos_ = std::clamp(pos_ + (key == LV_KEY_RIGHT ? 1 : -1), 0, n - 1);
+                send(codes[size_t(pos_)]);
+                update_universal();
+                return true;
+            }
+            if (key == 'o' || key == 'O') {
+                open_brand();
+                return true;
+            }
+        }
+        // A Control screen: letters are its own, not a filter for the list.
+        if (printable(key) && !digit(key)) return false;
+        bool used = list_.key(key);
+        // Moving to another button starts it afresh.
+        int i = std::max(0, list_.focused());
+        if (i != page_.focus) {
+            page_.focus = i;
+            run_ = Run::Idle;
+            pos_ = 0;
             update_universal();
-            return true;
         }
-        if ((key == 'o' || key == 'O') && n) {
-            const std::string& src = codes[size_t(pos_)].source;
-            std::string cat = src.substr(0, src.find('/'));
-            std::string brand = ir::source_brand(src);
-            if (!brand.empty()) go(nav(Page::Models, cat, brand));
-            return true;
-        }
-        return false;
+        return used;
     }
 
-    // --- text input (as in Media): Enter accepts, Esc cancels -------------
+    // The brand of the code it stopped on: its remotes.
+    void open_brand() {
+        if (run_ != Run::Stopped || uni_.buttons.empty()) return;
+        auto& codes = uni_.codes[size_t(page_.focus)];
+        if (codes.empty()) return;
+        const std::string& src = codes[size_t(std::clamp(pos_, 0, int(codes.size()) - 1))].source;
+        std::string cat = src.substr(0, src.find('/'));
+        std::string brand = ir::source_brand(src);
+        if (!brand.empty()) go(nav(Page::Models, cat, brand));
+    }
+
+    // --- text input (as in Media) -----------------------------------------
     using Done = std::function<void(const std::string&)>;
     void ask(const char* title, const std::string& initial, Done done) {
         done_ = std::move(done);
+        // A Text screen while it's open: the bar says so.
+        shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
         style_panel(input_);
         lv_obj_set_size(input_, 300, 74);
@@ -600,19 +657,14 @@ private:
         if (ta_) lv_group_remove_obj(ta_);
         lv_obj_add_flag(input_, LV_OBJ_FLAG_HIDDEN);
         input_ = ta_ = nullptr;
+        set_actions();
         if (!focusables_.empty())
             lv_group_focus_obj(focusables_[size_t(std::clamp(page_.focus, 0, int(focusables_.size()) - 1))]);
+        else if (list_.size() > 0)
+            list_.focus(std::clamp(page_.focus, 0, list_.size() - 1));
     }
 
     // --- events -----------------------------------------------------------
-    static void on_row(lv_event_t* e) {
-        auto* self = static_cast<IrApp*>(lv_event_get_user_data(e));
-        size_t i = size_t((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
-        if (i < self->actions_.size()) {
-            auto action = self->actions_[i];   // the page may be rebuilt inside
-            action();
-        }
-    }
     static void on_pad(lv_event_t* e) {
         auto* self = static_cast<IrApp*>(lv_event_get_user_data(e));
         size_t i = size_t((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
@@ -628,16 +680,6 @@ private:
         self->page_.focus = int((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
         self->show_info(self->page_.focus);
     }
-    static void on_uni_focus(lv_event_t* e) {
-        auto* self = static_cast<IrApp*>(lv_event_get_user_data(e));
-        int i = self->focused_index();
-        if (i == self->page_.focus && self->run_ != Run::Idle) return;
-        self->page_.focus = i;
-        self->run_ = Run::Idle;
-        self->pos_ = 0;
-        self->update_universal();
-    }
-
     lv_obj_t* root_ = nullptr;
     std::string db_;
     std::vector<ir::RemoteRef> index_;
@@ -647,19 +689,17 @@ private:
     std::vector<Nav> stack_;
     std::string filter_;
 
-    lv_obj_t* list_ = nullptr;
-    std::vector<lv_obj_t*> heads_;
-    std::vector<lv_obj_t*> focusables_;
-    std::vector<std::function<void()>> actions_;
+    ListView list_;
+    std::vector<lv_obj_t*> focusables_;   // a remote's keypad
     lv_obj_t* info_ = nullptr;
     lv_obj_t* status_ = nullptr;
     lv_obj_t* bar_ = nullptr;
 
     std::vector<ir::Signal> sigs_;   // the open remote
-    int delete_armed_ = -1;
 
     ir::Universal uni_;
     Run run_ = Run::Idle;
+    Run actions_run_ = Run::Idle;   // what the soft-key bar was last set for
     int pos_ = 0;
 
     uint32_t last_send_ = 0;

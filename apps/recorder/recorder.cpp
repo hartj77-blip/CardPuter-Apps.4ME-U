@@ -1,10 +1,10 @@
 // Recorder: voice notes from the microphone, kept in ~/Recordings as 16 kHz
 // mono WAV files (sox records them). Sync can keep the folder on a PC.
 //
-//   R            record / stop          Enter   play the note (again: pause)
-//   Space        pause / resume         V       stop playing
-//   E            rename the note        X, Del  delete it (asks first)
-//   + / -        volume                 Fn+Q    play / pause
+// A Control screen (docs/UX.md in the OS): its letters are shortcuts, and
+// set_actions() lists every one, so the soft-key bar and the Tab menu show
+// them. The notes are a ListView for its number badges, but typing doesn't
+// filter it: the letters belong to the recorder.
 //
 // Playing goes through the shell's queue (ui/player.h), like Media's music.
 #include <sys/stat.h>
@@ -16,6 +16,7 @@
 
 #include "apps/common.h"
 #include "platform/keys.h"
+#include "ui/list_view.h"
 #include "ui/player.h"
 
 namespace zs {
@@ -86,7 +87,7 @@ public:
         if (rs.recording) {
             bool blink = (lv_tick_get() / 500) % 2;
             lv_obj_set_style_text_color(dot_, c(blink ? kRec : kSurface2), 0);
-            lv_label_set_text(state_, "Recording   R stops");
+            lv_label_set_text(state_, "Recording");
             lv_obj_set_style_text_color(state_, c(kRec), 0);
             lv_label_set_text(time_, mmss(rs.elapsed_ms).c_str());
         } else if (mine) {
@@ -98,7 +99,7 @@ public:
             lv_label_set_text(time_, (mmss(pb.pos_ms) + " / " + mmss(pb.dur_ms)).c_str());
         } else {
             lv_obj_set_style_text_color(dot_, c(kMuted), 0);
-            lv_label_set_text(state_, notes_.empty() ? "Press R to record" : fmt("%zu notes   R records", notes_.size()).c_str());
+            lv_label_set_text(state_, notes_.empty() ? "Ready" : fmt("%zu notes", notes_.size()).c_str());
             lv_obj_set_style_text_color(state_, c(kMuted), 0);
             lv_label_set_text(time_, "0:00");
         }
@@ -133,7 +134,10 @@ public:
             case '+': case '=': h.set_volume(std::min(100, h.volume() + 5)); return true;
             case '-': case '_': h.set_volume(std::max(0, h.volume() - 5)); return true;
         }
-        return false;
+        // Moving and the number keys go to the list; other printable keys
+        // don't, as they would filter it.
+        if (key >= 32 && key < 127 && !(key >= '0' && key <= '9')) return false;
+        return list_.key(key);
     }
 
     bool on_back() override {
@@ -147,8 +151,8 @@ public:
 private:
     void set_actions() {
         std::vector<Action> a;
-        a.push_back({"Record", 'r', "R", [this] { toggle_record(); }});
         a.push_back({"Play", 0, "Enter", nullptr});
+        a.push_back({"Record", 'r', "R", [this] { toggle_record(); }});
         a.push_back({"Pause", 0, "Space", nullptr});
         a.push_back({"Stop playing", 's', "V", [this] {
                          player_stop();
@@ -171,7 +175,7 @@ private:
             shell_toast("Voice note saved");
         } else {
             player_stop();
-            shell_toast(h.record_start() ? "Recording... R stops" : "No microphone found");
+            shell_toast(h.record_start() ? "Recording..." : "No microphone found");
         }
     }
 
@@ -192,39 +196,37 @@ private:
 
     void rebuild_list(bool focus_first = false) {
         int keep = focus_first ? 0 : focused_index();
-        if (list_) {
+        // The list lives in a box of its own, so a rebuild takes away its
+        // empty-list text and filter chip with it.
+        if (box_) {
             lv_group_remove_all_objs(group);
-            lv_obj_delete(list_);
+            lv_obj_delete(box_);
         }
+        box_ = lv_obj_create(root_);
+        style_plain(box_);
+        lv_obj_set_pos(box_, 4, kPanelH + 6);
+        lv_obj_set_size(box_, kScreenW - 8, kBodyH - kPanelH - 8);
+        lv_obj_remove_flag(box_, LV_OBJ_FLAG_SCROLLABLE);
         notes_ = hal().recordings();
         PlaybackState pb = hal().playback();
         listed_playing_ = !pb.path.empty() && is_note(pb.path) ? pb.path : "";
-        list_ = make_list(root_, 4, kPanelH + 6, kScreenW - 8, kBodyH - kPanelH - 8);
-        if (notes_.empty()) lv_list_add_text(list_, "No voice notes yet: press R");
-        lv_obj_t* focus = nullptr;
+        list_.build(box_, 0, 0, kScreenW - 8, kBodyH - kPanelH - 8);
+        list_.set_empty_text("No voice notes yet");
+        int focus = -1;
         for (size_t i = 0; i < notes_.size(); ++i) {
             const Track& t = notes_[i];
             bool now = t.path == listed_playing_;
             std::string name = display_name(t.title);
             std::string text = name.empty() ? t.artist : name + "   " + t.artist;   // artist: the date
-            lv_obj_t* b = list_button(list_, now ? LV_SYMBOL_PLAY : LV_SYMBOL_FILE, text.c_str(), on_click, this);
-            lv_obj_set_user_data(b, (void*)(intptr_t)i);
-            if (lv_obj_t* lbl = lv_obj_get_child(b, 1)) lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-            label(b, mmss(t.duration_s * 1000).c_str(), &zs_font_12, kMuted);
-            if (now || (!focus && int(i) == keep)) focus = b;
+            int row = list_.add(now ? LV_SYMBOL_PLAY : LV_SYMBOL_FILE, text, mmss(t.duration_s * 1000),
+                                [this, i] { play(int(i)); });
+            if (now || (focus < 0 && int(i) == keep)) focus = row;
         }
-        finish_list(list_);
-        // Rows a little tighter than the default, so more fit.
-        for (uint32_t k = 0; k < lv_obj_get_child_count(list_); ++k)
-            lv_obj_set_style_pad_ver(lv_obj_get_child(list_, int32_t(k)), 3, 0);
-        if (focus) lv_group_focus_obj(focus);
+        list_.finish();
+        if (focus >= 0) list_.focus(focus);
     }
 
-    int focused_index() {
-        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
-        if (!f || !list_ || lv_obj_get_parent(f) != list_) return -1;
-        return int((intptr_t)lv_obj_get_user_data(f));
-    }
+    int focused_index() const { return box_ ? list_.focused() : -1; }
 
     // Enter: play the note; Enter on the one playing pauses or resumes it.
     void play(int i) {
@@ -285,10 +287,12 @@ private:
         });
     }
 
-    // One-line text box over the screen. Enter accepts, Esc cancels.
+    // One-line text box over the screen.
     using Done = std::function<void(const std::string&)>;
     void ask(const char* title, const std::string& initial, Done done) {
         done_ = std::move(done);
+        // A Text screen while it's open: the bar says so.
+        shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
         style_panel(input_);
         lv_obj_set_size(input_, 300, 74);
@@ -321,21 +325,13 @@ private:
         lv_obj_t* in = input_;
         input_ = nullptr;
         lv_obj_delete_async(in);
+        set_actions();
         rebuild_list();
     }
 
-    static void on_click(lv_event_t* e) {
-        auto* self = static_cast<RecorderApp*>(lv_event_get_user_data(e));
-        self->pending_ = int((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
-        // Deferred: playing rebuilds the list, which deletes the clicked button.
-        lv_async_call([](void* p) {
-            auto* s = static_cast<RecorderApp*>(p);
-            s->play(s->pending_);
-        }, self);
-    }
-
     lv_obj_t* root_ = nullptr;
-    lv_obj_t* list_ = nullptr;
+    lv_obj_t* box_ = nullptr;
+    ListView list_;
     lv_obj_t *dot_ = nullptr, *state_ = nullptr, *time_ = nullptr;
     lv_obj_t* bars_[kBars] = {};
     int levels_[kBars] = {};
@@ -343,7 +339,6 @@ private:
     bool live_ = false, recording_ = false, settled_ = false, was_recording_ = false;
     std::vector<Track> notes_;
     std::string listed_playing_;
-    int pending_ = -1;
     lv_obj_t* input_ = nullptr;
     Done done_;
 };

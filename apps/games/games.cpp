@@ -339,9 +339,17 @@ private:
         o.cwd = dir;
         o.sim = {"downloading", "unzipping"};
         // Into ~/Games/cores: the app's own folder, nothing system-wide changes.
+        // The core is code this app loads, so: https only, from the fixed
+        // buildbot address and nowhere a redirect points; a folder only you
+        // can write to; unpacked aside and put in place only when it is a
+        // whole ELF library (never half a file). libretro publishes no
+        // checksums for its nightly builds to check against (docs/GAMES.md).
         dl_.start({"sh", "-c",
-                   "set -e; f=\"$1_libretro.so\"; curl -fsSL --retry 2 -o \"$f.zip.part\" \"$2\"; "
-                   "unzip -o -q \"$f.zip.part\" \"$f\"; rm -f \"$f.zip.part\"; test -s \"$f\"",
+                   "set -e; umask 022; chmod go-w . 2>/dev/null || true; f=\"$1_libretro.so\"; "
+                   "t=$(mktemp -d ./.download.XXXXXX); trap 'rm -rf \"$t\"' EXIT; "
+                   "curl -fsS --proto =https --max-redirs 0 --retry 2 -o \"$t/core.zip\" -- \"$2\"; "
+                   "unzip -o -q \"$t/core.zip\" \"$f\" -d \"$t\"; test -s \"$t/$f\"; "
+                   "[ \"$(head -c 4 \"$t/$f\" | tail -c 3)\" = ELF ]; mv -f \"$t/$f\" \"$f\"",
                    "sh", c.file, core_url(c)},
                   std::move(o));
         show_cores();

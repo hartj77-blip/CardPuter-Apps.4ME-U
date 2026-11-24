@@ -856,7 +856,10 @@ private:
             ask("User", jf_.user, false, [this](const std::string& user) {
                 if (user.empty()) return;
                 typed_user_ = user;
-                ask("Password", "", true, [this](const std::string& password) {
+                // An address typed with http:// sends the password as it is.
+                bool plain = typed_server_.find("http://") != std::string::npos;
+                ask(plain ? "Password (sent unencrypted: http)" : "Password", "", true,
+                    [this](const std::string& password) {
                     shell_toast("Signing in...");
                     lv_refr_now(nullptr);
                     JfSession s;
@@ -873,7 +876,9 @@ private:
                     stack_.clear();
                     back_rows_.clear();
                     home_loaded_ = false;
-                    shell_toast("Signed in as " + s.user);
+                    // No https: say so, so it isn't used on a network nobody trusts.
+                    shell_toast("Signed in as " + s.user +
+                                (s.server.rfind("https://", 0) == 0 ? std::string() : std::string(" - not encrypted (http)")));
                     set_actions();
                     load_home();
                     show();

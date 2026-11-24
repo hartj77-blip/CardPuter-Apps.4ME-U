@@ -21,7 +21,7 @@ jobs:
         # main: ZeroOS as it is now, so an OS change that breaks an app shows here first.
         os: [pinned, main]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           submodules: true
           fetch-depth: 0   # tools/check-versions.sh compares with main
@@ -49,7 +49,7 @@ jobs:
           cmake -S . -B build/modules -DZS_BACKEND=headless -DZS_APPS_AS_MODULES=ON
           cmake --build build/modules -j"$(nproc)"
           base/shell/tools/modules-test.sh build/modules
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: screenshots-${{ matrix.os }}
           path: build/screenshots
@@ -67,7 +67,7 @@ jobs:
           apt-get update -qq
           apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file >/dev/null
           apt-get install -y -qq --no-install-recommends pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev >/dev/null
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           submodules: true
       - name: Add Raspberry Pi's repository (as on the device)
@@ -94,7 +94,7 @@ jobs:
       - name: Install, then remove, every app
         run: base/image/tests/apps-install-test.sh build/apps build/device/zeroshell
       # Try one on a device with: sudo zeroos-apps install-file zeroos-app-<id>_*.deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: zeroos-apps
           path: build/apps/

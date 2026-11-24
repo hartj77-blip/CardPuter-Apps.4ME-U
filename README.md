@@ -372,7 +372,7 @@ that uses it compiles it in.
 | --- | --- | --- |
 | `kit/suite.h` | Net Tools, RF Tools | One app holding several tools: a numbered menu (1 to 9, or type to filter), each tool an ordinary `App` run inside the suite. Esc goes back to the menu. `shell_open_app("net", "ports:192.168.1.10")` opens a suite straight at a tool |
 | `kit/run.h`, `run.cpp` | Dev Tools, Games | Run a program in the background and read its output line by line, without blocking the screen; small file helpers |
-| `kit/ui.h`, `ui.cpp` | Dev Tools, Games | A text-input screen, a title row, running a command in the Terminal app |
+| `kit/ui.h`, `ui.cpp` | Dev Tools, Games, Net Tools | A text-input screen, a title row, running a command in the Terminal app |
 
 A change to a kit file counts as a change to every app that uses it: CI asks for each of those
 apps' versions to go up.

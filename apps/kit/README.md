@@ -6,8 +6,8 @@ here compiles it in (listing it in its `app.cmake`, or including the header).
 | File | Used by | What |
 | --- | --- | --- |
 | `suite.h` | Net Tools, RF Tools | One app holding several tools |
-| `run.h`, `run.cpp` | Dev Tools, Games | Run programs in the background; small file helpers |
-| `ui.h`, `ui.cpp` | Dev Tools, Games | A text-input screen, a title row, running a command in the Terminal |
+| `run.h`, `run.cpp` | Dev Tools, Games, Net Tools | Run programs in the background; small file helpers |
+| `ui.h`, `ui.cpp` | Dev Tools, Games, Net Tools | A text-input screen, a title row, running a command in the Terminal |
 
 **A change here is a change to every app that uses it.** `tools/check-versions.sh` asks for the
 version of each app whose code names the changed file (`kit/run.` for `run.cpp` and `run.h`) to

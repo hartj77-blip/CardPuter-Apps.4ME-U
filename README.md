@@ -867,7 +867,7 @@ Parts built in or shipped from elsewhere, each described in that app's README:
 | --- | --- | --- |
 | [LVGL](https://lvgl.io) 9.2 | every app, through ZeroShell | MIT |
 | [quirc](https://github.com/dlbeer/quirc) | Camera's QR reader | ISC |
-| [stb_image.h](https://github.com/nothings/stb) v2.34 | Games' PNG border pictures | Public domain or MIT, see [apps/games/third_party](apps/games/third_party/README.md) |
+| [stb_image.h](https://github.com/nothings/stb) v2.34 | Games' PNG border pictures (vendored); Browser's pictures in pages (fetched at build time, same commit) | Public domain or MIT, see [apps/games/third_party](apps/games/third_party/README.md) |
 | [M5Stack CameraApp](https://github.com/CardputerZero/CameraApp) | Camera (installed as M5's own package) | MIT |
 | [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) | IR Remote's code database | CC0-1.0, see [apps/ir/README.md](apps/ir/README.md#licence) |
 | ft8_lib and others | RF Tools | see [apps/rf/files/THIRD_PARTY.md](apps/rf/files/THIRD_PARTY.md) |

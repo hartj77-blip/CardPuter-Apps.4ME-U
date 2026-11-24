@@ -4,10 +4,17 @@
 #include <string>
 
 #include "apps/browser/page.h"
+#include "apps/browser/picture.h"
 
 using namespace zs::web;
 
 static int failures = 0;
+static std::string show(const std::string& s) { return s; }
+static std::string show(const char* s) { return s; }
+template <class T>
+static std::string show(T v) {
+    return std::to_string(v);
+}
 #define CHECK(cond)                                                    \
     do {                                                               \
         if (!(cond)) {                                                 \
@@ -21,7 +28,7 @@ static int failures = 0;
         auto _b = (b);                                                                                   \
         if (!(_a == _b)) {                                                                               \
             std::printf("FAIL %s:%d  %s\n   got: %s\n  want: %s\n", __FILE__, __LINE__, #a,              \
-                        std::string(_a).c_str(), std::string(_b).c_str());                               \
+                        show(_a).c_str(), show(_b).c_str());                               \
             ++failures;                                                                                  \
         }                                                                                                \
     } while (0)
@@ -30,6 +37,62 @@ static std::string text_of(const Block& b) {
     std::string s;
     for (auto& r : b.runs) s += r.text;
     return s;
+}
+
+// A w x h 24-bit BMP, every pixel (r, g, b).
+static std::string bmp(int w, int h, int r, int g, int b) {
+    int row = (w * 3 + 3) & ~3;
+    int size = 54 + row * h;
+    std::string s(size_t(size), '\0');
+    auto put = [&](int at, int v, int n) {
+        for (int i = 0; i < n; ++i) s[size_t(at + i)] = char((v >> (8 * i)) & 0xFF);
+    };
+    s[0] = 'B';
+    s[1] = 'M';
+    put(2, size, 4);
+    put(10, 54, 4);
+    put(14, 40, 4);
+    put(18, w, 4);
+    put(22, h, 4);
+    put(26, 1, 2);
+    put(28, 24, 2);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            size_t p = size_t(54 + y * row + x * 3);
+            s[p] = char(b);
+            s[p + 1] = char(g);
+            s[p + 2] = char(r);
+        }
+    return s;
+}
+
+static std::string base64(const std::string& in) {
+    static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    for (size_t i = 0; i < in.size(); i += 3) {
+        uint32_t v = uint32_t((unsigned char)in[i]) << 16;
+        if (i + 1 < in.size()) v |= uint32_t((unsigned char)in[i + 1]) << 8;
+        if (i + 2 < in.size()) v |= uint32_t((unsigned char)in[i + 2]);
+        out += t[(v >> 18) & 63];
+        out += t[(v >> 12) & 63];
+        out += i + 1 < in.size() ? t[(v >> 6) & 63] : '=';
+        out += i + 2 < in.size() ? t[v & 63] : '=';
+    }
+    return out;
+}
+
+// Text with no-break spaces (form controls use them) as plain spaces.
+static std::string shown(const Block& b) {
+    std::string s = text_of(b), out;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s.compare(i, 2, "\xC2\xA0") == 0) {
+            out += ' ';
+            ++i;
+        } else {
+            out += s[i];
+        }
+    }
+    return out;
 }
 
 // Every character 6 px wide, every line 14 px high.
@@ -103,7 +166,11 @@ int main() {
         CHECK(d.blocks[11].kind == Block::Rule);
         Doc t = parse_markdown("| | State |\n| --- | --- |\n| a | b |\n");
         CHECK_EQ(text_of(t.blocks.at(0)), "State");
-        CHECK_EQ(text_of(d.blocks[12]), "[image: logo] ref link");
+        // a picture is a block of its own; its alt text is kept
+        CHECK(d.blocks[12].kind == Block::Image && d.blocks[12].image == 0);
+        CHECK_EQ(text_of(d.blocks[12]), "logo");
+        CHECK_EQ(d.images.at(0).src, "x.png");
+        CHECK_EQ(text_of(d.blocks[13]), "ref link");
         CHECK_EQ(d.links.back(), "https://ref.example/");
     }
     // snake_case isn't emphasis, a lone * isn't either, unicode folds to the font
@@ -197,8 +264,144 @@ int main() {
     CHECK(content_kind("https://x.org/", "text/html", "") == Kind::Html);
     CHECK(content_kind("https://x.org/LICENSE", "text/plain", "MIT") == Kind::Text);
     CHECK(content_kind("https://x.org/a", "", "<!DOCTYPE html><p>") == Kind::Html);
-    CHECK(unsupported_by_name("https://x.org/a.png"));
+    CHECK(!unsupported_by_name("https://x.org/a.png"));
+    CHECK(image_by_name("https://x.org/a.PNG"));
+    CHECK(unsupported_by_name("https://x.org/a.svg"));
     CHECK(!unsupported_by_name("https://x.org/a.md"));
+
+    // ---- pictures: block ones, and the ones that stay text
+    {
+        Doc d = parse_html(
+            "<p>Before <img src=\"/logo.png\" alt=\"Logo\" width=\"272\" height=\"92\"> after</p>"
+            "<p>Icon <img src=\"i.png\" width=\"16\" height=\"16\" alt=\"star\"> and "
+            "<img src=\"b.svg\" alt=\"badge\"> <a href=\"/x\"><img src=\"p.jpg\"></a></p>");
+        CHECK_EQ(d.images.size(), size_t(2));
+        CHECK_EQ(d.images.at(0).src, "/logo.png");
+        CHECK_EQ(d.images.at(0).w, 272);
+        CHECK_EQ(d.images.at(1).src, "p.jpg");
+        CHECK_EQ(d.images.at(1).link, 0);
+        CHECK_EQ(text_of(d.blocks.at(0)), "Before");
+        CHECK(d.blocks.at(1).kind == Block::Image);
+        CHECK_EQ(text_of(d.blocks.at(2)), "after");
+        CHECK_EQ(text_of(d.blocks.at(3)), "Icon [image: star] and [image: badge]");
+        CHECK(d.blocks.at(4).kind == Block::Image && d.blocks.at(4).image == 1);
+
+        // not loaded: alt text (or nothing); loaded: strips of kImageStrip
+        Metrics m = mono();
+        std::vector<Line> ls = layout(d, 300, m);
+        int strips = 0;
+        for (auto& l : ls) strips += l.image >= 0;
+        CHECK_EQ(strips, 0);
+        m.image_size = [](int i, int& w, int& h) {
+            if (i != 0) return false;
+            w = 272;
+            h = 40;
+            return true;
+        };
+        ls = layout(d, 300, m);
+        std::vector<int> ys;
+        for (auto& l : ls)
+            if (l.image == 0) {
+                ys.push_back(l.image_y);
+                CHECK_EQ(l.image_x, 14);   // centred
+            }
+        CHECK(ys == std::vector<int>({0, 16, 32}));
+
+        // a picture in Markdown, in a link
+        Doc md = parse_markdown("[![Shot](shot.png)](https://x.org/)\n\n![badge](https://img.shields.io/b)\n");
+        CHECK_EQ(md.images.size(), size_t(1));
+        CHECK_EQ(md.images.at(0).link, 0);
+        CHECK_EQ(text_of(md.blocks.at(1)), "[image: badge]");
+    }
+    // ---- decoding pictures
+    {
+        Picture p;
+        CHECK(decode_picture(bmp(400, 100, 255, 0, 0), 0, 0, 308, 120, 0, p));
+        CHECK_EQ(p.w, 308);   // shrunk to the width, shape kept
+        CHECK_EQ(p.h, 77);
+        CHECK_EQ(p.pixels.size(), size_t(308 * 77));
+        CHECK_EQ(int(p.pixels[0]), 0xF800);   // red in RGB565
+        CHECK(decode_picture(bmp(100, 50, 0, 0, 255), 0, 0, 308, 120, 0, p));
+        CHECK_EQ(p.w, 100);   // never enlarged
+        CHECK(decode_picture(bmp(544, 184, 0, 255, 0), 272, 92, 308, 120, 0, p));
+        CHECK_EQ(p.w, 272);   // the size the page asks for
+        CHECK_EQ(p.h, 92);
+        CHECK(decode_picture(bmp(100, 400, 0, 0, 0), 0, 0, 308, 120, 0, p));
+        CHECK_EQ(p.h, 120);   // tall: fits the screen's height
+        CHECK_EQ(p.w, 30);
+        CHECK(!decode_picture(bmp(1, 1, 0, 0, 0), 0, 0, 308, 120, 0, p));   // a tracking pixel
+        CHECK(!decode_picture("<html>", 0, 0, 308, 120, 0, p));
+        std::string bytes;
+        CHECK(data_uri("data:image/bmp;base64," + base64(bmp(40, 20, 0, 255, 0)), bytes));
+        CHECK(decode_picture(bytes, 0, 0, 308, 120, 0, p));
+        CHECK_EQ(int(p.pixels[5]), 0x07E0);
+        CHECK(data_uri("data:text/plain,a%20b", bytes));
+        CHECK_EQ(bytes, "a b");
+        CHECK(!data_uri("https://x.org/a.png", bytes));
+    }
+    // ---- forms
+    {
+        Doc d = parse_html(
+            "<form action=\"/search\" name=\"f\">"
+            "<input name=\"ie\" value=\"ISO-8859-1\" type=\"hidden\">"
+            "<input name=\"q\" title=\"Search\" value=\"\">"
+            "<input value=\"Google Search\" name=\"btnG\" type=\"submit\">"
+            "<input value=\"Lucky\" name=\"btnI\" type=\"submit\">"
+            "</form>"
+            "<form method=\"post\" action=\"login\">"
+            "<input name=\"user\"><input type=\"password\" name=\"pw\">"
+            "<label><input type=\"checkbox\" name=\"keep\"> Remember me</label>"
+            "<input type=\"radio\" name=\"s\" value=\"a\" checked><input type=\"radio\" name=\"s\" value=\"b\">"
+            "<select name=\"lang\"><option value=\"en\">English<option value=\"fr\" selected>Fran&ccedil;ais</select>"
+            "<textarea name=\"note\">hi there</textarea>"
+            "<button>Log in</button>"
+            "</form>");
+        CHECK_EQ(d.forms.size(), size_t(2));
+        CHECK_EQ(d.fields.size(), size_t(12));
+        CHECK_EQ(text_fields(d, 0), 1);
+        CHECK_EQ(text_fields(d, 1), 3);
+        int q = 1;
+        CHECK_EQ(href_field(d.links.at(size_t(d.fields[1].link))), q);
+        CHECK_EQ(shown(d.blocks.at(0)), "[              ] [ Google Search ] [ Lucky ]");
+        d.fields[1].value = "zero os";
+        update_field(d, 1);
+        CHECK_EQ(shown(d.blocks.at(0)), "[zero os       ] [ Google Search ] [ Lucky ]");
+        Submission s = submit_form(d, 0, -1, "https://www.google.com/?hl=en#top");
+        CHECK(!s.is_post);
+        CHECK_EQ(s.url, "https://www.google.com/search?ie=ISO-8859-1&q=zero+os&btnG=Google+Search");
+        s = submit_form(d, 0, 3, "https://www.google.com/");
+        CHECK_EQ(s.url, "https://www.google.com/search?ie=ISO-8859-1&q=zero+os&btnI=Lucky");
+
+        d.fields[4].value = "me";
+        d.fields[5].value = "a&b c";
+        update_field(d, 5);
+        toggle_field(d, 6);   // the checkbox
+        toggle_field(d, 8);   // the second radio
+        CHECK(!d.fields[7].checked);
+        s = submit_form(d, 1, -1, "https://x.org/a/b");
+        CHECK(s.is_post);
+        CHECK_EQ(s.url, "https://x.org/a/login");
+        CHECK_EQ(s.post, "user=me&pw=a%26b+c&keep=on&s=b&lang=fr&note=hi+there");
+        std::string all;
+        for (auto& b : d.blocks) all += shown(b) + "|";
+        CHECK(all.find("[*****         ]") != std::string::npos);
+        CHECK(all.find("[x] Remember me") != std::string::npos);
+        CHECK(all.find("( ) (*)") != std::string::npos);
+        CHECK(all.find("[Fran\xC3\xA7" "ais v]") != std::string::npos);
+        CHECK(all.find("[ Log in ]") != std::string::npos);
+    }
+    // ---- text encoding, search
+    {
+        CHECK_EQ(to_utf8("caf\xE9", "text/html; charset=ISO-8859-1"), "caf\xC3\xA9");
+        CHECK_EQ(to_utf8("\x93hi\x94", "text/html; charset=windows-1252"), "\xE2\x80\x9Chi\xE2\x80\x9D");
+        CHECK_EQ(to_utf8("caf\xC3\xA9", "text/html"), "caf\xC3\xA9");
+        CHECK_EQ(to_utf8("<meta charset=\"latin1\">caf\xE9", ""), "<meta charset=\"latin1\">caf\xC3\xA9");
+        CHECK_EQ(to_utf8("bad \xE9 bytes", ""), "bad \xC3\xA9 bytes");
+        CHECK_EQ(typed_url("raspberry pi", "/home/pi"), "https://lite.duckduckgo.com/lite/?q=raspberry+pi");
+        CHECK_EQ(typed_url("weather", "/home/pi"), "https://lite.duckduckgo.com/lite/?q=weather");
+        CHECK_EQ(typed_url("localhost", "/home/pi"), "https://localhost");
+        CHECK_EQ(typed_url("localhost:8080", "/home/pi"), "https://localhost:8080");
+    }
 
     if (failures) {
         std::printf("%d failure(s)\n", failures);

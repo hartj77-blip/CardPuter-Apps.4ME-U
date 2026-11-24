@@ -1,15 +1,22 @@
-// Browser: a text web browser, made first for reading this project's docs
-// and READMEs. Markdown is shown as formatted text, HTML pages as their
-// text and links, anything else as plain text. Images aren't shown yet.
+// Browser: a web browser for the small screen. Markdown is shown as
+// formatted text, HTML pages as their text, links, pictures and forms,
+// anything else as plain text. No CSS or JavaScript.
 //
 // A page is a Control screen (docs/UX.md in the OS): its letters work as
 // they are, and every one is in its action list, so the soft-key bar, the
 // Tab menu and the key sheet (0) show them:
-//   Up / Down, J / K  scroll a line      Space / Backspace   page down / up
-//   Left / Right   previous / next link  Enter               open the link
-//   Esc            back                  G                   type an address
-//   C  contents (a List of the headings) F  find on the page
+//   Up / Down, J / K  scroll a line      Fn Page Up / Down   a screen
+//   Left / Right   previous / next link or form control
+//   Enter          open the link, type in the box, tick the box, press the button
+//   Esc, Bksp      back                  G  type an address (or words to search)
+//   S  search      C  contents (a List of the headings)   F  find on the page
+//   B  bookmark    L  history            I  pictures on / off
 //   R  reload      H  home (bookmarks)
+//
+// Pictures (PNG, JPEG, GIF, BMP) are fetched after the page shows, on a
+// thread of their own, decoded by picture.cpp and laid in as they arrive.
+// Cookies are kept in ~/.config/zeroos/browser/cookies.txt, so sites that
+// need a sign-in remember it.
 //
 // GitHub links open the file behind them (github.com/o/r is its README.md),
 // so docs come as Markdown, not GitHub's heavy HTML. Pages are fetched with
@@ -29,11 +36,14 @@
 #include <csignal>
 #include <cstring>
 #include <fstream>
+#include <map>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
 
 #include "apps/browser/page.h"
+#include "apps/browser/picture.h"
 #include "apps/common.h"
 #include "platform/keys.h"
 #include "ui/list_view.h"
@@ -51,12 +61,29 @@ constexpr const char* kHomeUrl = "about:home";
 constexpr size_t kMaxBytes = 4 * 1024 * 1024;
 constexpr int kPad = 6;      // left and right margin
 constexpr int kTitleH = 16;  // the title row
+constexpr size_t kMaxPictures = 40;      // per page
+constexpr size_t kMaxHistory = 300;      // remembered visits
 
 const char* const kOs = "https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/HEAD/";
 
-std::string home_page() {
+using Bookmarks = std::vector<std::pair<std::string, std::string>>;   // (url, title)
+
+std::string home_page(const Bookmarks& bookmarks) {
     std::string os = kOs;
-    std::string md =
+    std::string md;
+    if (!bookmarks.empty()) {
+        md += "## Bookmarks\n\n";
+        for (auto& b : bookmarks) {
+            std::string t;
+            for (char ch : b.second.empty() ? short_url(b.first) : b.second) {
+                if (std::strchr("\\[]*_`<>&", ch)) t += '\\';
+                t += ch;
+            }
+            md += "- [" + t + "](<" + b.first + ">)\n";
+        }
+        md += "\n";
+    }
+    md += "Press **S** to search the web, **G** to type an address, **B** to bookmark a page.\n\n"
         "## ZeroOS\n\n"
         "- [ZeroOS README](https://github.com/hartj77-blip/CardPuter-OS.4ME-U)\n"
         "- [Apps README](https://github.com/hartj77-blip/CardPuter-Apps.4ME-U)\n\n"
@@ -99,6 +126,42 @@ struct Fetched {
 };
 
 std::string cache_dir() { return home_dir() + "/.cache/zeroos/browser"; }
+
+// Bookmarks, history, cookies and settings: ~/.config/zeroos/browser.
+std::string data_dir() {
+    std::string d = home_dir() + "/.config";
+    mkdir(d.c_str(), 0755);
+    mkdir((d + "/zeroos").c_str(), 0755);
+    d += "/zeroos/browser";
+    mkdir(d.c_str(), 0700);
+    return d;
+}
+
+std::string cookie_jar() { return data_dir() + "/cookies.txt"; }
+
+// "url<TAB>title" lines.
+Bookmarks read_list(const std::string& path) {
+    Bookmarks out;
+    std::ifstream in(path);
+    std::string line;
+    while (std::getline(in, line)) {
+        size_t t = line.find('\t');
+        std::string url = line.substr(0, t), title = t == std::string::npos ? "" : line.substr(t + 1);
+        if (!url.empty()) out.push_back({url, title});
+    }
+    return out;
+}
+
+void write_list(const std::string& path, const Bookmarks& list) {
+    std::string s;
+    for (auto& e : list) {
+        std::string t = e.second;
+        std::replace(t.begin(), t.end(), '\t', ' ');
+        std::replace(t.begin(), t.end(), '\n', ' ');
+        s += e.first + "\t" + t + "\n";
+    }
+    write_file_atomic(path, s, 0600);
+}
 
 std::string cache_path(const std::string& url) {
     uint64_t h = 1469598103934665603ULL;   // FNV-1a
@@ -210,11 +273,16 @@ Fetched fetch_file(const std::string& url) {
 }
 
 // One request with curl. Blocks: run it off the UI thread.
-Fetched fetch_http(const std::string& url_in, std::atomic<int>* pid_out) {
+// post: a form's body (POST), or empty (GET). picture: fetching a picture
+// (asks for the formats picture.cpp reads, and leaves the cookies as they are).
+Fetched fetch_http(const std::string& url_in, std::atomic<int>* pid_out, const std::string& post = "",
+                   bool picture = false) {
     Fetched f;
 #ifdef __EMSCRIPTEN__
     (void)url_in;
     (void)pid_out;
+    (void)post;
+    (void)picture;
     f.error = "The browser demo can't load pages";
     return f;
 #else
@@ -223,9 +291,17 @@ Fetched fetch_http(const std::string& url_in, std::atomic<int>* pid_out) {
         if (ch == ' ') url += "%20";
         else url += ch;
     }
-    const char* argv[] = {"curl", "-sS", "-L", "--compressed", "--max-time", "30", "--connect-timeout", "10",
-                          "--max-filesize", "4194304", "-A", "ZeroOS-Browser/1.0",
-                          "-w", "\n\x1f%{http_code}\x1f%{content_type}\x1f%{url_effective}", url.c_str(), nullptr};
+    std::string jar = cookie_jar();
+    std::vector<const char*> argv = {"curl", "-sS", "-L", "--compressed", "--max-time", "30", "--connect-timeout", "10",
+                                     "--max-filesize", "4194304", "-A", "ZeroOS-Browser/1.0", "-b", jar.c_str()};
+    if (picture) {
+        argv.insert(argv.end(), {"-H", "Accept: image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1"});
+    } else {
+        argv.insert(argv.end(), {"-c", jar.c_str(), "-H",
+                                 "Accept: text/html,text/markdown;q=0.9,text/plain;q=0.8,*/*;q=0.5"});
+    }
+    if (!post.empty()) argv.insert(argv.end(), {"--data-binary", post.c_str()});   // form_encode()d: never "@file"
+    argv.insert(argv.end(), {"-w", "\n\x1f%{http_code}\x1f%{content_type}\x1f%{url_effective}", url.c_str(), nullptr});
     int out[2];
     if (pipe2(out, O_CLOEXEC) != 0) {
         f.error = "Couldn't start curl";
@@ -236,7 +312,7 @@ Fetched fetch_http(const std::string& url_in, std::atomic<int>* pid_out) {
     posix_spawn_file_actions_adddup2(&fa, out[1], 1);
     posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
     pid_t pid = 0;
-    int rc = posix_spawnp(&pid, "curl", &fa, nullptr, const_cast<char* const*>(argv), environ);
+    int rc = posix_spawnp(&pid, "curl", &fa, nullptr, const_cast<char* const*>(argv.data()), environ);
     posix_spawn_file_actions_destroy(&fa);
     close(out[1]);
     std::string body;
@@ -254,6 +330,7 @@ Fetched fetch_http(const std::string& url_in, std::atomic<int>* pid_out) {
         }
         while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
         if (pid_out) pid_out->store(0);
+        if (!picture) chmod(jar.c_str(), 0600);   // cookies are sign-ins: only for you
     }
     close(out[0]);
     if (rc != 0) {
@@ -287,18 +364,19 @@ Fetched fetch_http(const std::string& url_in, std::atomic<int>* pid_out) {
 }
 
 // What a page load does, start to finish, on the worker thread.
-Fetched load(const std::string& url, bool prefer_cache, std::atomic<int>* pid) {
+Fetched load(const std::string& url, bool prefer_cache, std::atomic<int>* pid, const std::string& post = "",
+             bool picture = false) {
     if (url.compare(0, 7, "file://") == 0) return fetch_file(url);
     Fetched cached;
-    bool have = cache_get(url, cached);
+    bool have = post.empty() && cache_get(url, cached);
     if (prefer_cache && have) return cached;
-    Fetched f = fetch_http(url, pid);
+    Fetched f = fetch_http(url, pid, post, picture);
     // A folder on GitHub ("apps/battery" from a README): try its README.
     if (!f.ok && f.error == "Not found (404)" && url.find("raw.githubusercontent.com/") != std::string::npos) {
         std::string last = url.substr(url.rfind('/') + 1);
         if (last.find('.') == std::string::npos) {
             std::string alt = url + (url.back() == '/' ? "" : "/") + "README.md";
-            Fetched g = fetch_http(alt, pid);
+            Fetched g = fetch_http(alt, pid, "", picture);
             if (g.ok) {
                 cache_put(url, g);
                 return g;
@@ -321,6 +399,47 @@ struct Job {
     bool done = false;
     Fetched result;
     std::atomic<int> pid{0};
+};
+
+// The pictures of one page, fetched and decoded one after another.
+struct PictureJob {
+    struct Want {
+        int image;
+        std::string url;   // resolved, or a data: URI
+        int w, h;          // the size the page asks for (0: not given)
+    };
+    std::vector<Want> wants;
+    int max_w = 0, max_h = 0;
+
+    std::mutex m;
+    std::vector<std::pair<int, std::shared_ptr<Picture>>> ready;   // taken by tick()
+    bool done = false;
+    std::atomic<bool> cancel{false};
+    std::atomic<int> pid{0};
+
+    void run() {
+        for (auto& w : wants) {
+            if (cancel) break;
+            std::string bytes;
+            if (!data_uri(w.url, bytes)) {
+                Fetched f = load(w.url, true, &pid, "", true);
+                if (!f.ok || cancel) continue;
+                bytes = std::move(f.body);
+            }
+            auto p = std::make_shared<Picture>();
+            if (!decode_picture(bytes, w.w, w.h, max_w, max_h, kBg, *p)) continue;
+            std::lock_guard<std::mutex> l(m);
+            ready.push_back({w.image, std::move(p)});
+        }
+        std::lock_guard<std::mutex> l(m);
+        done = true;
+    }
+};
+
+// A decoded picture as LVGL draws it (the descriptor points into pic).
+struct Shown {
+    std::shared_ptr<Picture> pic;
+    lv_image_dsc_t dsc{};
 };
 
 // ---- the screen -------------------------------------------------------------------
@@ -349,7 +468,10 @@ uint32_t color_for(Style s) {
 
 class BrowserApp : public App {
 public:
-    ~BrowserApp() override { stop(); }
+    ~BrowserApp() override {
+        stop();
+        stop_pictures();
+    }
 
     void build(lv_obj_t* root) override {
         root_ = root;
@@ -371,6 +493,20 @@ public:
             return int(lv_text_get_width(s.c_str(), uint32_t(s.size()), font_for(st), 0));
         };
         metrics_.height = [](Style st) { return int(lv_font_get_line_height(font_for(st))); };
+        metrics_.image_size = [this](int i, int& w, int& h) {
+            auto it = shown_.find(i);
+            if (it == shown_.end()) return false;
+            w = it->second->pic->w;
+            h = it->second->pic->h;
+            return true;
+        };
+
+        bookmarks_ = read_list(data_dir() + "/bookmarks");
+        visited_ = read_list(data_dir() + "/history");
+        std::ifstream set(data_dir() + "/settings");
+        std::string line;
+        while (std::getline(set, line))
+            if (line == "pictures=off") pictures_on_ = false;
 
         set_actions();
         std::string arg = shell_app_arg();
@@ -379,6 +515,7 @@ public:
     }
 
     void tick() override {
+        take_pictures();
         if (!job_) return;
         {
             std::lock_guard<std::mutex> l(job_->m);
@@ -396,20 +533,25 @@ public:
 
     bool on_key(uint32_t key) override {
         if (input_) return false;   // typing
-        if (contents_) return contents_list_.key(key);
+        if (picker_) return picker_list_.key(key);
         switch (key) {
             case LV_KEY_DOWN: case 'j': scroll(1); return true;
             case LV_KEY_UP: case 'k': scroll(-1); return true;
-            case ' ': case kKeyPageDown: page(1); return true;
-            case LV_KEY_BACKSPACE: case kKeyPageUp: page(-1); return true;
+            case kKeyPageDown: page(1); return true;
+            case kKeyPageUp: page(-1); return true;
             case LV_KEY_HOME: top(); return true;
             case LV_KEY_END: bottom(); return true;
             case LV_KEY_RIGHT: next_link(1); return true;
             case LV_KEY_LEFT: next_link(-1); return true;
             case LV_KEY_ENTER: case '\r': follow(); return true;
+            case LV_KEY_BACKSPACE: return on_back();
             case 'g': case 'G': ask_address(); return true;
+            case 's': case 'S': ask_search(); return true;
             case 'c': case 'C': open_contents(); return true;
             case 'f': case 'F': ask_find(); return true;
+            case 'b': case 'B': toggle_bookmark(); return true;
+            case 'l': case 'L': open_history(); return true;
+            case 'i': case 'I': toggle_pictures(); return true;
             case 'r': case 'R': reload(); return true;
             case 'h': case 'H': go(kHomeUrl); return true;
             default: return false;
@@ -421,8 +563,8 @@ public:
             close_input();
             return true;
         }
-        if (contents_) {
-            close_contents();
+        if (picker_) {
+            close_picker();
             return true;
         }
         if (job_) {   // stop loading
@@ -432,7 +574,7 @@ public:
         }
         if (history_.size() > 1) {
             history_.pop_back();
-            open(history_.back().url, true, history_.back().top);
+            open(history_.back(), true);
             return true;
         }
         return false;
@@ -440,8 +582,9 @@ public:
 
 private:
     struct Visit {
-        std::string url;   // with #fragment
+        std::string url;    // with #fragment
         size_t top = 0;
+        std::string post;   // a form sent with POST: its body
     };
 
     int view_h() const { return kBodyH - kTitleH; }
@@ -449,23 +592,28 @@ private:
     void set_actions() {
         std::vector<Action> a;
         a.push_back({"Open", 0, "Enter", nullptr});
-        a.push_back({"Page " LV_SYMBOL_DOWN, 0, "Space", nullptr});
         a.push_back({"Address", 'g', "G", [this] { ask_address(); }});
+        a.push_back({"Search", 's', "S", [this] { ask_search(); }});
         a.push_back({"Links", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+        a.push_back({"Back", 0, "Esc", nullptr});
+        a.push_back({"Bookmark", 'b', "B", [this] { toggle_bookmark(); }});
+        a.push_back({"History", 'l', "L", [this] { open_history(); }});
         a.push_back({"Contents", 'c', "C", [this] { open_contents(); }});
         a.push_back({"Find on page", 'f', "F", [this] { ask_find(); }});
+        a.push_back({pictures_on_ ? "Pictures off" : "Pictures on", 'i', "I", [this] { toggle_pictures(); }});
         a.push_back({"Reload", 'r', "R", [this] { reload(); }});
         a.push_back({"Home", 'h', "H", [this] { go(kHomeUrl); }});
-        a.push_back({"Back", 0, "Esc", nullptr});
-        a.push_back({"Page " LV_SYMBOL_UP, 0, "Bksp", nullptr});
+        a.push_back({"Page " LV_SYMBOL_DOWN, 0, "PgDn", nullptr});
+        a.push_back({"Page " LV_SYMBOL_UP, 0, "PgUp", nullptr});
         a.push_back({"Scroll", 0, "J K", nullptr});
         shell_set_actions(std::move(a));
     }
 
     // ---- navigation
 
-    // Open a link or typed address as a new step in the history.
-    void go(const std::string& url_in) {
+    // Open a link or typed address as a new step in the history. post: a
+    // form's body, to send with POST.
+    void go(const std::string& url_in, const std::string& post = "") {
         std::string url = url_in == kHomeUrl ? url_in : rewrite_url(url_in);
         if (unsupported_by_name(url)) {
             shell_toast("Can't show this kind of file yet");
@@ -478,27 +626,28 @@ private:
         if (!history_.empty()) history_.back().top = top_;
         // Same page, other heading: no reload.
         std::string frag_url = url, frag = split_fragment(frag_url);
-        if (!job_ && frag_url == page_url_ && !frag.empty()) {
-            history_.push_back({url, top_});
+        if (!job_ && post.empty() && frag_url == page_url_ && !frag.empty()) {
+            history_.push_back({url, top_, ""});
             jump_to(frag);
             return;
         }
-        history_.push_back({url, 0});
-        open(url, false, 0);
+        history_.push_back({url, 0, post});
+        open(history_.back(), false);
     }
 
-    // Show a page: from the history (back) or fresh.
-    void open(const std::string& url_with_frag, bool from_history, size_t restore_top) {
+    // Show a page: from the history (back: the saved copy, where it was) or fresh.
+    void open(const Visit& v, bool from_history) {
         stop();
-        std::string url = url_with_frag;
+        stop_pictures();
+        std::string url = v.url;
         pending_frag_ = split_fragment(url);
-        restore_top_ = from_history ? restore_top : 0;
+        restore_top_ = from_history ? v.top : 0;
         if (url == kHomeUrl) {
             Fetched f;
             f.ok = true;
             f.url = kHomeUrl;
             f.content_type = "text/markdown";
-            f.body = home_page();
+            f.body = home_page(bookmarks_);
             loaded(f);
             return;
         }
@@ -512,8 +661,9 @@ private:
         job_ = std::make_shared<Job>();
         auto job = job_;
         bool cache = from_history;
-        auto run = [job, url, cache] {
-            Fetched f = load(url, cache, &job->pid);
+        std::string post = v.post;
+        auto run = [job, url, cache, post] {
+            Fetched f = load(url, cache, &job->pid, post);
             std::lock_guard<std::mutex> l(job->m);
             job->result = std::move(f);
             job->done = true;
@@ -528,8 +678,9 @@ private:
     void reload() {
         if (history_.empty()) return;
         history_.back().top = top_;
-        open(history_.back().url, false, top_);
-        restore_top_ = top_;
+        Visit v = history_.back();
+        open(v, false);
+        restore_top_ = v.top;
     }
 
     void stop() {
@@ -549,31 +700,81 @@ private:
         if (f.url.compare(0, 7, "file://") == 0 && f.content_type.empty() && k == Kind::Html &&
             f.url.find(".htm") == std::string::npos)
             k = Kind::Text;
-        if (k == Kind::Unsupported) {
+        std::string page_url = f.url;
+        split_fragment(page_url);
+        std::string name = page_url.substr(page_url.find_last_of('/') + 1);
+        bool picture = k == Kind::Unsupported &&
+                       (f.content_type.compare(0, 6, "image/") == 0 || image_by_name(f.url));
+        if (k == Kind::Unsupported && !picture) {
             show_message(LV_SYMBOL_WARNING " Can't show this kind of file yet", f.url);
             return;
         }
-        doc_ = k == Kind::Markdown ? parse_markdown(f.body) : k == Kind::Html ? parse_html(f.body) : parse_text(f.body);
-        page_url_ = f.url;
-        split_fragment(page_url_);
+        clear_pictures();
+        if (picture) {   // a picture on its own: a page with just it
+            doc_ = Doc{};
+            doc_.title = name;
+            doc_.images.push_back({page_url, name, 0, 0, -1});
+            Block b;
+            b.kind = Block::Image;
+            b.image = 0;
+            b.runs.push_back({name, Style::Muted, -1, -1});
+            doc_.blocks.push_back(b);
+        } else {
+            std::string body = to_utf8(f.body, f.content_type);
+            doc_ = k == Kind::Markdown ? parse_markdown(body) : k == Kind::Html ? parse_html(body) : parse_text(body);
+        }
+        page_url_ = page_url;
         // Relative links resolve against the address after redirects.
         if (!history_.empty() && f.url != kHomeUrl && !f.from_cache) {
             std::string frag = split_fragment(history_.back().url);
             history_.back().url = page_url_ + (frag.empty() ? "" : "#" + frag);
         }
-        std::string name = page_url_.substr(page_url_.find_last_of('/') + 1);
         title_text_ = f.url == kHomeUrl ? std::string(LV_SYMBOL_HOME " Home")
                       : !doc_.title.empty() ? doc_.title : !name.empty() ? name : short_url(page_url_);
-        lines_ = layout(doc_, kScreenW - 2 * kPad, metrics_);
-        link_line_.assign(doc_.links.size(), -1);
-        for (size_t i = 0; i < lines_.size(); ++i)
-            for (auto& p : lines_[i].pieces)
-                if (p.link >= 0 && link_line_[size_t(p.link)] < 0) link_line_[size_t(p.link)] = int(i);
         focus_ = -1;
+        lines_ = layout(doc_, kScreenW - 2 * kPad, metrics_);
+        index_links();
         top_ = std::min(restore_top_, lines_.empty() ? 0 : lines_.size() - 1);
         if (!pending_frag_.empty()) jump_to(pending_frag_, false);
         render();
         if (f.from_cache && !f.error.empty()) shell_toast("Offline: showing a saved copy");
+        if (f.url != kHomeUrl) remember_visit();
+        start_pictures();
+    }
+
+    void index_links() {
+        link_line_.assign(doc_.links.size(), -1);
+        for (size_t i = 0; i < lines_.size(); ++i) {
+            if (lines_[i].link >= 0 && link_line_[size_t(lines_[i].link)] < 0) link_line_[size_t(lines_[i].link)] = int(i);
+            for (auto& p : lines_[i].pieces)
+                if (p.link >= 0 && link_line_[size_t(p.link)] < 0) link_line_[size_t(p.link)] = int(i);
+        }
+    }
+
+    // Lay the page out again (a picture arrived, a form control changed),
+    // keeping the same text at the top of the screen.
+    void relayout() {
+        size_t block = 0, into = 0;
+        if (top_ < lines_.size()) {
+            block = lines_[top_].block;
+            size_t first = top_;
+            while (first > 0 && lines_[first - 1].block == block) --first;
+            into = top_ - first;
+        }
+        bool at_top = top_ == 0;
+        lines_ = layout(doc_, kScreenW - 2 * kPad, metrics_);
+        index_links();
+        if (at_top) {
+            top_ = 0;
+        } else {
+            size_t i = 0;
+            while (i < lines_.size() && lines_[i].block < block) ++i;
+            size_t n = 0;
+            while (n < into && i + n + 1 < lines_.size() && lines_[i + n + 1].block == block) ++n;
+            top_ = std::min(i + n, lines_.empty() ? 0 : lines_.size() - 1);
+        }
+        settle_focus();
+        render();
     }
 
     void jump_to(const std::string& frag, bool redraw = true) {
@@ -598,7 +799,186 @@ private:
             return;
         }
         std::string href = doc_.links[size_t(focus_)];
+        int field = href_field(href);
+        if (field >= 0 && size_t(field) < doc_.fields.size()) {
+            use_field(field);
+            return;
+        }
         go(resolve_url(page_url_ == kHomeUrl ? std::string("https://") : page_url_, href));
+    }
+
+    // ---- forms
+
+    void use_field(int fi) {
+        Field& f = doc_.fields[size_t(fi)];
+        switch (f.type) {
+            case Field::Text:
+            case Field::TextArea:
+            case Field::Password: {
+                std::string title = !f.label.empty() ? f.label : !f.name.empty() ? f.name : "Text";
+                if (title.size() > 40) title = title.substr(0, 40);
+                ask(title.c_str(), f.value, [this, fi](const std::string& v) {
+                    Field& f = doc_.fields[size_t(fi)];
+                    f.value = v;
+                    update_field(doc_, fi);
+                    // A search box (the form's only one): Enter sends it. Otherwise on to the next box.
+                    if (f.form >= 0 && text_fields(doc_, f.form) == 1) {
+                        submit(f.form, -1);
+                        return;
+                    }
+                    relayout();
+                    next_link(1);
+                }, "", f.type == Field::Password);
+                break;
+            }
+            case Field::Checkbox:
+            case Field::Radio:
+                toggle_field(doc_, fi);
+                relayout();
+                break;
+            case Field::Select: {
+                std::vector<std::string> rows;
+                for (auto& o : f.options) rows.push_back(o.first);
+                open_picker(rows, f.selected, "No choices", [this, fi](int i) {
+                    doc_.fields[size_t(fi)].selected = i;
+                    update_field(doc_, fi);
+                    relayout();
+                });
+                break;
+            }
+            case Field::Submit:
+                if (f.form < 0) shell_toast("This button needs JavaScript");
+                else submit(f.form, fi);
+                break;
+            case Field::Hidden: break;
+        }
+    }
+
+    void submit(int form, int button) {
+        Submission s = submit_form(doc_, form, button, page_url_);
+        if (s.url.empty()) return;
+        go(s.url, s.is_post ? (s.post.empty() ? std::string("=") : s.post) : "");
+    }
+
+    // ---- pictures
+
+    void clear_pictures() {
+        stop_pictures();
+        if (view_) lv_obj_clean(view_);   // no image widget may point at a descriptor about to go
+        for (auto& s : shown_) lv_image_cache_drop(&s.second->dsc);
+        shown_.clear();
+    }
+
+    void start_pictures() {
+        if (!pictures_on_ || doc_.images.empty()) return;
+#ifdef __EMSCRIPTEN__
+        return;   // no threads or network in the browser demo
+#else
+        auto job = std::make_shared<PictureJob>();
+        job->max_w = kScreenW - 2 * kPad;
+        job->max_h = view_h() - 8;
+        for (size_t i = 0; i < doc_.images.size() && job->wants.size() < kMaxPictures; ++i) {
+            if (shown_.count(int(i))) continue;
+            const Image& im = doc_.images[i];
+            std::string url = im.src.compare(0, 5, "data:") == 0 ? im.src : resolve_url(page_url_, im.src);
+            if (url.compare(0, 5, "data:") != 0 && url.find("://") == std::string::npos) continue;
+            job->wants.push_back({int(i), url, im.w, im.h});
+        }
+        if (job->wants.empty()) return;
+        pictures_ = job;
+        picture_worker_ = std::thread([job] { job->run(); });
+#endif
+    }
+
+    void stop_pictures() {
+        if (!pictures_) return;
+        pictures_->cancel = true;
+        if (int pid = pictures_->pid.load()) kill(pid, SIGTERM);
+        if (picture_worker_.joinable()) picture_worker_.join();
+        pictures_.reset();
+    }
+
+    // Pictures that arrived since the last tick go into the page.
+    void take_pictures() {
+        if (!pictures_) return;
+        std::vector<std::pair<int, std::shared_ptr<Picture>>> got;
+        bool done;
+        {
+            std::lock_guard<std::mutex> l(pictures_->m);
+            got.swap(pictures_->ready);
+            done = pictures_->done;
+        }
+        for (auto& g : got) {
+            auto s = std::make_unique<Shown>();
+            s->pic = g.second;
+            s->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+            s->dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+            s->dsc.header.w = uint32_t(s->pic->w);
+            s->dsc.header.h = uint32_t(s->pic->h);
+            s->dsc.header.stride = uint32_t(s->pic->w * 2);
+            s->dsc.data_size = uint32_t(s->pic->pixels.size() * 2);
+            s->dsc.data = reinterpret_cast<const uint8_t*>(s->pic->pixels.data());
+            shown_[g.first] = std::move(s);
+        }
+        if (done) {
+            if (picture_worker_.joinable()) picture_worker_.join();
+            pictures_.reset();
+        }
+        if (!got.empty() && !lines_.empty()) relayout();
+    }
+
+    void toggle_pictures() {
+        pictures_on_ = !pictures_on_;
+        write_file_atomic(data_dir() + "/settings", pictures_on_ ? "pictures=on\n" : "pictures=off\n", 0600);
+        shell_toast(pictures_on_ ? "Pictures on" : "Pictures off");
+        set_actions();
+        if (pictures_on_) {
+            start_pictures();
+        } else {
+            clear_pictures();
+            if (!lines_.empty()) relayout();
+        }
+    }
+
+    // ---- bookmarks and history
+
+    void toggle_bookmark() {
+        if (history_.empty() || history_.back().url == kHomeUrl || lines_.empty()) {
+            shell_toast("Open a page to bookmark it");
+            return;
+        }
+        std::string url = history_.back().url;
+        auto it = std::find_if(bookmarks_.begin(), bookmarks_.end(), [&](auto& b) { return b.first == url; });
+        if (it != bookmarks_.end()) {
+            bookmarks_.erase(it);
+            shell_toast("Bookmark removed");
+        } else {
+            bookmarks_.push_back({url, title_text_});
+            shell_toast("Bookmarked: on the home page (H)");
+        }
+        write_list(data_dir() + "/bookmarks", bookmarks_);
+    }
+
+    void remember_visit() {
+        if (history_.empty() || !history_.back().post.empty()) return;
+        std::string url = history_.back().url;
+        split_fragment(url);
+        visited_.erase(std::remove_if(visited_.begin(), visited_.end(), [&](auto& v) { return v.first == url; }),
+                       visited_.end());
+        visited_.push_back({url, title_text_});
+        if (visited_.size() > kMaxHistory) visited_.erase(visited_.begin(), visited_.end() - kMaxHistory);
+        write_list(data_dir() + "/history", visited_);
+    }
+
+    void open_history() {
+        if (visited_.empty()) {
+            shell_toast("No pages visited yet");
+            return;
+        }
+        std::vector<std::string> rows;
+        Bookmarks list(visited_.rbegin(), visited_.rend());   // newest first
+        for (auto& v : list) rows.push_back(v.second.empty() ? short_url(v.first) : v.second);
+        open_picker(rows, 0, "No pages", [this, list](int i) { go(list[size_t(i)].first); });
     }
 
     // ---- moving around
@@ -697,6 +1077,7 @@ private:
     // ---- drawing
 
     void show_message(const std::string& msg, const std::string& url = "") {
+        clear_pictures();
         lines_.clear();
         doc_ = Doc{};
         link_line_.clear();
@@ -734,6 +1115,23 @@ private:
         size_t end = last_visible();
         for (size_t i = top_; i < end; ++i) {
             const Line& ln = lines_[i];
+            if (ln.image >= 0) {
+                // the whole picture, once, from its first strip on screen (the view clips it)
+                bool first = i == top_ || lines_[i - 1].image != ln.image;
+                auto it = shown_.find(ln.image);
+                if (first && it != shown_.end()) {
+                    lv_obj_t* im = lv_image_create(view_);
+                    lv_image_set_src(im, &it->second->dsc);
+                    lv_obj_set_pos(im, kPad + ln.image_x, y - ln.image_y);
+                    if (ln.link >= 0 && ln.link == focus_) {
+                        lv_obj_set_style_outline_width(im, 2, 0);
+                        lv_obj_set_style_outline_color(im, c(kAccent), 0);
+                        lv_obj_set_style_outline_pad(im, 1, 0);
+                    }
+                }
+                y += ln.h;
+                continue;
+            }
             if (ln.shade) {
                 bool more = i + 1 < lines_.size() && lines_[i + 1].shade && lines_[i + 1].block == ln.block;
                 box(kPad - 2, y, kScreenW - 2 * kPad + 4, more ? ln.h : ln.th + 1, kSurface);
@@ -743,19 +1141,29 @@ private:
             for (auto& p : ln.pieces) {
                 bool is_link = p.link >= 0;
                 bool focused = is_link && p.link == focus_;
+                bool field = is_link && p.style == Style::Code && href_field(doc_.links[size_t(p.link)]) >= 0;
+                int lh = int(lv_font_get_line_height(font_for(p.style)));
+                if (field && !focused) {   // a text box: a lighter box behind it
+                    int tw = metrics_.width(p.text, p.style);
+                    lv_obj_t* b = box(kPad + p.x, y + ln.th - lh, tw, lh, kSurface);
+                    lv_obj_set_style_border_width(b, 1, 0);
+                    lv_obj_set_style_border_color(b, c(kMuted), 0);
+                    lv_obj_set_style_border_opa(b, LV_OPA_COVER, 0);
+                }
                 lv_obj_t* l = lv_label_create(view_);
                 lv_label_set_text(l, p.text.c_str());
                 lv_obj_set_style_text_font(l, font_for(p.style), 0);
-                lv_obj_set_style_text_color(l, c(focused ? kOnAccent : is_link ? kAccent : color_for(p.style)), 0);
-                if (is_link && !focused) lv_obj_set_style_text_decor(l, LV_TEXT_DECOR_UNDERLINE, 0);
+                lv_obj_set_style_text_color(
+                    l, c(focused ? kOnAccent : field ? kText : is_link ? kAccent : color_for(p.style)), 0);
+                if (is_link && !focused && !field) lv_obj_set_style_text_decor(l, LV_TEXT_DECOR_UNDERLINE, 0);
                 if (focused) {
                     look::focus_fill(l, 0);
-                } else if (p.style == Style::Code) {
+                } else if (p.style == Style::Code && !field) {
                     lv_obj_set_style_bg_color(l, c(kSurface), 0);
                     lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
                 }
                 // headings sit on the baseline of their (taller) line
-                lv_obj_set_pos(l, kPad + p.x, y + ln.th - int(lv_font_get_line_height(font_for(p.style))));
+                lv_obj_set_pos(l, kPad + p.x, y + ln.th - lh);
             }
             y += ln.h;
         }
@@ -771,17 +1179,21 @@ private:
 
     using Done = std::function<void(const std::string&)>;
     // One-line text box over the page (a Text screen while it is up).
-    void ask(const char* title, const std::string& initial, Done done, const std::string& hint = "") {
+    void ask(const char* title, const std::string& initial, Done done, const std::string& hint = "",
+             bool password = false) {
         done_ = std::move(done);
         shell_set_actions({{"OK", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
         look::raised(input_);
         lv_obj_set_size(input_, 300, 64);
         lv_obj_align(input_, LV_ALIGN_TOP_MID, 0, 18);
-        label(input_, title, &zs_font_12, kMuted);
+        lv_obj_t* t = label(input_, title, &zs_font_12, kMuted);
+        lv_obj_set_width(t, 280);
+        lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
         lv_obj_t* ta = lv_textarea_create(input_);
         look::field(ta);
         lv_textarea_set_one_line(ta, true);
+        lv_textarea_set_password_mode(ta, password);
         lv_textarea_set_text(ta, initial.c_str());
         if (!hint.empty()) lv_textarea_set_placeholder_text(ta, hint.c_str());
         lv_obj_set_width(ta, 280);
@@ -813,10 +1225,18 @@ private:
     void ask_address() {
         // Empty, so typing starts a new address; the current one is the hint.
         std::string cur = history_.empty() || history_.back().url == kHomeUrl ? "" : short_url(history_.back().url);
-        ask("Address: example.com, owner/repo or ~/file", "", [this](const std::string& v) {
+        ask("Address, or words to search for", "", [this](const std::string& v) {
             std::string u = typed_url(v, home_dir());
             if (!u.empty()) go(u);
         }, cur);
+    }
+
+    void ask_search() {
+        ask("Search the web (DuckDuckGo)", "", [this](const std::string& v) {
+            std::string t = v;
+            t.erase(0, t.find_first_not_of(' '));
+            if (!t.empty()) go(search_url(t));
+        });
     }
 
     void ask_find() {
@@ -861,42 +1281,52 @@ private:
             shell_toast("No headings on this page");
             return;
         }
-        // A List screen over the page: typing narrows the headings.
-        shell_set_actions({{"Go to", 0, "Enter", nullptr}, {"Close", 0, "Esc", nullptr}});
-        contents_ = lv_obj_create(root_);
-        style_panel(contents_);
-        lv_obj_set_size(contents_, kScreenW - 8, kBodyH - 4);
-        lv_obj_set_pos(contents_, 4, 2);
-        lv_obj_set_style_pad_all(contents_, 2, 0);
-        lv_obj_remove_flag(contents_, LV_OBJ_FLAG_SCROLLABLE);
-        contents_list_.build(contents_, 0, 0, kScreenW - 12, kBodyH - 8);
-        contents_list_.set_empty_text("No headings");
+        std::vector<std::string> rows;
         int focus = 0;
         size_t here = lines_.empty() ? 0 : lines_[top_].block;
         for (size_t b : heads) {
             const Block& blk = doc_.blocks[b];
             std::string t(size_t(blk.level - 1) * 3, ' ');
             for (auto& r : blk.runs) t += r.text;
-            int row = contents_list_.add(nullptr, t, "", [this, b] { contents_pick(b); });
-            if (b <= here) focus = row;
+            if (b <= here) focus = int(rows.size());
+            rows.push_back(t);
         }
-        contents_list_.finish();
-        contents_list_.focus(focus);
+        open_picker(rows, focus, "No headings", [this, heads](int i) { contents_pick(heads[size_t(i)]); });
     }
 
-    void close_contents() {
-        if (!contents_) return;
-        lv_obj_t* c = contents_;
-        contents_ = nullptr;
+    // A List screen over the page (contents, history, a form's choices):
+    // typing narrows it, Enter picks a row.
+    void open_picker(const std::vector<std::string>& rows, int focus, const char* empty,
+                     std::function<void(int)> pick) {
+        shell_set_actions({{"Choose", 0, "Enter", nullptr}, {"Close", 0, "Esc", nullptr}});
+        picker_ = lv_obj_create(root_);
+        style_panel(picker_);
+        lv_obj_set_size(picker_, kScreenW - 8, kBodyH - 4);
+        lv_obj_set_pos(picker_, 4, 2);
+        lv_obj_set_style_pad_all(picker_, 2, 0);
+        lv_obj_remove_flag(picker_, LV_OBJ_FLAG_SCROLLABLE);
+        picker_list_.build(picker_, 0, 0, kScreenW - 12, kBodyH - 8);
+        picker_list_.set_empty_text(empty);
+        for (size_t i = 0; i < rows.size(); ++i)
+            picker_list_.add(nullptr, rows[i], "", [this, pick, i] {
+                close_picker();   // ListView runs this after the key, so the list may go
+                pick(int(i));
+            });
+        picker_list_.finish();
+        picker_list_.focus(focus);
+    }
+
+    void close_picker() {
+        if (!picker_) return;
+        lv_obj_t* p = picker_;
+        picker_ = nullptr;
         lv_group_remove_all_objs(group);
-        contents_list_.reset();
-        lv_obj_delete_async(c);
+        picker_list_.reset();
+        lv_obj_delete_async(p);
         set_actions();
     }
 
-    // Enter on a heading (ListView runs it after the key, so the list may go).
     void contents_pick(size_t block) {
-        close_contents();
         for (size_t i = 0; i < lines_.size(); ++i)
             if (lines_[i].block >= block) {
                 top_ = std::min(i, max_top());
@@ -912,8 +1342,8 @@ private:
     lv_obj_t* pos_ = nullptr;
     lv_obj_t* view_ = nullptr;
     lv_obj_t* input_ = nullptr;
-    lv_obj_t* contents_ = nullptr;
-    ListView contents_list_;
+    lv_obj_t* picker_ = nullptr;
+    ListView picker_list_;
     Done done_;
 
     Metrics metrics_;
@@ -921,13 +1351,19 @@ private:
     std::vector<Line> lines_;
     std::vector<int> link_line_;   // first line of each link
     std::string page_url_, title_text_, loading_url_, pending_frag_, find_;
-    std::vector<Visit> history_;
+    std::vector<Visit> history_;   // this session's Back steps
+    Bookmarks bookmarks_, visited_;
     size_t top_ = 0, restore_top_ = 0;
     int focus_ = -1;
     int dots_ = 0;
 
     std::shared_ptr<Job> job_;
     std::thread worker_;
+
+    bool pictures_on_ = true;
+    std::map<int, std::unique_ptr<Shown>> shown_;   // Doc::images index -> picture
+    std::shared_ptr<PictureJob> pictures_;
+    std::thread picture_worker_;
 };
 }  // namespace
 

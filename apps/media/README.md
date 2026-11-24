@@ -32,12 +32,15 @@ The LCD shows play, pause or stop, and the time (it blinks while paused). The
 strip on the right scrolls the track; under it are the format (MP3, FLAC,
 OGG..., NET for a stream), where you are in the queue, whether shuffle is on,
 and the volume. The title bar says where you are. The explorer marks the
-track that's playing and the row you're on; folders have their own colour.
+track that's playing and the row you're on, and numbers the first nine rows;
+folders have their own colour. On the Player tab, the explorer's place shows
+the track in big letters, where it is in the queue and what comes next.
 
 ## Skins
 
-Press **T** (or pick **Skin** in the Tab menu) to go to the next skin.
-Media remembers the one you leave it on.
+Press **T** on the Player tab, or pick **Skin** in the Tab menu (Ctrl + T
+anywhere in Media), to go to the next skin. Media remembers the one you
+leave it on.
 
 | Skin | Look |
 | --- | --- |
@@ -46,9 +49,10 @@ Media remembers the one you leave it on.
 | **Liquid Chrome** | A molten-metal body whose reflections ripple, an oval screen with big digits, the title in large scrolling letters and an analyser, jelly buttons, and a glass tube that fills as the track plays |
 
 The two skins are pixel art at the screen's own size, and each has two
-screens: the player, and the playlist (the explorer). **L** flips between
-them; Up, Down or Enter on the player go to the playlist. On the Hi-Fi's
-playlist the preset keys **1** to **6** open that row.
+screens, which are Media's two tabs: the player is the Player tab, and the
+playlist (the explorer) the Library. Left / Right on the playlist go to
+the player; on the player, Esc, **L**, Up or Down go to the playlist. On a
+skin's playlist the preset keys **1** to **6** open that row.
 
 Up to 3.1 Media had eight colour themes instead; they're gone.
 
@@ -87,28 +91,49 @@ ends (see [Remote](../remote/README.md)), a share at home works from anywhere.
 
 ## Keys
 
+Media has two tabs: the **Library** (the explorer) and the **Player** (what's
+playing, where the explorer was). **Left / Right** go from the Library to the
+Player, **Esc** comes back. The soft-key bar along the bottom shows the keys
+for the tab you're on; **Tab** opens the menu with everything, **0** the key
+sheet.
+
+The Library is a list, so typing searches it:
+
 | Key | Does |
 | --- | --- |
 | Up / Down | Move |
 | Enter | Open a folder; play a track (and the rest of the folder after it) or a playlist |
-| Right | Open the folder you're on |
-| Left, Del or Esc | Up a folder (Esc first clears a search) |
-| X | Play everything in the folder you're on, folders under it included (up to 3000 tracks) |
-| / | Search the folder you're in by name |
-| C V B N M | The five buttons, left to right: previous, play, pause, stop, next |
-| Space | Pause / resume (with nothing playing, plays the row you're on) |
-| S | Shuffle on or off (from the next track you pick) |
-| T | The next skin |
-| L | In a skin: the playlist or the player |
-| 1 to 6 | In a skin's playlist: open that row |
-| + / - | Volume |
-| **Fn + Q** | Play / pause. With nothing playing, plays the row you're on |
-| **Fn + W / Fn + E** | Previous / next track |
-| Fn + S / Fn + D, Fn + A | Volume down / up, sound off (anywhere) |
-| Tab | The menu: search, shuffle, stop, skin, open an address, places, rescan |
+| 1 to 9 | Open or play the row with that number |
+| Letters | Search the folder you're in by name (Backspace takes a letter off, Esc clears it) |
+| Space | Pause / resume (with nothing playing, plays the row you're on). Once you've typed, a space in the search |
+| Backspace or Esc | Up a folder |
+| Left / Right | The Player tab |
+| Tab | The menu: Play all (A), Pause (U), Next track (N), Previous track (P), Stop (S), Shuffle (H), Skin (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
 
-The media keys (Fn + Q, W, E) work in every app, not only this one, and so do a
-Bluetooth headset's or car's buttons. The queue belongs to ZeroShell, not the
+**Play all** plays everything in the folder you're on, folders under it
+included (up to 3000 tracks).
+
+Tracks are changed with the keyboard's media keys (below), not letters. The Player:
+
+| Key | Does |
+| --- | --- |
+| Enter or Space | Pause / resume |
+| Fn + W / Fn + E, or Left / Right | Previous / next track |
+| S | Stop |
+| H | Shuffle on or off (from the next track you pick) |
+| T | The next skin |
+| + / - | Volume |
+| Esc | Back to the Library |
+
+Anywhere in Media, and in every other app:
+
+| Key | Does |
+| --- | --- |
+| **Fn + Q** | Play / pause. With nothing playing, plays the Library row you're on |
+| **Fn + W / Fn + E** | Previous / next track |
+| Fn + S / Fn + D, Fn + A | Volume down / up, sound off |
+
+A Bluetooth headset's or car's buttons work as the media keys do. The queue belongs to ZeroShell, not the
 Media app, so music carries on to the next track after you leave the app and
 while the screen is off.
 
@@ -119,6 +144,8 @@ The marquee shows the artist as the folder two up from the track
 
 - The spectrum analyser, and the skins' VU meters, are for the look: the
   player doesn't hand the sound to the app, so they dance to a made-up beat.
+- No seeking within a track: ZeroOS's music player can't do it yet, so Left /
+  Right on the Player skip tracks.
 - No tags: titles come from file names, artists from folder names. Track
   lengths show once a track plays.
 - Media doesn't mount shares itself; mount them as above.

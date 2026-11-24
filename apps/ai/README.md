@@ -29,26 +29,31 @@ model and server, so switching between them doesn't lose your settings.
 1. Open **AI**. The first time, it opens on its settings page.
 2. **Provider**: pick a service.
 3. **API key**: type the key. A key is long, so it's easier to send it over SSH (see below).
-4. Press **Tab** to go to the chat page, type a question and press **Enter**.
+4. Press **Esc** to go to the chat page, type a question and press **Enter**.
 
 | Key | |
 | --- | --- |
 | Enter | send the message |
 | Up / Down | scroll the conversation |
-| Tab | settings / back to the chat |
+| Tab | the menu: New chat (N), Try again (T), Model (M), Save chat to Notes (S), Settings (P) |
+| Ctrl + a letter | that menu action straight away, such as **Ctrl + N** for a new chat |
 | Esc | while it's thinking: stop. In settings: back to the chat. Otherwise: leave the app |
 
-If a request fails, the reason is shown (for example, a key that wasn't accepted or no credit
-left). Press Enter on the empty box to try the question again.
+The soft-key bar at the bottom of the screen shows the keys that work right now.
 
-**Settings** also has:
+If a request fails, the reason is shown (for example, a key that wasn't accepted or no credit
+left). **Try again** in the menu (or Enter on the empty box) sends the question again.
+
+The settings page is a list: Provider, API key, Model, Server and Personality. Type to filter it,
+or press 1 to 5 to pick a row. **Personality** is the system prompt; the default one asks for
+short, plain answers that fit the small screen.
+
+In the chat's menu (and the settings' menu):
 
 - **New chat**: starts over. The conversation stays while ZeroShell runs, even after you leave
   the app, and is never written to the card unless you save it.
 - **Save chat to Notes**: writes the conversation to `~/Notes/AI <date>.txt`. Open it in Notes,
   or sync it to your PC with Sync.
-- **Personality**: the system prompt. The default one asks for short, plain answers that fit the
-  small screen.
 
 ## Running a model on your own PC (Ollama)
 

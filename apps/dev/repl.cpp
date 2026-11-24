@@ -7,6 +7,7 @@
 #include "apps/common.h"
 #include "apps/kit/run.h"
 #include "apps/kit/ui.h"
+#include "ui/list_view.h"
 
 namespace zs {
 namespace {
@@ -31,23 +32,23 @@ const Lang kLangs[] = {
 
 class ReplApp : public App {
 public:
+    // A List screen (docs/UX.md in the OS): typing filters the languages.
     void build(lv_obj_t* root) override {
-        kit::title_row(root, "REPL", "Enter start");
-        lv_obj_t* list = make_list(root, 0, 18, kScreenW, kContentH - 18);
+        shell_set_actions({{"Start", 0, "Enter", nullptr}});
+        kit::title_row(root, "REPL");
+        list_.build(root, 2, 20, kScreenW - 4, kit::body_h(root) - 20);
         for (const Lang& l : kLangs) {
             bool ok = kit::have(l.tool);
-            std::string text = std::string(l.name) + "   " +
-                               (ok ? l.about : (std::string("not installed: ") + l.package).c_str());
-            lv_obj_t* b = list_button(list, ok ? LV_SYMBOL_PLAY : LV_SYMBOL_DOWNLOAD, text.c_str(), on_click, this);
-            if (!ok) lv_obj_set_style_text_color(b, c(kMuted), 0);
+            list_.add(ok ? LV_SYMBOL_PLAY : LV_SYMBOL_DOWNLOAD, l.name,
+                      ok ? l.about : std::string("not installed: ") + l.package, [&l] { start(l); });
         }
-        finish_list(list);
+        list_.finish();
     }
 
-    void tick() override {
-        if (pending_ < 0) return;
-        const Lang& l = kLangs[pending_];
-        pending_ = -1;
+    bool on_key(uint32_t key) override { return list_.key(key); }
+
+private:
+    static void start(const Lang& l) {
         if (!kit::have(l.tool)) {
             shell_toast(std::string("Install it with: sudo apt install ") + l.package);
             return;
@@ -57,14 +58,7 @@ public:
         kit::terminal_run(l.command, dir);
     }
 
-private:
-    static void on_click(lv_event_t* e) {
-        auto* self = static_cast<ReplApp*>(lv_event_get_user_data(e));
-        int i = int(lv_obj_get_index(lv_event_get_target_obj(e)));
-        if (i >= 0 && i < int(std::size(kLangs))) self->pending_ = i;
-    }
-
-    int pending_ = -1;
+    ListView list_;
 };
 }  // namespace
 

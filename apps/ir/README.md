@@ -10,11 +10,13 @@ The app opens on three lists.
 
 **My remotes** are yours to keep and change (they live in `~/IR`).
 
-- **New remote**: name it, then press **A** for each button you want: give the button a name,
+- **New remote** (a row, or **N** in the menu): name it, then press **N** (New button) for each
+  button you want: give the button a name,
   point your old remote at the Cardputer and press that button. NEC and Samsung codes are
   recognised and stored as codes; anything else is kept as a raw recording, which replays the same.
-- On a remote: **Enter** sends the button, **L** learns it again, **A** adds a button, **D** (twice)
-  deletes one.
+- On a remote: **Enter** sends the button, **L** learns it again, **N** adds a button, **D** (or
+  **Del**) deletes one, after asking. The bar at the bottom of the screen shows these keys, and
+  **Tab** opens the menu with them.
 
 **Universal: send every code** is for when you don't know which remote a device uses.
 
@@ -25,13 +27,13 @@ The app opens on three lists.
 3. Press any key as soon as the device reacts. The app stops on the code it just sent and shows
    whose it is. **Left** and **Right** try the codes either side of it (you might have pressed a
    moment late), **Enter** sends it again.
-4. **O** opens that brand's remotes, where you can find the model with all its buttons and press
-   **S** to save it to My remotes.
+4. **O** (Open brand) opens that brand's remotes, where you can find the model with all its
+   buttons and press **S** to save it to My remotes.
 
 **Browse or search** lists every remote by kind, brand and model. Type to search: on the first
 page the search covers every brand and model (`sam`, `bravia`, `roku`); inside a kind it filters
 brands, inside a brand it filters models. **Backspace** edits the search, **Esc** clears it.
-On a remote, **S** saves a copy to My remotes.
+**1** to **9** pick a row, so digits don't search. On a remote, **S** saves a copy to My remotes.
 
 ## Flipper Zero files
 

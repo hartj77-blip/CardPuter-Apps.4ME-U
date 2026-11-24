@@ -161,10 +161,10 @@ the app. It all goes again when you remove the app.
 | App | Id | What it does | Brings |
 | --- | --- | --- | --- |
 | [Terminal](apps/terminal/README.md) | `terminal` | A Linux terminal on the built-in screen (53 x 14), in tmux, so sessions keep running when you leave | nothing (tmux is in ZeroOS) |
-| [Files](apps/files/README.md) | `files` | Browse the device's files. Opens text in Notes, plays music, plays video on a monitor, sends a file with Taildrop | nothing |
-| [Notes](apps/notes/README.md) | `notes` | A plain-text notepad that saves as you type | nothing |
+| [Files](apps/files/README.md) | `files` | Browse the device's files; rename, copy, move and delete them. Opens text in Notes, plays music, plays video on a monitor, sends a file with Taildrop | nothing |
+| [Notes](apps/notes/README.md) | `notes` | Plain-text notes in `~/Notes` that save as you type: a list of notes, find in a note, share with Taildrop | nothing |
 | [Browser](apps/browser/README.md) | `browser` | Read the web as text: the ZeroOS docs and READMEs (bookmarked on its home page), Markdown, simple HTML pages and local files. Keeps pages to read offline | nothing (pages are fetched with curl, which is in ZeroOS) |
-| [Clock](apps/clock/README.md) | `clock` | Time and date from the battery-backed clock, and a stopwatch | nothing |
+| [Clock](apps/clock/README.md) | `clock` | Time and date from the battery-backed clock, and a stopwatch with laps | nothing |
 | [Battery](apps/battery/README.md) | `battery` | Charge, time left, power draw, battery health, and the power profile | nothing |
 | [System](apps/sysmon/README.md) | `sysmon` | CPU, memory and what uses it, storage, temperature, versions | nothing |
 | [Compass](apps/compass/README.md) | `compass` | Compass and spirit level (standard model; the Lite has no motion sensor) | nothing |
@@ -220,7 +220,7 @@ Terminal, SSH, or another computer.
 
 | Folder or file | What's in it | Written by |
 | --- | --- | --- |
-| `~/Notes/notes.txt` | Your note | Notes |
+| `~/Notes/` | Your notes (`notes.txt` and any more you make) | Notes |
 | `~/Documents/waypoints.txt` | Spots you saved, one per line | GPS |
 | `~/Documents/Tracks/` | Recorded tracks, as GPX | GPS |
 | `~/Documents/logbook.adi` | Your radio contacts, as ADIF | RF Tools (Logbook, FT8) |
@@ -371,8 +371,8 @@ that uses it compiles it in.
 | File | Used by | What |
 | --- | --- | --- |
 | `kit/suite.h` | Net Tools, RF Tools | One app holding several tools: a numbered menu (1 to 9, or type to filter), each tool an ordinary `App` run inside the suite. Esc goes back to the menu. `shell_open_app("net", "ports:192.168.1.10")` opens a suite straight at a tool |
-| `kit/run.h`, `run.cpp` | Dev Tools, Games | Run a program in the background and read its output line by line, without blocking the screen; small file helpers |
-| `kit/ui.h`, `ui.cpp` | Dev Tools, Games | A text-input screen, a title row with key hints, running a command in the Terminal app |
+| `kit/run.h`, `run.cpp` | Dev Tools, Files, Games, Net Tools, Notes | Run a program in the background and read its output line by line, without blocking the screen; small file helpers |
+| `kit/ui.h`, `ui.cpp` | Dev Tools, Files, Games, Net Tools, Notes | A text-input screen, a title row, running a command in the Terminal app |
 
 A change to a kit file counts as a change to every app that uses it: CI asks for each of those
 apps' versions to go up.

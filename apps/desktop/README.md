@@ -25,12 +25,21 @@ Windows, VNC for the rest. **D** on a device in Remote does the same.
 
 ## On the computer list
 
+The list is a List screen: type to find a computer, or press its number (1 to 9). The rest is in
+the menu: **Tab**, then the letter, or **Ctrl** and the letter straight away. The bar along the
+bottom of the screen shows the keys.
+
 | Key | Does |
 | --- | --- |
 | Enter | Connect, on the Cardputer's screen |
-| M | Open on the monitor (in Dock mode) |
-| E | Edit: name, address, VNC or RDP, user, password, RDP size, domain |
-| Esc | Back (in Edit: save and go back) |
+| Tab, then N | New computer |
+| Tab, then E | Edit: name, address, VNC or RDP, user, password, RDP size, domain |
+| Tab, then M | Open on the monitor (in Dock mode) |
+| Tab, then D | Delete the computer (it asks first) |
+| Esc | Back |
+
+In Edit, Enter on a row types it (or, on **Type** and **Size**, Left and Right change it), Tab
+then D deletes the computer, and Esc saves and goes back.
 
 Passwords are asked for each time unless you save one in Edit. A saved
 password is kept in `~/.config/zeroos/desktop-hosts`, readable only by you,
@@ -38,8 +47,9 @@ but not encrypted.
 
 ## While connected
 
-Keys type on the remote computer. The pointer is moved from the keyboard in
-mouse mode. **Esc** opens the menu for everything else:
+The remote screen fills the app area and has every key, like a game: there is no bar along the
+bottom. Keys type on the remote computer. The pointer is moved from the keyboard in mouse mode.
+**Esc** opens the menu for everything else:
 
 | Esc, then | Does |
 | --- | --- |
@@ -72,7 +82,7 @@ computer's screen at its own size; use zoom.
 
 ## On the monitor
 
-In Dock mode, **M** opens the computer full size on the monitor:
+In Dock mode, **Open on the monitor** (Tab, then M) opens the computer full size on the monitor:
 
 - **RDP**: FreeRDP in a window, which asks for the password there. It
   resizes with the window, with sound and the clipboard.

@@ -51,10 +51,15 @@ Games opens with a folder for each console in `~/Games`. Copy your files in with
 ## Cores
 
 NES, Game Boy, Game Boy Color and Game Boy Advance work as soon as Games is installed: their
-cores come from Debian with it. For the other consoles, press **C** for the core list and
-**Enter** on one to download it from libretro's nightly builds (buildbot.libretro.com, about
-1 to 3 MB each). Downloaded cores go in `~/Games/cores`; **Del** removes one. Removing the Games
-app keeps your games, saves and downloaded cores.
+cores come from Debian with it. For the other consoles, open **Cores** from the menu (**Tab**,
+then **C**, or **Ctrl + C**) and press **Enter** on one to download it from libretro's nightly
+builds (buildbot.libretro.com, about 1 to 3 MB each). Downloaded cores go in `~/Games/cores`;
+**Remove** in the menu (**D**), or **Del**, removes one after asking. Removing the Games app keeps
+your games, saves and downloaded cores.
+
+The library, a console's games and the cores are lists: type to find a row, or press its number
+(1 to 9). The bar along the bottom of the screen shows the keys. In a console's games, **Delete
+save** in the menu (**D**) deletes the focused game's battery save and save states, after asking.
 
 You can also copy any `<name>_libretro.so` built for arm64 into `~/Games/cores` yourself. Games
 uses a core it knows for a console (see the table above). A copy in `~/Games/cores` is used
@@ -71,6 +76,9 @@ before the system one.
 | Enter / Space | Start / Select |
 | Backspace (Del), held | Fast forward (3x) |
 | Esc | Menu: Resume, Save state, Load state, Swap players 1 and 2, Play on TV, Border, Picture, Carry on next time, Reset, Quit game |
+
+While a game plays it has every key, and there is no bar along the bottom: Esc opens its menu.
+Holding Esc goes home, as everywhere in ZeroOS, and keeps the game's moment to carry on from.
 
 On a full-size keyboard, X and Z are A and B too. Hold several keys at once: Games reads the
 keyboard directly, so you can run and jump.

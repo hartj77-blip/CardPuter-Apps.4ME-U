@@ -15,6 +15,12 @@ filter. **Esc** in a tool comes back to the menu, and **Esc** on the menu leaves
 app. The menu remembers the tool you used last. Removing Net Tools removes it and the
 programs it brought.
 
+Every screen has the ZeroOS soft-key bar along the bottom, saying what the keys
+do there; **Tab** opens the screen's menu, **Ctrl** + a menu letter runs that
+action straight away, and **0** shows every key. Discover is a list, so typing
+filters it and its actions are in the menu; the other tools' screens keep
+their own letter keys, shown in the bar.
+
 | Tool | Program | What it does |
 | --- | --- | --- |
 | **Discover** | `arp-scan` | Every device on your network: IP, vendor, MAC |
@@ -32,10 +38,10 @@ order, with the hardware vendor read from its MAC.
 
 | Key | Does |
 | --- | --- |
-| Up/Down | Move through the devices |
+| Up/Down, 1 to 9 | Move through the devices (typing filters them) |
 | Enter | Scan that device's ports (opens **Ports**) |
-| R | Scan again |
-| F | Interface: auto, `eth0` (Ethernet), `wlan0` (Wi-Fi) |
+| Menu: R (Ctrl + R) | Scan again |
+| Menu: F (Ctrl + F) | Interface: auto, `eth0` (Ethernet), `wlan0` (Wi-Fi) |
 
 ## Ports
 
@@ -53,7 +59,7 @@ time, so you can see where a connection slows down or stops. Type a host and
 ## DNS
 
 Looks up a name with dig. **Left**/**Right** change the record type (A, AAAA,
-MX, TXT, NS); **R** looks it up again.
+MX, TXT, NS; **T** in the menu does too); **R** looks it up again.
 
 ## Capture
 
@@ -84,7 +90,7 @@ you can reach the Cardputer from it (`ssh pi@10.42.0.1`).
 1. Get the Cardputer online (Wi-Fi or Tether).
 2. Plug the laptop in. Its wired network should be on automatic (DHCP), which
    is the default on Windows, macOS and Linux.
-3. Open **Share** and press **Enter**.
+3. Open **Share** and press **Enter** (Sharing on).
 
 The screen shows the cable, where the internet is coming from, the
 Cardputer's address on the cable and each device that has taken an address.

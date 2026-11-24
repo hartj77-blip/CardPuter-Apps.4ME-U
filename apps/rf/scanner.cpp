@@ -1,8 +1,9 @@
 // Scanner: sweep a band, stop on the first channel with a signal, listen until
 // it goes quiet, then carry on. Keeps a log of what was heard.
 //
-// Left/Right change band, Space skips the current channel, H holds on it,
-// L locks it out (skips it from now on), C clears the log and lockouts.
+// A Control screen (the soft-key bar shows its keys): Left/Right change band,
+// Space skips the current channel, H holds on it, L locks it out (skips it
+// from now on), C clears the log and lockouts.
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -49,6 +50,7 @@ public:
 
     void build(lv_obj_t* root) override {
         BackgroundRadio::get().stop();   // this app needs the receiver
+        set_actions();
         title_ = label(root, "", &zs_font_14, kAccent);
         lv_obj_set_pos(title_, 4, 0);
         state_ = label(root, "", &zs_font_14, kText);
@@ -66,10 +68,6 @@ public:
         empty_ = label(root, "Nothing heard yet", &zs_font_12, kMuted);
         lv_obj_set_pos(empty_, 8, kStripY + kStripH + 3);
 
-        hint_ = label(root, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " band   Space skip   H hold   L lock out",
-                      &zs_font_12, kMuted);
-        lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, -1);
-
         start_band();
         timer_ = lv_timer_create([](lv_timer_t* t) { static_cast<ScannerApp*>(lv_timer_get_user_data(t))->pump(); },
                                  40, this);
@@ -85,30 +83,55 @@ public:
         // One more choice than there are bands: your saved channels.
         case LV_KEY_LEFT: band_ = (band_ + int(bands_.size())) % (int(bands_.size()) + 1); start_band(); return true;
         case LV_KEY_RIGHT: band_ = (band_ + 1) % (int(bands_.size()) + 1); start_band(); return true;
-        case ' ':
-            if (stopped_) resume();
-            return true;
-        case 'h': case 'H':
-            if (stopped_) { held_ = !held_; update_state(); }
-            return true;
-        case 'l': case 'L':
-            if (stopped_) {
-                locked_.push_back(channel_hz_);
-                shell_toast(fmt("%.4f MHz locked out", channel_hz_ / 1e6));
-                resume();
-            }
-            return true;
-        case 'c': case 'C':
-            hits_.clear();
-            locked_.clear();
-            update_rows();
-            return true;
+        case ' ': skip(); return true;
+        case 'h': case 'H': hold(); return true;
+        case 'l': case 'L': lock_out(); return true;
+        case 'c': case 'C': clear(); return true;
         case LV_KEY_UP: case LV_KEY_DOWN: case LV_KEY_ENTER: return true;
         default: return false;
         }
     }
 
 private:
+    // Skip, Hold and Lock out work on a channel the scan has stopped on;
+    // the menu greys them while it sweeps.
+    void set_actions() {
+        shown_stopped_ = stopped_;
+        shown_held_ = held_;
+        std::vector<Action> a;
+        a.push_back({"Band", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+        Action skip_a{"Skip", 's', "Space", [this] { skip(); }};
+        Action hold_a{held_ ? "Release" : "Hold", 'h', "H", [this] { hold(); }};
+        Action lock_a{"Lock out", 'l', "L", [this] { lock_out(); }};
+        skip_a.enabled = hold_a.enabled = lock_a.enabled = stopped_;
+        a.push_back(skip_a);
+        a.push_back(hold_a);
+        a.push_back(lock_a);
+        a.push_back({"Clear the log", 'c', "C", [this] { clear(); }});
+        shell_set_actions(std::move(a));
+    }
+
+    void skip() {
+        if (stopped_) resume();
+    }
+
+    void hold() {
+        if (stopped_) { held_ = !held_; update_state(); }
+    }
+
+    void lock_out() {
+        if (!stopped_) return;
+        locked_.push_back(channel_hz_);
+        shell_toast(fmt("%.4f MHz locked out", channel_hz_ / 1e6));
+        resume();
+    }
+
+    void clear() {
+        hits_.clear();
+        locked_.clear();
+        update_rows();
+    }
+
     bool saved_mode() const { return band_ == int(bands_.size()); }
 
     // Scanning saved channels reuses the band sweep: each channel in turn is
@@ -136,6 +159,7 @@ private:
 
     void start_band() {
         stopped_ = held_ = false;
+        if (shown_stopped_ || shown_held_) set_actions();
         chunk_ = 0;
         link_.client.send("mode off");
         if (saved_mode()) {
@@ -143,7 +167,7 @@ private:
             lv_label_set_text(title_, "Saved channels");
             if (saved_.empty()) {
                 centre_ = 0;   // nothing to tune to: frames are ignored
-                lv_label_set_text(state_, "None yet: A in Spectrum");
+                lv_label_set_text(state_, "None yet: save some in Spectrum");
                 lv_obj_set_style_text_color(state_, c(kMuted), 0);
                 return;
             }
@@ -287,6 +311,7 @@ private:
     }
 
     void update_state() {
+        if (stopped_ != shown_stopped_ || held_ != shown_held_) set_actions();
         if (stopped_) {
             lv_label_set_text(state_, fmt("%s %.4f MHz", held_ ? "Hold" : LV_SYMBOL_VOLUME_MAX, channel_hz_ / 1e6).c_str());
             lv_obj_set_style_text_color(state_, c(kGood), 0);
@@ -314,7 +339,7 @@ private:
 
     RadioLink link_;
     lv_timer_t* timer_ = nullptr;
-    lv_obj_t *title_ = nullptr, *state_ = nullptr, *canvas_ = nullptr, *hint_ = nullptr, *empty_ = nullptr;
+    lv_obj_t *title_ = nullptr, *state_ = nullptr, *canvas_ = nullptr, *empty_ = nullptr;
     lv_obj_t* rows_[kRows] = {};
     std::vector<uint16_t> pixels_;
     std::vector<int> bands_;
@@ -327,6 +352,7 @@ private:
     int band_ = 0, chunk_ = 0, settle_ = 0, ticks_ = 0;
     double centre_ = 0, channel_hz_ = 0;
     bool stopped_ = false, held_ = false;
+    bool shown_stopped_ = false, shown_held_ = false;   // what the soft-key bar says
     uint32_t last_signal_ = 0;
 };
 }  // namespace

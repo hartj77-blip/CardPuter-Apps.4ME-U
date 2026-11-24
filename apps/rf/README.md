@@ -9,6 +9,11 @@ Open **RF Tools** and pick a tool from its menu: **1** to **9**, or Up/Down and 
 to filter. **Esc** in a tool comes back to the menu, and **Esc** on the menu leaves the app. The
 menu remembers the tool you used last.
 
+Every screen has the ZeroOS soft-key bar along the bottom, saying what the keys do there; **Tab**
+opens the screen's menu, **Ctrl** + a menu letter runs that action straight away, and **0** shows
+every key. Sensors, APRS, Logbook and Station are lists: typing filters them, and their actions are
+in the menu. Spectrum, Scanner, Aircraft and FT8 keep their own letter keys, shown in the bar.
+
 It hasn't been tried with a real dongle yet. So far it's been tested against a simulated radio and
 recorded files.
 
@@ -22,8 +27,8 @@ recorded files.
 ## Spectrum
 
 Left/Right tune by one step, Up/Down change the step size, **Z**/**X** narrow or widen the view,
-**G** cycles gain, **P** toggles peak hold, **C** centres on the strongest signal. Type a frequency
-in MHz and press **Enter** to jump to it, or press **B** for a list of bands.
+**G** cycles gain, **P** toggles peak hold, **C** centres on the strongest signal. Press **Enter**,
+type a frequency in MHz and press **Enter** again to jump to it, or press **B** for a list of bands.
 
 **M** cycles listening: off, broadcast FM, narrow FM, AM, upper and lower sideband, CW. The first
 press picks the mode that suits the frequency: the right sideband on an amateur band, CW at the
@@ -33,13 +38,13 @@ to `~/Recordings` (about 2 MB a second at the default width; it stops by itself 
 fills, and when you retune). Audio and recording stop when you leave Spectrum.
 
 **A** saves the channel you are on (type a name, **Enter**); **L** lists your saved channels, where
-**Enter** tunes to one and **D** deletes it. They live in `~/.config/zeroos/rf-memories.tsv`, one
+**Enter** tunes to one and **D** in the menu (**Tab**) deletes it, after asking. They live in `~/.config/zeroos/rf-memories.tsv`, one
 line each, and the Scanner can scan them.
 
 **K** makes the radio keep playing after you leave Spectrum, so you can listen while writing notes
 or browsing files. Opening Spectrum again picks the audio back up; opening another RF tool stops it,
 because that tool needs the receiver. Spectrum reopens where you left it (frequency, width, step,
-gain and squelch). **H** shows all the keys.
+gain and squelch). **0** shows all the keys.
 
 On broadcast FM the bottom line shows the station's name and text (from RDS) and whether it is in
 stereo; headphones get both channels. **W** records what you are hearing to a WAV file in
@@ -52,13 +57,14 @@ rig, and **T** sends the displayed frequency to the rig. Set the rig up in Stati
 ## Station
 
 Your callsign and grid locator, the dongle's frequency correction (ppm), antenna power (bias tee),
-the APRS frequency, and the rig for Hamlib (model number, serial port, speed). See
+the APRS frequency, and the rig for Hamlib (model number, serial port, speed). **Enter** edits a
+row (**Enter** again saves, **Esc** cancels); **Left**/**Right** turn antenna power on and off. See
 [HAM.md](HAM.md).
 
 ## APRS
 
-Amateur packet stations on 144.390 MHz (**F** steps through other regions' frequencies and the
-ISS): one row per station with distance and direction from your grid, and what it last sent.
+Amateur packet stations on 144.390 MHz (**F** in the menu steps through other regions'
+frequencies and the ISS; **C** there clears the list): one row per station with distance and direction from your grid, and what it last sent.
 **Enter** shows the packet. Uses `rtl_fm` and `multimon-ng`.
 
 ## FT8
@@ -66,17 +72,19 @@ ISS): one row per station with distance and direction from your grid, and what i
 The weak-signal digital mode. Every 15 seconds the stations heard on the band's FT8 frequency are
 listed with signal-to-noise ratio, audio frequency and message. Stations calling CQ are
 highlighted, a message that mentions your callsign more so, and a grid in a message becomes a
-distance from yours. **Left**/**Right** change band (160 m to 2 m), **Up**/**Down** scroll back.
+distance from yours. **Left**/**Right** change band (160 m to 2 m), **Up**/**Down** scroll back,
+**C** clears.
 Receive only. The device's clock must be right to within about a second. Decoding is by
 [ft8_lib](https://github.com/kgoba/ft8_lib); see [THIRD_PARTY.md](files/THIRD_PARTY.md).
 
 ## Logbook
 
 Amateur radio contacts, kept as ADIF in `~/Documents/logbook.adi`, which every logging program,
-Logbook of the World, QRZ and eQSL can import (and which Sync copies off the device). **N** starts
-a contact with the frequency and mode Spectrum is on, the customary report (59, or 599 for CW) and
-the time in UTC; typing a callsign you have logged before says so. **Enter** on a contact shows
-it, and **D** there deletes it.
+Logbook of the World, QRZ and eQSL can import (and which Sync copies off the device). **N** in the
+menu (**Tab**, or **Ctrl** + **N**) starts a contact with the frequency and mode Spectrum is on, the
+customary report (59, or 599 for CW) and the time in UTC; typing a callsign you have logged before
+says so. **Enter** edits a line, **Left**/**Right** change the mode, and **S** in the menu saves the
+contact. **Enter** on a contact shows it, and **D** there deletes it, after asking.
 
 ## Scanner
 
@@ -95,15 +103,15 @@ or descent arrow, and position. Decoding is our own, from the raw frames `rtl_ad
 ## SDR Server
 
 Lends the dongle to an SDR program on another computer or phone (SDR++, GQRX, SDR#) over Wi-Fi or
-Tailscale, using `rtl_tcp` on port 1234. The screen shows the address to enter. While it is on,
+Tailscale, using `rtl_tcp` on port 1234. **Enter** starts and stops it. The screen shows the address to enter. While it is on,
 anyone on the same network can tune the radio; it stops when you leave the app.
 
 ## Sensors
 
 Wireless weather stations, tyre sensors, doorbells and remotes, decoded by
 [rtl_433](https://github.com/merbanan/rtl_433). One row per device with its latest readings.
-**Enter** shows everything the selected device sent, **F** changes band (433.92, 315, 868.3,
-915 MHz), **C** clears the list. Readings are metric for now.
+**Enter** shows everything the selected device sent; in the menu, **B** changes band (433.92, 315,
+868.3, 915 MHz) and **C** clears the list. Readings are metric for now.
 
 ## On the device
 

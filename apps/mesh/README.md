@@ -12,7 +12,9 @@ plug it in.
 1. Open **Mesh** and choose **Turn on mesh**. The radio service starts; it takes a few seconds.
 2. The chat page opens. Type a message and press **Enter** to send it to everyone on the primary
    channel. You can type while the radio is still connecting; it's sent once it's ready.
-3. **Tab** switches to the info page and back. **Esc** on the info page goes back to the chat.
+3. **Left** or **Right** (while the message box is empty) switches to the info page and back,
+   as do **Node info** and **Chat** in the menu (**Tab**, or **Ctrl + I** and **Ctrl + C**).
+   **Esc** on the info page goes back to the chat.
 
 The chat shows the last 30 messages: yours in green, ones sent directly to you highlighted. The
 top line shows your node's name and how many nodes it has heard.

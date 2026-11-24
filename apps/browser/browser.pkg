@@ -2,4 +2,4 @@
 # Pages are fetched with curl, which is part of ZeroOS: nothing else to install.
 NAME="Browser"
 SUMMARY="Read the web as text: docs, READMEs, Markdown and simple pages"
-APP_VERSION="0.1.0"
+APP_VERSION="0.2.0"

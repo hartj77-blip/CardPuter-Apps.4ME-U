@@ -24,7 +24,7 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT || key == 9) {
+        if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
             show(1 - page_);
             return true;
         }
@@ -36,16 +36,18 @@ private:
         lv_obj_t* p = lv_obj_create(root_);
         style_panel(p);
         lv_obj_set_pos(p, x, 20);
-        lv_obj_set_size(p, w, kContentH - 24);
+        lv_obj_set_size(p, w, kBodyH - 22);
         lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_flex_flow(p, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_row(p, 2, 0);
-        lv_obj_set_style_pad_ver(p, 5, 0);
+        lv_obj_set_style_pad_row(p, 1, 0);
+        lv_obj_set_style_pad_ver(p, 3, 0);
         return p;
     }
 
     void show(int page) {
         page_ = page;
+        // Tabs on Left/Right (docs/UX.md in the OS); nothing else to do here.
+        shell_set_actions({{page == 0 ? "Memory" : "Overview", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr}});
         if (left_) lv_obj_delete(left_);
         if (right_) lv_obj_delete(right_);
         lv_label_set_text(tab_, page == 0 ? "Overview   " LV_SYMBOL_RIGHT " Memory"
@@ -74,7 +76,7 @@ private:
         up_ = kv_row(right_, "Uptime", "");
         kernel_ = label(right_, "", &zs_font_12, kMuted);
         lv_label_set_long_mode(kernel_, LV_LABEL_LONG_DOT);
-        lv_obj_set_width(kernel_, 140);
+        lv_obj_set_size(kernel_, 140, 16);   // one line, cut with "..."
     }
 
     void build_memory() {

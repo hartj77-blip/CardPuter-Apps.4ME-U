@@ -10,19 +10,28 @@
 
 namespace zs::kit {
 
-// A full-screen one-line prompt. on_submit(text) is called from the
-// textarea's Enter; keep it light (set a flag, rebuild on the next tick) so no
-// widget is deleted inside its own event. Returns the page object.
+// A one-line prompt (a Text screen, docs/UX.md in the OS). It sets the
+// screen's actions (Enter `ok`, Esc Back), so the soft-key bar says what the
+// keys do. on_submit(text) is called from the textarea's Enter; keep it light
+// (set a flag, rebuild on the next tick) so no widget is deleted inside its
+// own event. `help` is an optional line of explanation under the box (not key
+// hints: the bar has those). Returns the page object.
 lv_obj_t* input_screen(lv_obj_t* root, lv_group_t* group, const char* title, const char* placeholder,
                        const std::string& initial, std::function<void(const std::string&)> on_submit,
-                       const char* help = "Enter to continue     Esc to go back");
+                       const char* help = nullptr, const char* ok = "OK");
 
-// The title (accent, left) and key hints (muted, right) on the top row of an
-// app's page. Returns the title label.
-lv_obj_t* title_row(lv_obj_t* root, const std::string& title, const std::string& hints);
+// The title (accent, left) on the top row of an app's page, and an optional
+// muted note on the right (a state such as "3 found", never key hints: the
+// soft-key bar has those). Returns the title label.
+lv_obj_t* title_row(lv_obj_t* root, const std::string& title, const std::string& note = "");
+
+// The height of an app's area as it is now: kBodyH under the soft-key bar,
+// kContentH without one. Set the screen's actions before building.
+int body_h(lv_obj_t* root);
 
 // A scrolling text view that fills the app area below `top` (down to
-// `bottom_gap` above the bottom). append() adds a line, auto-scrolls to the
+// `bottom_gap` above the bottom, or above the soft-key bar when the screen
+// has actions: set them before build()). append() adds a line, auto-scrolls to the
 // bottom and caps the backlog.
 class OutputView {
 public:

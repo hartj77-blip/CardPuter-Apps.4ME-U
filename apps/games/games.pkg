@@ -3,7 +3,7 @@
 # cores RetroArch uses). Up to four players with gamepads.
 NAME="Games"
 SUMMARY="Play NES, Game Boy and GBA games, on a TV too, two players with gamepads (more consoles with downloadable cores)"
-APP_VERSION="1.2.1"
+APP_VERSION="1.3.0"
 # Debian's libretro cores for NES (Nestopia), Game Boy / Color (Gambatte) and
 # Game Boy Advance (mGBA); curl and unzip to download more cores (SNES, Mega
 # Drive, PC Engine, PlayStation...) into ~/Games/cores from libretro's nightly

@@ -1,10 +1,11 @@
 // Games: play your own games for classic consoles on the built-in screen, with
 // libretro emulator cores (the ones RetroArch uses). See docs/GAMES.md.
 //
-//   Library   Enter a system      C cores
-//   Games     Enter play
-//   Cores     Enter download (from libretro)      Del remove a download
-//   Playing   W A S D / arrows, K = A, J = B, I = X, U = Y, Q/E = L/R,
+//   Library   a List: Enter a system; menu C Cores
+//   Games     a List: Enter play; menu C Cores, D Delete save
+//   Cores     a List: Enter download (from libretro); menu D Remove (Del too)
+//   Playing   a Game screen: the game has the keys, and no soft-key bar.
+//             W A S D / arrows, K = A, J = B, I = X, U = Y, Q/E = L/R,
 //             Enter = Start, Space = Select, hold Backspace = fast forward,
 //             Esc = menu (save, load, players, TV, border, picture, quit)
 //   Gamepads  up to four players, in the order they connect; Home = menu.
@@ -33,6 +34,7 @@
 #include "apps/kit/run.h"
 #include "apps/kit/ui.h"
 #include "hal/hal.h"
+#include "ui/list_view.h"
 #include "ui/power.h"
 
 namespace zs {
@@ -76,12 +78,6 @@ public:
             start_game();
             return;
         }
-        if (pending_row_ >= 0) {
-            int i = pending_row_;
-            pending_row_ = -1;
-            picked(i);
-            return;
-        }
         if (page_ == Page::Playing) {
             if (emu_.quit_requested()) { stop_game(); return; }
             // Face down, or the screen went off: pause, so nothing runs unseen
@@ -119,14 +115,14 @@ public:
             if (!emu_.pad().has_devices()) emu_.pad().press_key(key);
             return true;               // everything else is the game's
         }
-        if (page_ == Page::Library || page_ == Page::Games) {
-            if (key == 'c' || key == 'C') { show_cores(); return true; }
-        }
-        if (page_ == Page::Cores && (key == LV_KEY_DEL || key == LV_KEY_BACKSPACE)) {
-            remove_core();
+        // Del on a core removes it (asking first), once no filter is typed.
+        if (page_ == Page::Cores && (key == LV_KEY_DEL || key == LV_KEY_BACKSPACE) && list_.filter().empty()) {
+            ask_remove_core();
             return true;
         }
-        return false;
+        bool used = list_.key(key);
+        if (page_ == Page::Games || page_ == Page::Cores) set_actions();   // for the row now in focus
+        return used;
     }
 
     bool on_back() override {
@@ -172,43 +168,69 @@ private:
         lv_obj_clean(root_);
         if (group) lv_group_remove_all_objs(group);
         rows_.clear();
+        list_.reset();
     }
 
-    static void on_click(lv_event_t* e) {
-        auto* self = static_cast<GamesApp*>(lv_event_get_user_data(e));
-        self->pending_row_ = int(lv_obj_get_index(lv_event_get_target_obj(e)));
+    // The soft-key bar and the Tab menu for the page (and the row in focus:
+    // what Delete save and Remove name).
+    void set_actions() {
+        std::vector<Action> a;
+        int i = list_.focused();
+        std::string row = i >= 0 && size_t(i) < rows_.size() ? rows_[size_t(i)] : "";
+        if (page_ == Page::Library) {
+            if (!rows_.empty()) a.push_back({"Open", 0, "Enter", nullptr});
+            a.push_back({"Cores", 'c', nullptr, [this] { show_cores(); }});
+        } else if (page_ == Page::Games) {
+            a.push_back({"Play", 0, "Enter", nullptr});
+            a.push_back({"Cores", 'c', nullptr, [this] { show_cores(); }});
+            Action del{"Delete save", 'd', nullptr, [this, row] { delete_saves(row); }};
+            del.enabled = !save_files(row).empty();
+            del.danger = true;
+            del.confirm = "Delete the saves for " + game_title(row) + "?";
+            a.push_back(del);
+        } else if (page_ == Page::Cores) {
+            const CoreDef* def = core_def(row);
+            a.push_back({"Get", 0, "Enter", nullptr});
+            Action rm{"Remove", 'd', nullptr, [this, row] { remove_core(row); }};
+            rm.enabled = downloaded(row);
+            rm.danger = true;
+            rm.confirm = std::string("Remove ") + (def ? def->name : row.c_str()) + "?";
+            a.push_back(rm);
+        }
+        shell_set_actions(std::move(a));
     }
 
     // ---- Library: the systems that have games
     void show_library() {
         page_ = Page::Library;
         clear();
-        kit::title_row(root_, "Games", "C cores");
         std::vector<const System*> have;
         for (auto& s : systems())
             if (!games_for(s).empty()) have.push_back(&s);
+        for (const System* s : have) rows_.push_back(s->id);
+        set_actions();
+        kit::title_row(root_, "Games");
         if (have.empty()) {
             lv_obj_t* l = label(root_,
                                 "No games yet.\n\n"
                                 "Copy your games into ~/Games/<system>/ with Files,\n"
                                 "Sync, Taildrop or scp: nes, gb, gbc, gba, snes,\n"
-                                "md, sms, pce, a26, psx, ws.\n\n"
-                                "Press C to get emulator cores for more systems.",
+                                "md, sms, pce, a26, psx, ws.\n"
+                                "Cores, in the menu, gets emulators for more systems.",
                                 &zs_font_12, kMuted);
             lv_obj_set_pos(l, 10, 26);
             return;
         }
-        lv_obj_t* list = make_list(root_, 0, 18, kScreenW, kContentH - 18);
+        list_.build(root_, 0, 18, kScreenW, kBodyH - 18);
         for (const System* s : have) {
             size_t n = games_for(*s).size();
             bool core = !core_for(*s).empty();
-            std::string text = std::string(s->name) + fmt("   %d game%s", int(n), n == 1 ? "" : "s") +
-                               (core ? "" : "  - needs a core (C)");
-            lv_obj_t* b = list_button(list, LV_SYMBOL_PLAY, text.c_str(), on_click, this);
-            if (!core) lv_obj_set_style_text_color(b, c(kMuted), 0);
-            rows_.push_back(s->id);
+            std::string games = fmt("%d game%s", int(n), n == 1 ? "" : "s");
+            int r = list_.add(LV_SYMBOL_PLAY, s->name, core ? games : games + ", needs a core",
+                              [this, s] { show_games(*s); });
+            if (!core) list_.set_value_color(r, kWarn);
         }
-        finish_list(list);
+        list_.finish();
     }
 
     // ---- The games for one system
@@ -219,13 +241,40 @@ private:
         std::string file;
         std::string core = core_for(s, &file);
         const CoreDef* def = core_def(file);
-        kit::title_row(root_, s.name, core.empty() ? "no core: C" : (def ? def->name : file.c_str()));
-        lv_obj_t* list = make_list(root_, 0, 18, kScreenW, kContentH - 18);
+        kit::title_row(root_, s.name, core.empty() ? "no core yet" : (def ? def->name : file.c_str()));
+        list_.build(root_, 0, 18, kScreenW, kBodyH - 18);
+        int focus = 0;
         for (auto& g : games_for(s)) {
-            list_button(list, LV_SYMBOL_PLAY, game_title(g).c_str(), on_click, this);
+            int i = int(rows_.size());
+            if (g == game_) focus = i;   // back from playing it
+            list_.add(LV_SYMBOL_PLAY, game_title(g), "", [this, i] { picked(i); });
             rows_.push_back(g);
         }
-        finish_list(list);
+        list_.finish();
+        list_.focus(focus);
+        set_actions();
+    }
+
+    // A game's battery save and save states (emu.cpp names them so).
+    static std::vector<std::string> save_files(const std::string& game) {
+        std::vector<std::string> have;
+        if (game.empty()) return have;
+        std::string t = game_title(game);
+        for (const std::string& f : {saves_dir() + "/" + t + ".srm", states_dir() + "/" + t + ".state",
+                                     states_dir() + "/" + t + kResume})
+            if (kit::exists(f)) have.push_back(f);
+        return have;
+    }
+
+    void delete_saves(const std::string& game) {
+        auto files = save_files(game);
+        if (files.empty()) {
+            shell_toast("No saves for that game");
+            return;
+        }
+        for (auto& f : files) std::remove(f.c_str());
+        shell_toast("Saves deleted");
+        set_actions();
     }
 
     // ---- Cores: what's installed, download more
@@ -236,11 +285,20 @@ private:
         return !find_core(c.file).empty();
     }
 
+    bool downloaded(const std::string& file) {
+        if (file.empty()) return false;
+        if (kit::simulated())
+            for (auto& n : sim_downloaded_)
+                if (const CoreDef* d = core_def(file); d && n == d->name) return true;
+        return kit::exists(user_cores_dir() + "/" + file + "_libretro.so");
+    }
+
     void show_cores() {
+        int keep = page_ == Page::Cores ? list_.focused() : -1;
         page_ = Page::Cores;
         clear();
-        kit::title_row(root_, "Emulator cores", dl_.started() ? "downloading..." : "Enter get  Del remove");
-        lv_obj_t* list = make_list(root_, 0, 18, kScreenW, kContentH - 18);
+        kit::title_row(root_, "Emulator cores", dl_.started() ? "downloading..." : "");
+        list_.build(root_, 0, 18, kScreenW, kBodyH - 18);
         for (auto& core : cores()) {
             if (std::string(core.file) == "zstest") continue;
             std::string for_what;
@@ -251,14 +309,17 @@ private:
             bool in = installed(core);
             std::string state = in ? "installed"
                                 : dl_.started() && dl_name_ == core.name ? "downloading..."
-                                : core.download ? fmt("get, %.1f MB", core.size_kb / 1024.0)
+                                : core.download ? fmt("%.1f MB", core.size_kb / 1024.0)
                                                 : std::string("apt: ") + core.package;
-            std::string text = std::string(core.name) + "  (" + for_what + ")   " + state;
-            lv_obj_t* b = list_button(list, in ? LV_SYMBOL_OK : LV_SYMBOL_DOWNLOAD, text.c_str(), on_click, this);
-            if (!in) lv_obj_set_style_text_color(b, c(kMuted), 0);
+            std::string text = std::string(core.name) + " (" + for_what + ")";
+            int i = int(rows_.size());
+            int r = list_.add(in ? LV_SYMBOL_OK : LV_SYMBOL_DOWNLOAD, text, state, [this, i] { picked(i); });
+            if (in) list_.set_value_color(r, kGood);
             rows_.push_back(core.file);
         }
-        finish_list(list);
+        list_.finish();
+        if (keep >= 0) list_.focus(keep);
+        set_actions();
     }
 
     void download(const CoreDef& c) {
@@ -285,31 +346,44 @@ private:
         show_cores();
     }
 
-    void remove_core() {
-        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
-        if (!f) return;
-        int i = int(lv_obj_get_index(f));
+    // Del on the Cores page: the same as Remove in the menu, asking first.
+    void ask_remove_core() {
+        int i = list_.focused();
         if (i < 0 || size_t(i) >= rows_.size()) return;
-        std::string path = user_cores_dir() + "/" + rows_[size_t(i)] + "_libretro.so";
-        if (!kit::exists(path)) {
+        std::string file = rows_[size_t(i)];
+        if (!downloaded(file)) {
             shell_toast("Only downloaded cores can be removed here");
             return;
         }
-        std::remove(path.c_str());
+        const CoreDef* def = core_def(file);
+        shell_confirm(std::string("Remove ") + (def ? def->name : file.c_str()) + "?", "It can be downloaded again.",
+                      "Remove", [this, file] { remove_core(file); });
+    }
+
+    void remove_core(const std::string& file) {
+        if (!downloaded(file)) {
+            shell_toast("Only downloaded cores can be removed here");
+            return;
+        }
+        if (kit::simulated()) {
+            const CoreDef* def = core_def(file);
+            std::vector<std::string> keep;
+            for (auto& n : sim_downloaded_)
+                if (!def || n != def->name) keep.push_back(n);
+            sim_downloaded_ = keep;
+        }
+        std::remove((user_cores_dir() + "/" + file + "_libretro.so").c_str());
         shell_toast("Removed");
         show_cores();
     }
 
     void picked(int i) {
         if (i < 0 || size_t(i) >= rows_.size()) return;
-        const std::string& row = rows_[size_t(i)];
-        if (page_ == Page::Library) {
-            for (auto& s : systems())
-                if (row == s.id) show_games(s);
-        } else if (page_ == Page::Games) {
+        std::string row = rows_[size_t(i)];
+        if (page_ == Page::Games) {
             game_ = row;
             if (core_for(*sys_).empty()) {
-                shell_toast("No core for this system yet: press C to get one");
+                shell_toast("No core for this system yet: get one in Cores (menu)");
                 return;
             }
             show_starting();
@@ -325,6 +399,9 @@ private:
     void show_starting() {
         page_ = Page::Playing;
         menu_ = nullptr;
+        // A Game screen: the game has the keys and the whole screen, so no
+        // soft-key bar or menu (the pause menu is the game's own, on Esc).
+        shell_set_actions({});
         stage_ = lv_obj_create(lv_layer_top());
         style_plain(stage_);
         lv_obj_set_size(stage_, kScreenW, kScreenH);
@@ -638,15 +715,22 @@ private:
     }
 
     // Up/Down move, A or Start chooses. B is back(), the caller's.
-    // True if anything was pressed.
-    bool list_by_gamepad(const std::function<void()>& back) {
+    // `as_keys`: the pages' ListView, which scrolls through its own keys
+    // (on_key), so Up and Down go there; A clicks the focused row, as Enter
+    // does. The in-game menu is a plain LVGL list, moved by focus. True if anything was pressed.
+    bool list_by_gamepad(const std::function<void()>& back, bool as_keys = false) {
         uint16_t pressed = pad_pressed();
         if (!pressed || !group) return pressed != 0;
         auto down = [&](unsigned b) { return (pressed >> b) & 1; };
-        if (down(retro::kUp)) lv_group_focus_prev(group);
-        else if (down(retro::kDown)) lv_group_focus_next(group);
-        else if (down(retro::kB)) back();
-        else if (down(retro::kA) || down(retro::kStart)) {
+        if (down(retro::kB)) {
+            back();
+        } else if (as_keys && (down(retro::kUp) || down(retro::kDown))) {
+            on_key(down(retro::kUp) ? LV_KEY_UP : LV_KEY_DOWN);
+        } else if (down(retro::kUp)) {
+            lv_group_focus_prev(group);
+        } else if (down(retro::kDown)) {
+            lv_group_focus_next(group);
+        } else if (down(retro::kA) || down(retro::kStart)) {
             if (lv_obj_t* f = lv_group_get_focused(group)) lv_obj_send_event(f, LV_EVENT_CLICKED, nullptr);
         }
         return true;
@@ -682,7 +766,7 @@ private:
             if (on_back()) return;
             // The first page: leave Games, after this timer is done with us.
             lv_async_call([](void*) { shell_go_home(); }, nullptr);
-        });
+        }, /*as_keys=*/true);
     }
 
     void close_menu() {
@@ -780,9 +864,9 @@ private:
     lv_obj_t* root_ = nullptr;
     Page page_ = Page::Library;
     const System* sys_ = nullptr;
-    std::vector<std::string> rows_;
+    std::vector<std::string> rows_;   // what each list row is: a system id, a game's path or a core
+    ListView list_;
     std::string game_;
-    int pending_row_ = -1;
     bool pending_load_ = false;
 
     Emulator emu_;

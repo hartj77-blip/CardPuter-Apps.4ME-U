@@ -2,7 +2,8 @@
 // the band's FT8 frequency are listed with their signal strength, audio
 // frequency and message. Receive only.
 //
-// Left/Right change band, Up/Down scroll back, C clears. Stations calling CQ
+// A Control screen: Left/Right change band, Up/Down scroll back, C clears
+// (the soft-key bar shows them). Stations calling CQ
 // are highlighted, messages that mention your callsign more so, and a grid
 // in a message is turned into a distance from yours (both set in Station).
 // The device's clock must be right to within about a second.
@@ -64,6 +65,12 @@ public:
             for (int i = 0; i < int(std::size(kDials)); ++i)
                 if (std::string(kDials[i].band) == b->name) band_ = i;
 
+        std::vector<Action> a;
+        a.push_back({"Band", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+        a.push_back({"Scroll", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr});
+        a.push_back({"Clear", 'c', "C", [this] { clear(); }});
+        a.push_back({"Next band", 'b', nullptr, [this] { set_band(band_ + 1); }});
+        shell_set_actions(std::move(a));
         title_ = label(root, "", &zs_font_14, kAccent);
         lv_obj_set_pos(title_, 4, 0);
         status_ = label(root, "", &zs_font_12, kMuted);
@@ -73,9 +80,6 @@ public:
                 cells_[r][c] = label(root, "", &zs_font_12, kText);
                 lv_obj_set_pos(cells_[r][c], kCol[c], kTopH + r * kRowH);
             }
-        hint_ = label(root, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " band   " LV_SYMBOL_UP LV_SYMBOL_DOWN " scroll   C clear",
-                      &zs_font_12, kMuted);
-        lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, -1);
         message_ = label(root, "", &zs_font_14, kMuted);
         lv_obj_set_style_text_align(message_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(message_, LV_ALIGN_CENTER, 0, 4);
@@ -96,7 +100,7 @@ public:
         case LV_KEY_RIGHT: set_band(band_ + 1); return true;
         case LV_KEY_UP: back_ = std::min(back_ + 1, std::max(0, n - kRows)); refresh(); return true;
         case LV_KEY_DOWN: back_ = std::max(back_ - 1, 0); refresh(); return true;
-        case 'c': case 'C': log_.clear(); back_ = 0; slots_ = 0; refresh(); set_message(waiting()); return true;
+        case 'c': case 'C': clear(); return true;
         case LV_KEY_ENTER: return true;
         default: return false;
         }
@@ -104,6 +108,14 @@ public:
 
 private:
     const char* waiting() const { return "Listening...\nDecodes arrive every 15 seconds"; }
+
+    void clear() {
+        log_.clear();
+        back_ = 0;
+        slots_ = 0;
+        refresh();
+        set_message(waiting());
+    }
 
     void set_band(int i) {
         band_ = i % int(std::size(kDials));
@@ -222,7 +234,7 @@ private:
 
     RadioLink link_;
     lv_timer_t* timer_ = nullptr;
-    lv_obj_t *title_ = nullptr, *status_ = nullptr, *hint_ = nullptr, *message_ = nullptr;
+    lv_obj_t *title_ = nullptr, *status_ = nullptr, *message_ = nullptr;
     lv_obj_t* cells_[kRows][4] = {};
     std::vector<Decode> log_;
     std::string my_call_;

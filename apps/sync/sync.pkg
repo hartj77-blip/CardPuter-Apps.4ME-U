@@ -1,7 +1,7 @@
 # Sync (README.md): Syncthing for Notes, Documents and Recordings.
 NAME="Sync"
 SUMMARY="Keep Notes, Documents and Recordings the same on your PC and phone"
-APP_VERSION="1.0.0"
+APP_VERSION="1.1.0"
 DEPENDS="syncthing, python3"
 STOP_ON_REMOVE="syncthing@pi.service"
 payload() {

@@ -13,7 +13,6 @@ protected:
     const char* title() const override { return type(); }
     const char* input_title() const override { return "Look up a name"; }
     const char* placeholder() const override { return "name, e.g. example.com"; }
-    const char* hint() const override { return LV_SYMBOL_LEFT " type " LV_SYMBOL_RIGHT "   R run"; }
     const char* waiting_text() const override { return "Looking it up..."; }
 
     std::vector<std::string> command(const std::string& t) const override {
@@ -25,6 +24,11 @@ protected:
         if (key == LV_KEY_RIGHT) { ti_ = (ti_ + 1) % int(std::size(kTypes)); rerun(); return true; }
         if (key == LV_KEY_LEFT) { ti_ = (ti_ + int(std::size(kTypes)) - 1) % int(std::size(kTypes)); rerun(); return true; }
         return false;
+    }
+
+    void extra_actions(std::vector<Action>& a) override {
+        a.push_back({"Type", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+        a.push_back({"Next record type", 't', nullptr, [this] { extra_key(LV_KEY_RIGHT); }});
     }
 
     void finished() override {

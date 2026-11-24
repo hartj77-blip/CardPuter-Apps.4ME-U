@@ -17,7 +17,7 @@ own keyboard.
    menu (right-click the background), press Ctrl+Alt+Del, or just unplug the
    monitor. The built-in screen comes back.
 
-In the Dock app:
+In the Dock app (a list: Enter on **Start Dock mode**, Left / Right change the settings):
 
 - **On plug-in**: Ask (open the Dock app, the default), Start dock
   (automatically), or Do nothing.

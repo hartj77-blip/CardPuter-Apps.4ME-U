@@ -17,7 +17,10 @@ Recordings folder the same on your PC and phone.
 | E | Rename the note |
 | X or Del | Delete it (asks first) |
 | + / - | Volume |
-| Tab | The menu, with all of these |
+| 1 to 9 | Play the note with that number |
+| Tab | The menu, with all of these (Ctrl + its letter runs one straight away) |
+
+The bar along the bottom of the screen shows these keys.
 
 Recording stops any music that is playing. Notes play through the same queue
 as Media's music, so a note keeps playing after you leave the app.

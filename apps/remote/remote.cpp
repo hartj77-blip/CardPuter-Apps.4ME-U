@@ -2,16 +2,20 @@
 //
 //   Off          -> Turn on Tailscale
 //   Sign-in      -> QR code + link; approve on your phone
-//   Connected    -> your devices (online first). Enter = SSH (or mosh) in the
-//                   terminal, D = remote desktop: the Desktop app if it is
-//                   installed, else RDP on the monitor (Dock mode).
-//                   Files' S key sends a file here: Enter then sends it.
+//   Connected    -> your devices (online first), a List screen (docs/UX.md
+//                   in the OS). Enter = SSH (or mosh) in the terminal. The
+//                   menu (Tab, or Ctrl + the letter): S SSH, D remote
+//                   desktop (the Desktop app if it is installed, else RDP on
+//                   the monitor in Dock mode), F send a file, I details.
+//                   Files' Share sends a file here: Enter then sends it.
 // Also: Connect to any host, the SSH user name, mosh on/off, sign out, and
 // the control server: Tailscale's own or a Headscale server of your own,
 // with an auth key instead of the sign-in link if you like.
+#include <algorithm>
 #include <vector>
 
 #include "apps/common.h"
+#include "ui/list_view.h"
 #include "ui/power.h"
 #include "ui/prefs.h"
 #include "ui/remote.h"
@@ -92,21 +96,8 @@ public:
 
     bool on_key(uint32_t key) override {
         if (input_) return false;   // typing in the text box
-        if (key == 'd' || key == 'D') {
-            int i = focused_peer();
-            if (i < 0) return false;
-            const TsPeer& p = ts_.peers[size_t(i)];
-            // The Desktop app does VNC and RDP, on this screen or the monitor.
-            if (app_find("desktop")) {
-                shell_open_app("desktop", "peer:" + p.name + ":" + p.os);
-                return true;
-            }
-            if (!power().docked()) {
-                shell_toast("Remote desktop needs Dock mode (a monitor)");
-            } else {
-                hal().dock_open("rdp", ts_.peers[size_t(i)].name);
-                shell_toast("Opening " + ts_.peers[size_t(i)].name + " on the monitor");
-            }
+        if (list_.key(key)) {
+            set_actions();   // the menu follows the row in focus
             return true;
         }
         return false;
@@ -132,27 +123,85 @@ private:
         return s;
     }
 
-    int focused_peer() {
-        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
-        for (size_t i = 0; i < peer_btns_.size(); ++i)
-            if (peer_btns_[i] == f) return int(i);
-        return -1;
+    // Peers are the list's first rows, in ts_.peers' order.
+    int focused_peer() const {
+        int i = input_ ? -1 : list_.focused();
+        return i >= 0 && i < peer_rows_ ? i : -1;
+    }
+
+    void set_actions() {
+        int i = focused_peer();
+        bool peer = i >= 0;
+        bool sending = !remote_pending_send().empty();
+        std::vector<Action> a;
+        a.push_back({peer ? (sending ? "Send" : "SSH") : "Select", 0, "Enter", nullptr});
+        if (!remote_pending_send().empty()) a.push_back({"Cancel sending", 0, "Esc", nullptr});
+        a.push_back({"SSH", 's', nullptr, [this] { ssh(focused_peer()); }, peer});
+        a.push_back({app_find("desktop") ? "Remote desktop" : "Desktop on monitor", 'd', nullptr,
+                     [this] { desktop(focused_peer()); }, peer});
+        a.push_back({"Send a file", 'f', nullptr, [this] { send_file(focused_peer()); }, peer});
+        a.push_back({"Details", 'i', nullptr, [this] { details(focused_peer()); }, peer});
+        shell_set_actions(std::move(a));
+    }
+
+    void ssh(int i) {
+        if (i < 0 || i >= int(ts_.peers.size())) return;
+        const TsPeer& p = ts_.peers[size_t(i)];
+        if (!p.online) shell_toast(p.name + " looks offline; trying anyway");
+        terminal_run(ssh_command(p.name));
+    }
+
+    // The Desktop app does VNC and RDP, on this screen or the monitor.
+    void desktop(int i) {
+        if (i < 0 || i >= int(ts_.peers.size())) return;
+        const TsPeer& p = ts_.peers[size_t(i)];
+        if (app_find("desktop")) {
+            shell_open_app("desktop", "peer:" + p.name + ":" + p.os);
+        } else if (!power().docked()) {
+            shell_toast("Remote desktop needs Dock mode (a monitor)");
+        } else {
+            hal().dock_open("rdp", p.name);
+            shell_toast("Opening " + p.name + " on the monitor");
+        }
+    }
+
+    // The file Files handed over, or else pick one in Files first.
+    void send_file(int i) {
+        if (i < 0 || i >= int(ts_.peers.size())) return;
+        if (remote_pending_send().empty()) {
+            shell_toast("Pick the file in Files, then Share");
+            shell_open_app("files");
+            return;
+        }
+        const TsPeer& p = ts_.peers[size_t(i)];
+        std::string path = remote_take_send();
+        bool ok = hal().taildrop_send(path, p.name);
+        shell_toast(ok ? "Sent to " + p.name : "Couldn't send to " + p.name);
+        dirty_ = true;
+    }
+
+    void details(int i) {
+        if (i < 0 || i >= int(ts_.peers.size())) return;
+        const TsPeer& p = ts_.peers[size_t(i)];
+        shell_toast(p.name + "  " + p.ip + "  " + p.os + (p.online ? "" : "  (offline)"));
     }
 
     void rebuild() {
         ts_ = hal().tailscale();
         sig_ = signature(ts_);
         if (ts_.state != "Stopped") starting_ = false;
+        int keep = input_ ? -1 : list_.focused();
         lv_obj_clean(root_);
         input_ = nullptr;
-        peer_btns_.clear();
+        peer_rows_ = 0;
         if (group) lv_group_remove_all_objs(group);
+        set_actions();   // first: the screen is laid out above the bar
 
         // Left: status, or the sign-in QR code.
         lv_obj_t* panel = lv_obj_create(root_);
         style_panel(panel);
         lv_obj_set_pos(panel, 6, 4);
-        lv_obj_set_size(panel, 150, kContentH - 10);
+        lv_obj_set_size(panel, 132, kBodyH - 8);
         lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_row(panel, 3, 0);
@@ -184,110 +233,92 @@ private:
                 kv_row(panel, "IP", ts_.self_ip.c_str());
                 lv_obj_t* tn = label(panel, ts_.tailnet.c_str(), &zs_font_12, kMuted);
                 lv_label_set_long_mode(tn, LV_LABEL_LONG_DOT);
-                lv_obj_set_width(tn, 136);
+                lv_obj_set_width(tn, 118);
                 const std::string& send = remote_pending_send();
-                std::string hint = send.empty() ? (app_find("desktop") ? "Enter: SSH\nD: remote desktop"
-                                                                       : "Enter: SSH\nD: desktop on monitor")
-                                                : "Send " + send.substr(send.rfind('/') + 1) + ":\npick a device";
-                lv_obj_t* h = label(panel, hint.c_str(), &zs_font_12, send.empty() ? kMuted : kAccent);
-                lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
-                lv_obj_set_width(h, 136);
+                if (!send.empty()) {
+                    std::string hint = "Send " + send.substr(send.rfind('/') + 1) + ":\npick a device";
+                    lv_obj_t* h = label(panel, hint.c_str(), &zs_font_12, kAccent);
+                    lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
+                    lv_obj_set_width(h, 118);
+                }
             } else {
                 lv_obj_t* h = label(panel,
                                     ts_.installed ? "Reach your PC, phone and servers from anywhere."
                                                   : "Tailscale is missing: reinstall Remote in Apps.",
                                     &zs_font_12, kMuted);
                 lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
-                lv_obj_set_width(h, 136);
+                lv_obj_set_width(h, 118);
             }
         }
 
-        // Right: actions and devices.
-        lv_obj_t* list = make_list(root_, 162, 4, 152, kContentH - 10);
+        // Right: devices, then settings and actions.
+        list_.build(root_, 142, 4, kScreenW - 144, kBodyH - 8);
         if (ts_.state == "Running") {
-            for (auto& p : ts_.peers) {
-                std::string text = p.name + (p.online ? "" : "  (off)");
-                lv_obj_t* b = list_button(list, os_symbol(p.os), text.c_str(), on_peer, this);
-                if (!p.online) lv_obj_set_style_text_color(b, c(kMuted), 0);
-                peer_btns_.push_back(b);
+            for (size_t i = 0; i < ts_.peers.size(); ++i) {
+                const TsPeer& p = ts_.peers[i];
+                int row = list_.add(os_symbol(p.os), p.name, p.online ? "" : "off", [this, i] { on_peer(i); });
+                if (!p.online) list_.set_value_color(row, kMuted);
             }
+            peer_rows_ = int(ts_.peers.size());
         } else if (ts_.installed && ts_.state == "Stopped" && !starting_) {
-            list_button(list, LV_SYMBOL_POWER, "Turn on Tailscale", [](lv_event_t* e) {
+            list_.add(LV_SYMBOL_POWER, "Turn on Tailscale", "", [this] {
                 hal().tailscale_start();
-                static_cast<RemoteApp*>(lv_event_get_user_data(e))->starting_ = true;
+                starting_ = true;
                 shell_toast("Starting Tailscale...");
-            }, this);
+            });
         }
         if (ts_.installed && ts_.state != "Running") {
-            list_button(list, LV_SYMBOL_EDIT, "Use auth key", [](lv_event_t* e) {
-                static_cast<RemoteApp*>(lv_event_get_user_data(e))->ask("Auth key", "", [](const std::string& v) {
+            list_.add(LV_SYMBOL_EDIT, "Use auth key", "", [this] {
+                ask("Auth key", "", [](const std::string& v) {
                     if (v.empty()) return;
                     prefs::set_str("tailscale.authkey", v);   // the shell uses it once, then clears it
                     hal().tailscale_start();
                     shell_toast("Signing in with the key...");
                 });
-            }, this);
+            });
         }
-        list_button(list, LV_SYMBOL_KEYBOARD, "Connect to...", [](lv_event_t* e) {
-            static_cast<RemoteApp*>(lv_event_get_user_data(e))->ask("Host (user@host)", "", [](const std::string& v) {
+        list_.add(LV_SYMBOL_KEYBOARD, "Connect to...", "", [this] {
+            ask("Host (user@host)", "", [](const std::string& v) {
                 if (!v.empty()) terminal_run((use_mosh() ? "mosh " : "ssh ") + v);
             });
-        }, this);
-        std::string user = "SSH as: " + (ssh_user().empty() ? std::string("pi") : ssh_user());
-        list_button(list, LV_SYMBOL_EDIT, user.c_str(), [](lv_event_t* e) {
-            static_cast<RemoteApp*>(lv_event_get_user_data(e))->ask("SSH user name", ssh_user(), [](const std::string& v) {
-                set_ssh_user(v);
-            });
-        }, this);
-        list_button(list, LV_SYMBOL_SHUFFLE, use_mosh() ? "Use mosh: on" : "Use mosh: off", [](lv_event_t* e) {
-            set_use_mosh(!use_mosh());
-            auto* self = static_cast<RemoteApp*>(lv_event_get_user_data(e));
-            self->dirty_ = true;
-        }, this);
-        std::string server = "Server: " + server_name(ts_server());
-        list_button(list, LV_SYMBOL_HOME, server.c_str(), [](lv_event_t* e) {
-            static_cast<RemoteApp*>(lv_event_get_user_data(e))
-                ->ask("Headscale server (empty: Tailscale)", ts_server(), [](const std::string& v) { set_server(v); });
-        }, this);
+        });
+        list_.add(LV_SYMBOL_EDIT, "SSH as", ssh_user().empty() ? std::string("pi") : ssh_user(), [this] {
+            ask("SSH user name", ssh_user(), [](const std::string& v) { set_ssh_user(v); });
+        });
+        list_.add_choice(LV_SYMBOL_SHUFFLE, "Use mosh", {"Off", "On"}, use_mosh() ? 1 : 0,
+                         [](int i) { set_use_mosh(i == 1); });
+        list_.add(LV_SYMBOL_HOME, "Server", server_name(ts_server()), [this] {
+            ask("Headscale server (empty: Tailscale)", ts_server(), [](const std::string& v) { set_server(v); });
+        });
         if (ts_.running) {
-            list_button(list, LV_SYMBOL_POWER, "Turn off Tailscale", [](lv_event_t* e) {
+            list_.add(LV_SYMBOL_POWER, "Turn off Tailscale", "", [this] {
                 hal().tailscale_stop();
                 shell_toast("Tailscale off");
-                auto* self = static_cast<RemoteApp*>(lv_event_get_user_data(e));
-                self->dirty_ = true;
-            }, this);
+                dirty_ = true;
+            });
         }
         if (ts_.state == "Running") {
-            list_button(list, LV_SYMBOL_CLOSE, "Sign out", [](lv_event_t*) {
+            list_.add(LV_SYMBOL_CLOSE, "Sign out", "", [] {
                 hal().tailscale_logout();
                 shell_toast("Signed out of Tailscale");
-            }, nullptr);
+            });
         }
-        finish_list(list);
+        list_.finish();
+        if (keep > 0 && list_.size()) list_.focus(std::min(keep, list_.size() - 1));
+        set_actions();   // again, for the row now in focus
     }
 
-    static void on_peer(lv_event_t* e) {
-        auto* self = static_cast<RemoteApp*>(lv_event_get_user_data(e));
-        int i = -1;
-        for (size_t k = 0; k < self->peer_btns_.size(); ++k)
-            if (self->peer_btns_[k] == lv_event_get_target_obj(e)) i = int(k);
-        if (i < 0) return;
-        const TsPeer& p = self->ts_.peers[size_t(i)];
-        if (!remote_pending_send().empty()) {
-            std::string path = remote_take_send();
-            bool ok = hal().taildrop_send(path, p.name);
-            shell_toast(ok ? "Sent to " + p.name : "Couldn't send to " + p.name);
-            self->dirty_ = true;
-            return;
-        }
-        if (!p.online) shell_toast(p.name + " looks offline; trying anyway");
-        terminal_run(ssh_command(p.name));
+    void on_peer(size_t i) {
+        if (i >= ts_.peers.size()) return;
+        if (!remote_pending_send().empty()) send_file(int(i));
+        else ssh(int(i));
     }
 
-    // One-line text box over the screen. Enter saves, Esc cancels.
+    // One-line text box over the screen (a Text screen while it's open).
     using Done = void (*)(const std::string&);
     void ask(const char* title, const std::string& initial, Done done) {
         done_ = done;
+        shell_set_actions({{"Save", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
         input_ = lv_obj_create(root_);
         style_panel(input_);
         lv_obj_set_size(input_, 300, 74);
@@ -327,7 +358,8 @@ private:
     Done done_ = nullptr;
     TsStatus ts_;
     std::string sig_;
-    std::vector<lv_obj_t*> peer_btns_;
+    ListView list_;
+    int peer_rows_ = 0;   // the list's first rows are ts_.peers
     bool starting_ = false;
     bool dirty_ = false;   // rebuild on the next tick (never inside a widget's own event)
     int n_ = 0;

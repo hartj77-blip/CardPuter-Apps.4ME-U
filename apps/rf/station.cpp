@@ -1,5 +1,6 @@
 // Station: the operator's details and the radio hardware settings the RF apps
-// share. Up/Down move, Enter edits or toggles, Esc cancels an edit.
+// share. A List screen: Enter edits a row (typing goes into it until Enter
+// saves or Esc cancels), Left/Right turn a switch on or off.
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -8,6 +9,7 @@
 
 #include "apps/common.h"
 #include "aprs.h"
+#include "ui/list_view.h"
 #include "ui/prefs.h"
 
 namespace zs {
@@ -38,6 +40,7 @@ const Field kFields[] = {
 class StationApp : public App {
 public:
     void build(lv_obj_t* root) override {
+        set_actions();
         title_ = label(root, "", &zs_font_14, kAccent);
         lv_obj_set_pos(title_, 4, 0);
         help_ = label(root, "", &zs_font_12, kMuted);
@@ -45,19 +48,31 @@ public:
         lv_obj_set_width(help_, kScreenW - 8);
         lv_label_set_long_mode(help_, LV_LABEL_LONG_DOT);
 
-        list_ = make_list(root, 0, 18, kScreenW, kContentH - 18 - 16);
+        list_.build(root, 4, 18, kScreenW - 8, kBodyH - 18 - 16);
         for (size_t i = 0; i < std::size(kFields); ++i) {
-            lv_obj_t* row = list_button(list_, nullptr, kFields[i].label, on_clicked, this);
-            lv_obj_add_event_cb(row, on_focused, LV_EVENT_FOCUSED, this);
-            values_.push_back(lv_label_create(row));
+            const Field& f = kFields[i];
+            if (f.kind == Kind::Toggle)
+                list_.add_choice(nullptr, f.label, {"off", "on"}, prefs::get_int(f.key, 0) ? 1 : 0, [this, i](int v) {
+                    toggle(int(i), v);
+                });
+            else
+                list_.add(nullptr, f.label, "", [this, i] { edit(int(i)); });
         }
-        finish_list(list_);
+        list_.finish();
         refresh();
-        show_help(0);
+    }
+
+    void tick() override {
+        // The help line follows the focus.
+        int f = list_.focused();
+        if (f >= 0 && f != focused_) {
+            focused_ = f;
+            refresh();
+        }
     }
 
     bool on_key(uint32_t key) override {
-        if (editing_ < 0) return false;   // the list handles Up, Down and Enter
+        if (editing_ < 0) return list_.key(key);
         const Field& f = kFields[editing_];
         if (key == LV_KEY_ENTER) {
             commit();
@@ -68,6 +83,10 @@ public:
             bool ok = f.kind == Kind::Number ? std::isdigit(static_cast<unsigned char>(c)) || (c == '-' && entry_.empty())
                                              : c != ' ' && c != '=';
             if (ok) entry_ += c;
+        } else if (key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+            return true;   // stay on the row being typed into
+        } else {
+            return false;   // Tab (the menu), Esc and the shell's keys
         }
         refresh();
         return true;
@@ -76,37 +95,33 @@ public:
     bool on_back() override {
         if (editing_ < 0) return false;
         editing_ = -1;
+        set_actions();
         refresh();
         return true;
     }
 
 private:
-    static void on_clicked(lv_event_t* e) {
-        auto* self = static_cast<StationApp*>(lv_event_get_user_data(e));
-        if (self->editing_ >= 0) return;
-        int i = int(lv_obj_get_index(static_cast<lv_obj_t*>(lv_event_get_target(e))));
+    // A List screen, or a Text one while a row is being typed into.
+    void set_actions() {
+        if (editing_ >= 0) shell_set_actions({{"Save", 0, "Enter", nullptr}, {"Cancel", 0, "Esc", nullptr}});
+        else shell_set_actions({{"Edit", 0, "Enter", nullptr}, {"Switch", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr}});
+    }
+
+    void toggle(int i, int v) {
         const Field& f = kFields[i];
-        if (f.kind == Kind::Toggle) {
-            prefs::set_int(f.key, prefs::get_int(f.key, 0) ? 0 : 1);
-            if (std::string(f.key) == "rf.biastee" && prefs::get_int(f.key, 0))
-                shell_toast("On from the next time an RF tool opens");
-        } else {
-            self->editing_ = i;
-            self->entry_ = f.kind == Kind::Number ? std::to_string(prefs::get_int(f.key, std::atoi(f.fallback)))
-                                                  : prefs::get_str(f.key, "");
-            if (f.kind == Kind::Number && self->entry_ == "0") self->entry_.clear();
-        }
-        self->refresh();
+        prefs::set_int(f.key, v);
+        if (std::string(f.key) == "rf.biastee" && v) shell_toast("On from the next time an RF tool opens");
+        refresh();
     }
 
-    static void on_focused(lv_event_t* e) {
-        auto* self = static_cast<StationApp*>(lv_event_get_user_data(e));
-        self->show_help(int(lv_obj_get_index(static_cast<lv_obj_t*>(lv_event_get_target(e)))));
-    }
-
-    void show_help(int i) {
-        focused_ = i;
-        if (editing_ < 0) lv_label_set_text(help_, kFields[i].help);
+    void edit(int i) {
+        if (editing_ >= 0) return;
+        const Field& f = kFields[i];
+        editing_ = i;
+        entry_ = f.kind == Kind::Number ? std::to_string(prefs::get_int(f.key, std::atoi(f.fallback))) : prefs::get_str(f.key, "");
+        if (f.kind == Kind::Number && entry_ == "0") entry_.clear();
+        set_actions();
+        refresh();
     }
 
     void commit() {
@@ -131,6 +146,7 @@ private:
             prefs::set_str(key, v);
         }
         editing_ = -1;
+        set_actions();
     }
 
     std::string shown(const Field& f) const {
@@ -150,15 +166,15 @@ private:
 
     void refresh() {
         for (size_t i = 0; i < std::size(kFields); ++i)
-            lv_label_set_text(values_[i], int(i) == editing_ ? (entry_ + "_").c_str() : shown(kFields[i]).c_str());
+            if (kFields[i].kind != Kind::Toggle) list_.set_value(int(i), int(i) == editing_ ? entry_ + "_" : shown(kFields[i]));
         std::string call = prefs::get_str("rf.callsign", "");
         if (editing_ >= 0) lv_label_set_text(title_, (std::string("Editing: ") + kFields[editing_].label).c_str());
         else lv_label_set_text(title_, call.empty() ? "Station" : ("Station " + call).c_str());
-        lv_label_set_text(help_, editing_ >= 0 ? "Type, then Enter to save or Esc to cancel" : kFields[focused_].help);
+        lv_label_set_text(help_, kFields[editing_ >= 0 ? editing_ : focused_].help);
     }
 
-    lv_obj_t *title_ = nullptr, *help_ = nullptr, *list_ = nullptr;
-    std::vector<lv_obj_t*> values_;
+    lv_obj_t *title_ = nullptr, *help_ = nullptr;
+    ListView list_;
     int editing_ = -1, focused_ = 0;
     std::string entry_;
 };

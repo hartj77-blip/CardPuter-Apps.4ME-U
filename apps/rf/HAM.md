@@ -102,13 +102,14 @@ the distance.
 
 ## Logbook
 
-**Logbook** keeps your contacts as ADIF in `~/Documents/logbook.adi`. Press **N** for a new one:
+**Logbook** keeps your contacts as ADIF in `~/Documents/logbook.adi`. **N** in its menu (**Tab**, or **Ctrl** + **N**) starts a new one:
 it starts with the frequency and mode Spectrum is on (so with **F** following your rig, the rig's),
 the customary report (59, or 599 on CW) and the current time in UTC. Type the callsign; if you have
 worked the station before, the bottom line says when and on which band. **Enter** on a line edits
-it (on Mode it steps through USB, LSB, CW, FM, AM and DIGI), and **Save contact** writes it.
+it (on Mode it, or **Left**/**Right**, steps through USB, LSB, CW, FM, AM and DIGI), and **Save
+contact** (or **S** in the menu) writes it.
 
-**Enter** on a logged contact shows it; **D** twice there deletes it. The newest 40 are listed;
+**Enter** on a logged contact shows it; **D** there deletes it, after asking. The newest 40 are listed;
 the file holds them all. Each record carries your callsign and grid from Station. To upload to
 Logbook of the World, QRZ, eQSL or Club Log, copy the `.adi` file off the device (Sync does this)
 and import it there. Sideband contacts are written as mode SSB with submode USB or LSB, as ADIF

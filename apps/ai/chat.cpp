@@ -553,20 +553,20 @@ bool chat(const Settings& s, const std::vector<Message>& history, std::string& r
     }
     const Provider* p = find_provider(s.provider);
     if (!p) {
-        error = "Pick a provider in Settings (Tab)";
+        error = "Pick a provider in Settings";
         return false;
     }
     if (p->needs_key && trim(s.key).empty()) {
-        error = "Add your " + std::string(p->name) + " API key in Settings (Tab)";
+        error = "Add your " + std::string(p->name) + " API key in Settings";
         return false;
     }
     if (effective_model(s).empty()) {
-        error = "Set a model in Settings (Tab)";
+        error = "Set a model in Settings";
         return false;
     }
     Request r = build_request(s, history);
     if (r.url.empty()) {
-        error = "Set the server address in Settings (Tab)";
+        error = "Set the server address in Settings";
         return false;
     }
 

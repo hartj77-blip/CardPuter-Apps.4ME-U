@@ -20,15 +20,19 @@ Remote Desktop or any RDP server (xrdp on Linux).
 
 ## Using it
 
-In **Remote**:
+In **Remote**, your devices are a list (typing filters it), with the actions for the one in focus
+in the menu on **Tab** (Ctrl + the letter runs one straight away):
 
 | Key | Does |
 | --- | --- |
 | Enter on a device | SSH to it in the Terminal (or mosh, if turned on) |
-| D on a device | Remote desktop to it: opens it in [Desktop](../desktop/README.md) (VNC or RDP, on this screen or the monitor). Without Desktop installed, RDP on the monitor (needs Dock mode) |
+| Tab > S | The same: SSH to it |
+| Tab > D | Remote desktop to it: opens it in [Desktop](../desktop/README.md) (VNC or RDP, on this screen or the monitor). Without Desktop installed, RDP on the monitor (needs Dock mode) |
+| Tab > F | Send a file to it: the one Files handed over, or else Files opens to pick one (Tab > S there) |
+| Tab > I | Its name, address and system |
 | Connect to... | SSH to any host or address, e.g. `john@example.com` |
 | SSH as | The user name for SSH (default `pi`) |
-| Use mosh | mosh instead of ssh: survives Wi-Fi changes and sleep; the other end needs `mosh` installed |
+| Use mosh | mosh instead of ssh (Left / Right switch it): survives Wi-Fi changes and sleep; the other end needs `mosh` installed |
 | Use auth key | Sign in with an auth key instead of the QR code (shown until you're signed in) |
 | Server | Tailscale's own, or your [Headscale](#headscale) server |
 | Turn off Tailscale / Sign out | |
@@ -40,8 +44,8 @@ where you were. Alt+Left/Right switch tmux windows, Alt+N opens a new one,
 and each SSH connection opens in its own window.
 
 **Taildrop**: files sent to the Cardputer from your other devices ("Send
-with Tailscale" / share sheet) land in `~/Downloads`. To send a file, press
-**S** on it in Files and pick a device.
+with Tailscale" / share sheet) land in `~/Downloads`. To send a file, choose
+**Share to a device** on it in Files (**Tab > S**) and pick a device.
 
 The status bar shows **TS** while Tailscale is connected.
 

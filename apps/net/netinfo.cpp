@@ -3,14 +3,15 @@
 //              address, the default gateway and the DNS servers in use
 //   Listening  the TCP/UDP ports this device is accepting connections on
 //
-// Gathered in one shot with ip(8) and ss(8); R refreshes.
+// Gathered in one shot with ip(8) and ss(8); R refreshes. A Control screen:
+// the soft-key bar shows both keys.
 #include <string>
 #include <vector>
 
 #include "apps/common.h"
 #include "net_run.h"
 #include "net_sim.h"
-#include "net_ui.h"
+#include "apps/kit/ui.h"
 
 namespace zs {
 namespace {
@@ -33,10 +34,12 @@ class NetinfoApp : public App {
 public:
     void build(lv_obj_t* root) override {
         root_ = root;
+        std::vector<Action> a;
+        a.push_back({"Page", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+        a.push_back({"Refresh", 'r', "R", [this] { gather(); render(); }});
+        shell_set_actions(std::move(a));
         tab_ = label(root_, "", &zs_font_12, kMuted);
         lv_obj_set_pos(tab_, 8, 2);
-        hint_ = label(root_, "R refresh", &zs_font_12, kMuted);
-        lv_obj_align(hint_, LV_ALIGN_TOP_RIGHT, -8, 2);
         out_.build(root_, 18);
         gather();
         render();
@@ -56,7 +59,7 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT || key == 9) {
+        if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
             page_ = 1 - page_;
             render();
             return true;
@@ -170,8 +173,7 @@ private:
 
     lv_obj_t* root_ = nullptr;
     lv_obj_t* tab_ = nullptr;
-    lv_obj_t* hint_ = nullptr;
-    net::OutputView out_;
+    kit::OutputView out_;
     net::Job job_;
     std::vector<std::string> raw_, ifaces_, gateways_, dns_, listens_;
     int page_ = 0;

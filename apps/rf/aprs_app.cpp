@@ -2,8 +2,9 @@
 // messages on the packet frequency. One row per station, newest first in the
 // order they were first heard.
 //
-// Up/Down move, Enter shows the station's last packet, F changes frequency,
-// C clears. Distances need your grid locator, set in Station.
+// A List screen: Enter shows the station's last packet, typing filters the
+// stations, and the menu (Tab) changes frequency and clears the list.
+// Distances need your grid locator, set in Station.
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -12,13 +13,14 @@
 #include "apps/common.h"
 #include "radio_link.h"
 #include "aprs.h"
+#include "ui/list_view.h"
 #include "ui/prefs.h"
 
 namespace zs {
 namespace {
 using namespace theme;
 
-// kHz. The Station setting comes first; F steps through the rest.
+// kHz. The Station setting comes first; the menu steps through the rest.
 const int kChannels[] = {144390, 144800, 145175, 144575, 145825};
 const char* const kChannelNames[] = {"Americas", "Europe", "Australia", "New Zealand", "ISS and satellites"};
 const size_t kMaxStations = 60;
@@ -30,8 +32,7 @@ struct Station {
     // The most recent position survives later packets that carry none.
     bool has_position = false;
     double lat = 0, lon = 0;
-    lv_obj_t* row = nullptr;
-    lv_obj_t* value = nullptr;
+    int row = -1;   // in the ListView
 };
 
 const char* compass(double bearing) {
@@ -50,17 +51,23 @@ public:
         khz_ = prefs::get_int("rf.aprs_khz", 144390);
         have_home_ = zrf::grid_to_latlon(prefs::get_str("rf.grid", ""), home_lat_, home_lon_);
 
+        set_actions();
         title_ = label(root, "", &zs_font_14, kAccent);
         lv_obj_set_pos(title_, 4, 0);
-        hint_ = label(root, "", &zs_font_12, kMuted);
-        lv_obj_align(hint_, LV_ALIGN_TOP_RIGHT, -4, 2);
-        list_ = make_list(root, 0, 18, kScreenW, kContentH - 18);
-        finish_list(list_);
+        note_ = label(root, "", &zs_font_12, kMuted);
+        lv_obj_align(note_, LV_ALIGN_TOP_RIGHT, -4, 2);
+        // The list lives in a box of its own, built afresh as stations appear.
+        box_ = lv_obj_create(root);
+        style_plain(box_);
+        lv_obj_set_pos(box_, 0, 18);
+        lv_obj_set_size(box_, kScreenW, kBodyH - 18);
+        lv_obj_remove_flag(box_, LV_OBJ_FLAG_SCROLLABLE);
+        rebuild();
 
         detail_ = lv_obj_create(root);
         style_panel(detail_);
         lv_obj_set_pos(detail_, 4, 18);
-        lv_obj_set_size(detail_, kScreenW - 8, kContentH - 20);
+        lv_obj_set_size(detail_, kScreenW - 8, kBodyH - 20);
         detail_text_ = label(detail_, "", &zs_font_12, kText);
         lv_obj_set_width(detail_text_, kScreenW - 30);
         lv_obj_add_flag(detail_, LV_OBJ_FLAG_HIDDEN);
@@ -86,18 +93,7 @@ public:
             if (key == LV_KEY_ENTER) { close_detail(); return true; }
             return key == LV_KEY_LEFT || key == LV_KEY_RIGHT;
         }
-        switch (key) {
-        case 'f': case 'F': {
-            size_t i = 0;
-            while (i < std::size(kChannels) && kChannels[i] != khz_) ++i;
-            khz_ = kChannels[(i + 1) % std::size(kChannels)];
-            link_.client.send(fmt("tune %d000", khz_));
-            clear();
-            return true;
-        }
-        case 'c': case 'C': clear(); return true;
-        default: return false;
-        }
+        return list_.key(key);
     }
 
     bool on_back() override {
@@ -107,6 +103,41 @@ public:
     }
 
 private:
+    void set_actions() {
+        if (showing_ >= 0) {
+            shell_set_actions({{"Back", 0, "Enter", nullptr}, {"Scroll", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr}});
+            return;
+        }
+        std::vector<Action> a;
+        a.push_back({"Last packet", 0, "Enter", nullptr});
+        a.push_back({fmt("Frequency: %.3f MHz (next)", khz_ / 1000.0), 'f', nullptr, [this] {
+                         size_t i = 0;
+                         while (i < std::size(kChannels) && kChannels[i] != khz_) ++i;
+                         khz_ = kChannels[(i + 1) % std::size(kChannels)];
+                         link_.client.send(fmt("tune %d000", khz_));
+                         clear();
+                         set_actions();
+                     }});
+        a.push_back({"Clear the list", 'c', nullptr, [this] { clear(); }});
+        shell_set_actions(std::move(a));
+    }
+
+    // The rows again, keeping the focus where it was. Only when a station is
+    // first heard: what known ones send is changed in place.
+    void rebuild() {
+        int at = list_.focused();
+        if (group) lv_group_remove_all_objs(group);
+        lv_obj_clean(box_);
+        list_.build(box_, 4, 2, kScreenW - 8, kBodyH - 18 - 4);
+        list_.set_empty_text("");   // the message in the middle says why
+        for (size_t i = 0; i < stations_.size(); ++i) {
+            stations_[i].row = list_.add(nullptr, stations_[i].last.source, "", [this, i] { open_detail(int(i)); });
+            update_row(stations_[i]);
+        }
+        list_.finish();
+        if (at >= 0 && at < list_.size()) list_.focus(at);
+    }
+
     void pump() {
         bool fresh, unavailable;
         if (!link_.ensure(fresh, unavailable)) {
@@ -146,10 +177,9 @@ private:
         if (it == stations_.end()) {
             if (stations_.size() >= kMaxStations) return;
             Station s;
-            s.row = list_button(list_, nullptr, p.source.c_str(), on_row_clicked, this);
-            s.value = lv_label_create(s.row);
-            finish_list(list_);
+            s.last = p;   // its name, for the row
             stations_.push_back(std::move(s));
+            rebuild();
             it = stations_.end() - 1;
             set_message("");
         }
@@ -170,33 +200,30 @@ private:
     }
 
     void update_row(Station& s) {
+        if (s.row < 0) return;
         uint32_t age = lv_tick_elaps(s.last_seen) / 1000;
         std::string when = age < 2 ? "now" : age < 60 ? fmt("%us", age) : age < 3600 ? fmt("%um", age / 60) : fmt("%uh", age / 3600);
         std::string w = where(s);
         std::string what = s.last.kind == "message" ? "msg" : s.last.kind == "position" ? "" : s.last.kind;
         std::string text = w + (w.empty() || what.empty() ? "" : "  ") + what;
-        lv_label_set_text(s.value, (text + (text.empty() ? "" : "   ") + when).c_str());
+        list_.set_value(s.row, text + (text.empty() ? "" : "   ") + when);
     }
 
-    static void on_row_clicked(lv_event_t* e) {
-        auto* self = static_cast<AprsApp*>(lv_event_get_user_data(e));
-        lv_obj_t* row = static_cast<lv_obj_t*>(lv_event_get_target(e));
-        for (size_t i = 0; i < self->stations_.size(); ++i)
-            if (self->stations_[i].row == row) {
-                self->showing_ = int(i);
-                self->fill_detail();
-                lv_obj_scroll_to_y(self->detail_, 0, LV_ANIM_OFF);
-                lv_obj_add_flag(self->list_, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_remove_flag(self->detail_, LV_OBJ_FLAG_HIDDEN);
-                self->update_title();
-                return;
-            }
+    void open_detail(int index) {
+        showing_ = index;
+        fill_detail();
+        lv_obj_scroll_to_y(detail_, 0, LV_ANIM_OFF);
+        lv_obj_add_flag(box_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(detail_, LV_OBJ_FLAG_HIDDEN);
+        set_actions();
+        update_title();
     }
 
     void close_detail() {
         showing_ = -1;
         lv_obj_add_flag(detail_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(list_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(box_, LV_OBJ_FLAG_HIDDEN);
+        set_actions();
         update_title();
     }
 
@@ -221,8 +248,8 @@ private:
 
     void clear() {
         if (showing_ >= 0) close_detail();
-        lv_obj_clean(list_);
         stations_.clear();
+        rebuild();
         set_message(waiting());
         update_title();
     }
@@ -236,20 +263,21 @@ private:
     void update_title() {
         if (showing_ >= 0) {
             lv_label_set_text(title_, stations_[size_t(showing_)].last.source.c_str());
-            lv_label_set_text(hint_, "Esc back");
+            lv_label_set_text(note_, "");
             return;
         }
         lv_label_set_text(title_, fmt("%.3f MHz", khz_ / 1000.0).c_str());
         const char* region = "";
         for (size_t i = 0; i < std::size(kChannels); ++i)
             if (kChannels[i] == khz_) region = kChannelNames[i];
-        if (stations_.empty()) lv_label_set_text(hint_, fmt("%s   F frequency", region).c_str());
-        else lv_label_set_text(hint_, fmt("%d stations   F freq   C clear", int(stations_.size())).c_str());
+        if (stations_.empty()) lv_label_set_text(note_, region);
+        else lv_label_set_text(note_, fmt("%d stations", int(stations_.size())).c_str());
     }
 
     RadioLink link_;
     lv_timer_t* timer_ = nullptr;
-    lv_obj_t *title_ = nullptr, *hint_ = nullptr, *list_ = nullptr, *detail_ = nullptr, *detail_text_ = nullptr, *message_ = nullptr;
+    ListView list_;
+    lv_obj_t *title_ = nullptr, *note_ = nullptr, *box_ = nullptr, *detail_ = nullptr, *detail_text_ = nullptr, *message_ = nullptr;
     std::vector<Station> stations_;
     int khz_ = 144390, showing_ = -1, ticks_ = 0;
     bool have_home_ = false;

@@ -1,11 +1,14 @@
 // Code: your projects in ~/Code. Make one from a template, browse its files,
 // edit them in micro (in the Terminal app) and run the project with one key.
 //
-//   Projects   Enter open      N new project
-//   Files      Enter edit      R run      T terminal here
-//              N new file      G Git      Esc up / back
+//   Projects   Enter open      menu: N new project
+//   Files      Enter edit      menu: R run, T terminal here, N new file, G Git
+//              Backspace (with no filter) or Esc: up a folder, then back
 //
-// How R runs a project: the command in its .zeroos-run file if it has one,
+// Both are List screens (docs/UX.md in the OS): typing filters them, so
+// their actions are in the Tab menu (and on Ctrl + the letter).
+//
+// How Run runs a project: the command in its .zeroos-run file if it has one,
 // otherwise what its files suggest (Makefile, Cargo.toml, main.py, ...).
 #include <cstdint>
 #include <string>
@@ -15,6 +18,8 @@
 #include "apps/dev/dev.h"
 #include "apps/kit/run.h"
 #include "apps/kit/ui.h"
+#include "platform/keys.h"
+#include "ui/list_view.h"
 
 namespace zs {
 namespace {
@@ -30,7 +35,7 @@ const std::vector<Template>& templates() {
     static const std::vector<Template> t = {
         {"Python", "main.py, runs with python3",
          {{"main.py",
-           "# Press R in Code to run this, Enter on a file to edit it.\n"
+           "# Run in Code's menu (Ctrl+R) runs this; Enter on a file edits it.\n"
            "name = input(\"What's your name? \")\n"
            "print(f\"Hello, {name}! This is Python on ZeroOS.\")\n"}}},
         {"C", "main.c and a Makefile, builds with make",
@@ -58,7 +63,7 @@ const std::vector<Template>& templates() {
          {{"index.html",
            "<!doctype html>\n<meta charset=\"utf-8\">\n<title>Hello</title>\n"
            "<h1>Hello from a Cardputer</h1>\n"
-           "<p>Press R in Code to serve this page, then open\n"
+           "<p>Run it from Code's menu (Ctrl+R) to serve this page, then open\n"
            "http://&lt;this device&gt;:8000 on your phone or PC.</p>\n"}}},
         {"Empty", "just a README",
          {{"README.md", "# New project\n"}}},
@@ -103,29 +108,18 @@ public:
     }
 
     void tick() override {
-        if (pending_ < 0 && !pending_submit_) return;
-        int i = pending_;
-        pending_ = -1;
-        if (pending_submit_) {
-            pending_submit_ = false;
-            submitted();
-            return;
-        }
-        picked(i);
+        if (!pending_submit_) return;
+        pending_submit_ = false;
+        submitted();
     }
 
     bool on_key(uint32_t key) override {
-        if (page_ == Page::Projects) {
-            if (key == 'n' || key == 'N') { ask_project_name(); return true; }
-        } else if (page_ == Page::Files) {
-            if (key == 'r' || key == 'R') { run(); return true; }
-            if (key == 't' || key == 'T') { kit::terminal_run("bash", here()); return true; }
-            if (key == 'n' || key == 'N') { ask_file_name(); return true; }
-            if (key == 'g' || key == 'G') {
-                if (!app_find("git")) shell_toast("Git is part of Dev Tools");
-                else shell_open_app("git", project_);
-                return true;
-            }
+        if (page_ != Page::Projects && page_ != Page::Files && page_ != Page::NewKind) return false;   // typing
+        if (list_.key(key)) return true;
+        // Backspace with nothing to take off the filter: up a folder.
+        if (page_ == Page::Files && !sub_.empty() && (key == LV_KEY_BACKSPACE || key == kKeyBackspace)) {
+            on_back();
+            return true;
         }
         return false;
     }
@@ -153,20 +147,16 @@ private:
     enum class Page { Projects, Files, NewName, NewKind, NewFile };
 
     void clear() {
-        lv_obj_clean(root_);
         if (group) lv_group_remove_all_objs(group);
-        rows_.clear();
+        list_.reset();
+        lv_obj_clean(root_);
     }
 
-    static void on_click(lv_event_t* e) {
-        auto* self = static_cast<CodeApp*>(lv_event_get_user_data(e));
-        self->pending_ = int(lv_obj_get_index(lv_event_get_target_obj(e)));
-    }
-
-    lv_obj_t* list_page(const std::string& title, const std::string& hints) {
-        kit::title_row(root_, title, hints);
-        lv_obj_t* list = make_list(root_, 0, 18, kScreenW, kContentH - 18);
-        return list;
+    // A title and a list under it, `foot` px short of the bottom. Set the
+    // screen's actions first: they decide the height.
+    void list_page(const std::string& title, int foot = 0) {
+        kit::title_row(root_, title);
+        list_.build(root_, 2, 20, kScreenW - 4, kit::body_h(root_) - 20 - foot);
     }
 
     // ---- Projects
@@ -175,16 +165,17 @@ private:
         project_.clear();
         sub_.clear();
         clear();
-        lv_obj_t* list = list_page("Projects", "N new project");
-        for (auto& d : kit::list_dirs(base_)) {
-            std::string info = dev::project_kind(base_ + "/" + d);
-            std::string text = info.empty() ? d : d + "   " + info;
-            list_button(list, LV_SYMBOL_DIRECTORY, text.c_str(), on_click, this);
-            rows_.push_back(d);
-        }
-        list_button(list, LV_SYMBOL_PLUS, "New project", on_click, this);
-        rows_.push_back("");
-        finish_list(list);
+        shell_set_actions({{"Open", 0, "Enter", nullptr},
+                           {"New project", 'n', nullptr, [this] { ask_project_name(); }}});
+        list_page("Projects");
+        for (auto& d : kit::list_dirs(base_))
+            list_.add(LV_SYMBOL_DIRECTORY, d, dev::project_kind(base_ + "/" + d), [this, d] {
+                project_ = base_ + "/" + d;
+                sub_.clear();
+                show_files();
+            });
+        list_.add(LV_SYMBOL_PLUS, "New project", "", [this] { ask_project_name(); });
+        list_.finish();
     }
 
     // ---- Files of a project
@@ -193,34 +184,42 @@ private:
     void show_files() {
         page_ = Page::Files;
         clear();
+        std::vector<Action> a;
+        a.push_back({"Edit", 0, "Enter", nullptr});
+        if (!sub_.empty()) a.push_back({"Up", 0, "Bksp", nullptr});
+        a.push_back({"Run", 'r', nullptr, [this] { run(); }});
+        a.push_back({"Terminal here", 't', nullptr, [this] { kit::terminal_run("bash", here()); }});
+        a.push_back({"New file", 'n', nullptr, [this] { ask_file_name(); }});
+        a.push_back({"Git", 'g', nullptr, [this] {
+                         if (!app_find("git")) shell_toast("Git is part of Dev Tools");
+                         else shell_open_app("git", project_);
+                     }});
+        shell_set_actions(std::move(a));
         std::string name = project_.substr(project_.find_last_of('/') + 1);
         if (!sub_.empty()) name += "/" + sub_;
-        lv_obj_t* list = list_page(name, "R run  T term  N new  G git");
-        if (!sub_.empty()) {
-            list_button(list, LV_SYMBOL_UP, "..", on_click, this);
-            rows_.push_back("..");
-        }
+        list_page(name, 16);
+        bool any = false;
+        if (!sub_.empty()) list_.add(LV_SYMBOL_UP, "..", "", [this] { on_back(); });
         for (auto& d : kit::list_dirs(here())) {
-            list_button(list, LV_SYMBOL_DIRECTORY, (d + "/").c_str(), on_click, this);
-            rows_.push_back(d + "/");
+            any = true;
+            list_.add(LV_SYMBOL_DIRECTORY, d + "/", "", [this, d] {
+                sub_ = sub_.empty() ? d : sub_ + "/" + d;
+                show_files();
+            });
         }
         for (auto& f : kit::list_files(here())) {
-            list_button(list, file_symbol(f), f.c_str(), on_click, this);
-            rows_.push_back(f);
+            any = true;
+            list_.add(file_symbol(f), f, "", [this, f] { edit(here() + "/" + f); });
         }
-        if (rows_.empty() || (rows_.size() == 1 && rows_[0] == "..")) {
-            list_button(list, LV_SYMBOL_PLUS, "New file", on_click, this);
-            rows_.push_back("");
-        }
-        finish_list(list);
+        if (!any) list_.add(LV_SYMBOL_PLUS, "New file", "", [this] { ask_file_name(); });
+        list_.finish();
         dev::RunPlan plan = dev::run_plan(project_);
-        lv_obj_t* foot = label(root_, plan.command.empty() ? "R: no run command found (add .zeroos-run)"
-                                                           : ("R runs: " + plan.command).c_str(),
+        lv_obj_t* foot = label(root_, plan.command.empty() ? "No run command found (add .zeroos-run)"
+                                                           : ("Runs: " + plan.command).c_str(),
                                &zs_font_12, kMuted);
         lv_obj_set_width(foot, kScreenW - 8);
         lv_label_set_long_mode(foot, LV_LABEL_LONG_DOT);
         lv_obj_align(foot, LV_ALIGN_BOTTOM_LEFT, 6, -2);
-        lv_obj_set_height(list, kContentH - 18 - 16);
     }
 
     void run() {
@@ -253,13 +252,11 @@ private:
     void ask_template() {
         page_ = Page::NewKind;
         clear();
-        lv_obj_t* list = list_page("New project: " + new_name_, "Enter create");
-        for (auto& t : templates()) {
-            std::string text = std::string(t.name) + "   " + t.about;
-            list_button(list, LV_SYMBOL_FILE, text.c_str(), on_click, this);
-            rows_.push_back(t.name);
-        }
-        finish_list(list);
+        shell_set_actions({{"Create", 0, "Enter", nullptr}, {"Back", 0, "Esc", nullptr}});
+        list_page("New project: " + new_name_);
+        for (auto& t : templates())
+            list_.add(LV_SYMBOL_FILE, t.name, t.about, [this, &t] { create_project(t); });
+        list_.finish();
     }
 
     void create_project(const Template& t) {
@@ -277,7 +274,7 @@ private:
         project_ = dir;
         sub_.clear();
         show_files();
-        shell_toast("Made " + new_name_ + ": R runs it");
+        shell_toast("Made " + new_name_);
     }
 
     // ---- New file in the current folder
@@ -311,40 +308,10 @@ private:
         }
     }
 
-    void picked(int i) {
-        if (i < 0 || size_t(i) >= rows_.size()) return;
-        std::string row = rows_[size_t(i)];
-        switch (page_) {
-            case Page::Projects:
-                if (row.empty()) { ask_project_name(); return; }
-                project_ = base_ + "/" + row;
-                sub_.clear();
-                show_files();
-                return;
-            case Page::Files:
-                if (row.empty()) { ask_file_name(); return; }
-                if (row == "..") { on_back(); return; }
-                if (row.back() == '/') {
-                    row.pop_back();
-                    sub_ = sub_.empty() ? row : sub_ + "/" + row;
-                    show_files();
-                    return;
-                }
-                edit(here() + "/" + row);
-                return;
-            case Page::NewKind:
-                for (auto& t : templates())
-                    if (row == t.name) create_project(t);
-                return;
-            default: return;
-        }
-    }
-
     lv_obj_t* root_ = nullptr;
     Page page_ = Page::Projects;
     std::string base_, project_, sub_, new_name_, typed_;
-    std::vector<std::string> rows_;
-    int pending_ = -1;
+    ListView list_;
     bool pending_submit_ = false;
 };
 }  // namespace

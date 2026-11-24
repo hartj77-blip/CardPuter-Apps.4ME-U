@@ -1,8 +1,9 @@
 // Logbook: amateur radio contacts, kept as ADIF in ~/Documents/logbook.adi
 // so any logging program can read it (and Sync copies it off the device).
 //
-// N starts a new contact, filled in from what Spectrum is tuned to. Enter on
-// a contact shows it; D there deletes it (press twice). Times are UTC.
+// The log is a List screen (typing filters it); New in its menu (Tab, N)
+// starts a contact, filled in from what Spectrum is tuned to. Enter on a
+// contact shows it, and Delete there asks first. Times are UTC.
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -18,6 +19,7 @@
 #include "apps/common.h"
 #include "rf_state.h"
 #include "aprs.h"
+#include "ui/list_view.h"
 #include "ui/prefs.h"
 
 namespace zs {
@@ -36,41 +38,20 @@ public:
     ~LogbookApp() override { lv_async_call_cancel(rebuild_cb, this); }
 
     void build(lv_obj_t* root) override {
-        title_ = label(root, "", &zs_font_14, kAccent);
-        lv_obj_set_pos(title_, 4, 0);
-        hint_ = label(root, "", &zs_font_12, kMuted);
-        lv_obj_align(hint_, LV_ALIGN_TOP_RIGHT, -4, 2);
-        help_ = label(root, "", &zs_font_12, kMuted);
-        lv_obj_align(help_, LV_ALIGN_BOTTOM_LEFT, 4, -1);
-        lv_obj_set_width(help_, kScreenW - 8);
-        lv_label_set_long_mode(help_, LV_LABEL_LONG_DOT);
-        list_ = make_list(root, 0, 18, kScreenW, kContentH - 18 - 16);
-
-        detail_ = lv_obj_create(root);
-        style_panel(detail_);
-        lv_obj_set_pos(detail_, 4, 18);
-        lv_obj_set_size(detail_, kScreenW - 8, kContentH - 18 - 18);
-        detail_text_ = label(detail_, "", &zs_font_12, kText);
-        lv_obj_set_width(detail_text_, kScreenW - 30);
-        lv_obj_add_flag(detail_, LV_OBJ_FLAG_HIDDEN);
-
+        root_ = root;
         load();
         rebuild();
     }
 
     bool on_key(uint32_t key) override {
         if (view_ == View::Detail) {
-            if (key == 'd' || key == 'D') {
-                if (!delete_armed_) { delete_armed_ = true; lv_label_set_text(help_, "Press D again to delete this contact"); }
-                else { remove(showing_); view_ = View::Log; request_rebuild(); }
-                return true;
-            }
-            if (key == LV_KEY_ENTER) { view_ = View::Log; request_rebuild(); }
-            return true;
+            if (key == 'd' || key == 'D' || key == LV_KEY_DEL) { ask_delete(); return true; }
+            if (key == LV_KEY_ENTER) { view_ = View::Log; request_rebuild(); return true; }
+            return false;
         }
         if (view_ == View::Form && editing_ >= 0) {
             if (key == LV_KEY_ENTER) {
-                editing_ = -1;
+                stop_editing();
             } else if (key == LV_KEY_BACKSPACE) {
                 if (!entry().empty()) entry().pop_back();
             } else if (key >= 32 && key < 127 && entry().size() < (editing_ == kComment ? 60u : 14u)) {
@@ -79,19 +60,19 @@ public:
                 bool ok = editing_ == kFreq ? std::isdigit(static_cast<unsigned char>(c)) || c == '.'
                           : editing_ == kComment ? true : c != ' ';
                 if (ok) entry() += c;
+            } else if (key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+                return true;   // stay on the line being typed into
+            } else {
+                return false;   // Tab (the menu), Esc and the shell's keys
             }
             refresh_form();
             return true;
         }
-        if (view_ == View::Log && (key == 'n' || key == 'N')) {
-            start_contact();
-            return true;
-        }
-        return false;   // the list handles Up, Down and Enter
+        return list_.key(key);   // Up, Down, numbers and the filter; Enter opens the row
     }
 
     bool on_back() override {
-        if (view_ == View::Form && editing_ >= 0) { editing_ = -1; refresh_form(); return true; }
+        if (view_ == View::Form && editing_ >= 0) { stop_editing(); return true; }
         if (view_ != View::Log) { view_ = View::Log; request_rebuild(); return true; }
         return false;
     }
@@ -152,6 +133,43 @@ private:
         request_rebuild();
     }
 
+    void stop_editing() {
+        editing_ = -1;
+        set_actions();
+        refresh_form();
+    }
+
+    void ask_delete() {
+        if (showing_ < 0 || showing_ >= int(log_.size())) return;
+        shell_confirm("Delete the contact with " + log_[size_t(showing_)].call + "?", "It is taken out of the logbook file.",
+                      "Delete", [this] {
+                          remove(showing_);
+                          view_ = View::Log;
+                          request_rebuild();
+                      });
+    }
+
+    // What the keys do on each view.
+    void set_actions() {
+        std::vector<Action> a;
+        if (view_ == View::Log) {
+            a.push_back({"Show", 0, "Enter", nullptr});
+            a.push_back({"New contact", 'n', nullptr, [this] { start_contact(); }});
+        } else if (view_ == View::Form && editing_ >= 0) {
+            a.push_back({"Done", 0, "Enter", nullptr});
+            a.push_back({"Save contact", 's', nullptr, [this] { save_contact(); }});
+        } else if (view_ == View::Form) {
+            a.push_back({"Edit", 0, "Enter", nullptr});
+            a.push_back({"Mode", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+            a.push_back({"Save contact", 's', nullptr, [this] { save_contact(); }});
+            a.push_back({"Cancel", 0, "Esc", nullptr});
+        } else {
+            a.push_back({"Back", 0, "Enter", nullptr});
+            a.push_back({"Delete", 'd', "D", [this] { ask_delete(); }});
+        }
+        shell_set_actions(std::move(a));
+    }
+
     static std::string suggested(double hz) {
         // Same convention as Spectrum: lower sideband below 10 MHz, FM on VHF and up.
         if (hz >= 30e6) return hz >= 50e6 && hz < 54e6 ? "usb" : "nfm";
@@ -191,44 +209,62 @@ private:
     static void rebuild_cb(void* self) { static_cast<LogbookApp*>(self)->rebuild(); }
 
     void rebuild() {
-        lv_obj_clean(list_);
-        values_.clear();
-        delete_armed_ = false;
-        bool detail = view_ == View::Detail;
-        if (detail) lv_obj_add_flag(list_, LV_OBJ_FLAG_HIDDEN), lv_obj_remove_flag(detail_, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_remove_flag(list_, LV_OBJ_FLAG_HIDDEN), lv_obj_add_flag(detail_, LV_OBJ_FLAG_HIDDEN);
+        // A fresh page each time: the actions first, so it fits above the bar.
+        if (group) lv_group_remove_all_objs(group);
+        lv_obj_clean(root_);
+        list_.reset();
+        set_actions();
+        title_ = label(root_, "", &zs_font_14, kAccent);
+        lv_obj_set_pos(title_, 4, 0);
+        help_ = label(root_, "", &zs_font_12, kMuted);
+        lv_obj_align(help_, LV_ALIGN_BOTTOM_LEFT, 4, -1);
+        lv_obj_set_width(help_, kScreenW - 8);
+        lv_label_set_long_mode(help_, LV_LABEL_LONG_DOT);
 
         if (view_ == View::Log) {
+            list_.build(root_, 4, 18, kScreenW - 8, kBodyH - 18 - 16);
+            list_.set_empty_text("No contacts yet");
             size_t first = log_.size() > kShown ? log_.size() - kShown : 0;
             for (size_t i = log_.size(); i-- > first;) {   // newest at the top
                 const zrf::Qso& q = log_[i];
                 std::string when = q.date.size() == 8 && q.time.size() >= 4
                                        ? q.date.substr(4, 2) + "-" + q.date.substr(6, 2) + " " + q.time.substr(0, 2) + ":" + q.time.substr(2, 2)
                                        : q.date;
-                lv_obj_t* row = list_button(list_, nullptr, (when + "  " + q.call).c_str(), on_log_clicked, this);
-                lv_obj_set_user_data(row, reinterpret_cast<void*>(i));
-                lv_obj_t* v = lv_label_create(row);
                 std::string band = q.freq_mhz > 0 ? fmt("%.3f ", q.freq_mhz) : "";
-                lv_label_set_text(v, (band + q.mode + "  " + q.rst_sent + "/" + q.rst_rcvd).c_str());
+                int index = int(i);
+                list_.add(nullptr, when + "  " + q.call, band + q.mode + "  " + q.rst_sent + "/" + q.rst_rcvd, [this, index] {
+                    showing_ = index;
+                    view_ = View::Detail;
+                    request_rebuild();
+                });
             }
-            finish_list(list_);
+            list_.finish();
             lv_label_set_text(title_, fmt("Logbook   %d contact%s", int(log_.size()), log_.size() == 1 ? "" : "s").c_str());
-            lv_label_set_text(hint_, "N new");
             std::string call = prefs::get_str("rf.callsign", "");
-            lv_label_set_text(help_, log_.empty() ? "No contacts yet. Press N to log one. Times are UTC."
+            lv_label_set_text(help_, log_.empty() ? "Log one with New in the menu. Times are UTC."
                                      : call.empty() ? "Set your callsign in Station so it goes in the log"
                                      : log_.size() > kShown ? "Showing the newest 40. The file holds them all."
                                      : "Saved as ADIF in Documents/logbook.adi");
         } else if (view_ == View::Form) {
+            list_.build(root_, 4, 18, kScreenW - 8, kBodyH - 18 - 16);
             for (int i = 0; i < kFormRows; ++i) {
-                lv_obj_t* row = list_button(list_, nullptr, kLabels[i], on_form_clicked, this);
-                values_.push_back(lv_label_create(row));
+                if (i == kMode)
+                    list_.add_choice(nullptr, kLabels[i], std::vector<std::string>(std::begin(kModes), std::end(kModes)), mode_, [this](int m) {
+                        set_mode(m);
+                    });
+                else
+                    list_.add(nullptr, kLabels[i], "", [this, i] { form_row(i); });
             }
-            finish_list(list_);
+            list_.finish();
             lv_label_set_text(title_, "New contact");
-            lv_label_set_text(hint_, "Esc cancel");
             refresh_form();
         } else {
+            lv_obj_t* detail = lv_obj_create(root_);
+            style_panel(detail);
+            lv_obj_set_pos(detail, 4, 18);
+            lv_obj_set_size(detail, kScreenW - 8, kBodyH - 18 - 2);
+            lv_obj_t* text = label(detail, "", &zs_font_12, kText);
+            lv_obj_set_width(text, kScreenW - 30);
             const zrf::Qso& q = log_[size_t(showing_)];
             std::string t = q.call + "\n";
             if (q.date.size() == 8) t += q.date.substr(0, 4) + "-" + q.date.substr(4, 2) + "-" + q.date.substr(6, 2);
@@ -238,22 +274,22 @@ private:
             t += q.mode + "\nSent " + q.rst_sent + "   received " + q.rst_rcvd + "\n";
             if (!q.comment.empty()) t += q.comment + "\n";
             if (!q.my_call.empty()) t += "Logged as " + q.my_call + (q.my_grid.empty() ? "" : " in " + q.my_grid) + "\n";
-            lv_label_set_text(detail_text_, t.c_str());
+            lv_label_set_text(text, t.c_str());
             lv_label_set_text(title_, "Contact");
-            lv_label_set_text(hint_, "Esc back   D delete");
             lv_label_set_text(help_, "");
         }
     }
 
     void refresh_form() {
         for (int i = 0; i < kFormRows; ++i) {
-            std::string v = i == kMode ? kModes[mode_] : i == kSave ? LV_SYMBOL_OK : form_[i];
+            if (i == kMode) continue;   // a value row: it shows its own
+            std::string v = i == kSave ? LV_SYMBOL_OK : form_[i];
             if (i == editing_) v += "_";
-            lv_label_set_text(values_[size_t(i)], v.c_str());
+            list_.set_value(i, v);
         }
         if (editing_ >= 0) {
-            lv_group_focus_obj(lv_obj_get_child(list_, editing_));
-            lv_label_set_text(help_, "Type, then Enter");
+            list_.focus(editing_);
+            lv_label_set_text(help_, "");
             // Worked this station before? Say so while the callsign is typed.
             if (editing_ == kCall && form_[kCall].size() >= 3) {
                 int n = 0;
@@ -269,44 +305,36 @@ private:
                 }
             }
         } else {
-            lv_label_set_text(help_, "Enter edits a line. Save contact when done.");
+            lv_label_set_text(help_, "Fill in the lines, then Save contact.");
         }
     }
 
-    static void on_form_clicked(lv_event_t* e) {
-        auto* self = static_cast<LogbookApp*>(lv_event_get_user_data(e));
-        if (self->view_ != View::Form || self->editing_ >= 0) return;
-        int i = int(lv_obj_get_index(static_cast<lv_obj_t*>(lv_event_get_target(e))));
-        if (i == kMode) {
-            self->mode_ = (self->mode_ + 1) % int(std::size(kModes));
-            // Keep the customary report for the mode unless it was changed by hand.
-            bool cw = self->mode_ == 2;
-            for (int k : {int(kSent), int(kRcvd)})
-                if (self->form_[k] == (cw ? "59" : "599")) self->form_[k] = cw ? "599" : "59";
-        } else if (i == kSave) {
-            self->save_contact();
+    void set_mode(int m) {
+        mode_ = m;
+        // Keep the customary report for the mode unless it was changed by hand.
+        bool cw = mode_ == 2;
+        for (int k : {int(kSent), int(kRcvd)})
+            if (form_[k] == (cw ? "59" : "599")) form_[k] = cw ? "599" : "59";
+        refresh_form();
+    }
+
+    void form_row(int i) {
+        if (view_ != View::Form || editing_ >= 0) return;
+        if (i == kSave) {
+            save_contact();
             return;
-        } else {
-            self->editing_ = i;
         }
-        self->refresh_form();
+        editing_ = i;
+        set_actions();
+        refresh_form();
     }
 
-    static void on_log_clicked(lv_event_t* e) {
-        auto* self = static_cast<LogbookApp*>(lv_event_get_user_data(e));
-        if (self->view_ != View::Log) return;
-        self->showing_ = int(reinterpret_cast<size_t>(lv_obj_get_user_data(static_cast<lv_obj_t*>(lv_event_get_target(e)))));
-        self->view_ = View::Detail;
-        self->request_rebuild();
-    }
-
-    lv_obj_t *title_ = nullptr, *hint_ = nullptr, *help_ = nullptr, *list_ = nullptr, *detail_ = nullptr, *detail_text_ = nullptr;
-    std::vector<lv_obj_t*> values_;
+    lv_obj_t *root_ = nullptr, *title_ = nullptr, *help_ = nullptr;
+    ListView list_;
     std::vector<zrf::Qso> log_;
     View view_ = View::Log;
     std::string form_[kFormRows];
     int mode_ = 0, editing_ = -1, showing_ = -1;
-    bool delete_armed_ = false;
 };
 }  // namespace
 

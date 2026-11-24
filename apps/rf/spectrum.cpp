@@ -1,12 +1,13 @@
 // Spectrum: live spectrum trace over a waterfall, from the radio daemon.
 //
-// Left/Right tune by one step, Up/Down change the step, Z/X narrow or widen
-// the view, G cycles gain, P toggles peak hold, C centres on the strongest
-// signal, M cycles listening (off, broadcast FM, narrow FM, AM, upper and
-// lower sideband, CW), S toggles squelch, B opens the band list, R records
-// raw IQ to ~/Recordings. F follows a transceiver's dial (set the rig up in
-// Station) and T sends this frequency to it. Type a frequency in MHz and
-// press Enter to jump to it. Audio and recording stop on leaving.
+// A Control screen: its letters are shortcuts, each in the soft-key bar and
+// the menu (Tab). Left/Right tune by one step, Up/Down change the step, Z/X
+// narrow or widen the view, G cycles gain, P toggles peak hold, C centres on
+// the strongest signal, M cycles listening (off, broadcast FM, narrow FM, AM,
+// upper and lower sideband, CW), S toggles squelch, B opens the band list, R
+// records raw IQ to ~/Recordings. F follows a transceiver's dial (set the rig
+// up in Station) and T sends this frequency to it. Enter, then a frequency in
+// MHz and Enter again, jumps to it. Audio and recording stop on leaving.
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -25,6 +26,7 @@
 #include "rf_state.h"
 #include "rig_link.h"
 #include "memories.h"
+#include "ui/list_view.h"
 #include "ui/prefs.h"
 
 namespace zs {
@@ -34,7 +36,7 @@ using namespace theme;
 const int kW = kScreenW;
 const int kTopH = 18;                      // frequency line
 const int kTraceH = 44;
-const int kFallH = 74;
+const int kFallH = 60;                     // down to the band edges, above the soft-key bar
 const int kCanvasH = kTraceH + kFallH;
 const int kRangeDb = 60;                   // shown above the noise floor
 
@@ -64,6 +66,8 @@ public:
     }
 
     void build(lv_obj_t* root) override {
+        root_ = root;
+        set_actions();
         freq_label_ = label(root, "", &zs_font_14, kAccent);
         lv_obj_set_pos(freq_label_, 4, 0);
         info_label_ = label(root, "", &zs_font_12, kMuted);
@@ -100,37 +104,6 @@ public:
             palette_[i] = rgb565(ramp(0.45f, 0.8f), ramp(0.15f, 0.65f), std::max(blue, ramp(0.85f, 1.0f)));
         }
 
-        band_list_ = make_list(root, 60, kTopH, 200, kContentH - kTopH - 2);
-        for (const Band& b : kBands) list_button(band_list_, nullptr, b.name, on_band_clicked, this);
-        finish_list(band_list_);
-        lv_obj_set_style_border_width(band_list_, 1, 0);
-        lv_obj_set_style_border_color(band_list_, c(kAccent), 0);
-        lv_obj_add_flag(band_list_, LV_OBJ_FLAG_HIDDEN);
-
-        mem_list_ = make_list(root, 30, kTopH, 260, kContentH - kTopH - 2);
-        lv_obj_set_style_border_width(mem_list_, 1, 0);
-        lv_obj_set_style_border_color(mem_list_, c(kAccent), 0);
-        lv_obj_add_flag(mem_list_, LV_OBJ_FLAG_HIDDEN);
-
-        help_ = label(root,
-                      LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " tune    " LV_SYMBOL_UP LV_SYMBOL_DOWN " step    0-9 . Enter  go to\n"
-                      "B bands    Z X span    G gain\n"
-                      "M listen mode    S squelch\n"
-                      "A save channel    L saved channels\n"
-                      "K keep playing after leaving\n"
-                      "P peak hold    C centre on peak\n"
-                      "W record audio    R record IQ\n"
-                      "F follow rig    T set rig",
-                      &zs_font_12, kText);
-        lv_obj_set_style_bg_color(help_, c(kSurface), 0);
-        lv_obj_set_style_bg_opa(help_, LV_OPA_COVER, 0);
-        lv_obj_set_style_pad_all(help_, 8, 0);
-        lv_obj_set_style_radius(help_, 6, 0);
-        lv_obj_set_style_border_width(help_, 1, 0);
-        lv_obj_set_style_border_color(help_, c(kAccent), 0);
-        lv_obj_align(help_, LV_ALIGN_CENTER, 0, 8);
-        lv_obj_add_flag(help_, LV_OBJ_FLAG_HIDDEN);
-
         // Where we were last time.
         double saved = std::atof(prefs::get_str("rf.spec_hz", "0").c_str());
         if (saved >= kMinHz && saved <= kMaxHz) freq_ = saved;
@@ -158,36 +131,13 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        // Any key puts the help away.
-        if (help_open_) {
-            help_open_ = false;
-            lv_obj_add_flag(help_, LV_OBJ_FLAG_HIDDEN);
-            return true;
+        // The band list or the saved channels: a List screen over the picture.
+        if (bands_open_ || mems_open_) {
+            if (pick_.key(key)) return true;
+            // Enter goes to the row; Esc, Tab and the shell's keys go on.
+            return key == LV_KEY_UP || key == LV_KEY_DOWN || key == LV_KEY_LEFT || key == LV_KEY_RIGHT;
         }
-        // The band list takes the arrow keys and Enter while it is open.
-        if (bands_open_) {
-            if (key == 'b' || key == 'B') { show_bands(false); return true; }
-            return key != LV_KEY_UP && key != LV_KEY_DOWN && key != LV_KEY_ENTER;
-        }
-        // So does the list of saved channels; D there deletes the one selected.
-        if (mems_open_) {
-            if (key == 'l' || key == 'L') { show_memories(false); return true; }
-            if (key == 'd' || key == 'D') {
-                lv_obj_t* focused = lv_group_get_focused(group);
-                if (focused && lv_obj_get_parent(focused) == mem_list_ && !memories_.empty()) {
-                    size_t i = lv_obj_get_index(focused);
-                    if (i < memories_.size()) {
-                        shell_toast("Deleted " + memories_[i].name);
-                        memories_.erase(memories_.begin() + long(i));
-                        save_memories();
-                        show_memories(!memories_.empty());
-                    }
-                }
-                return true;
-            }
-            return key != LV_KEY_UP && key != LV_KEY_DOWN && key != LV_KEY_ENTER;
-        }
-        // Naming a channel being saved.
+        // Naming a channel being saved (a Text screen until Enter or Esc).
         if (naming_) {
             if (key == LV_KEY_ENTER) {
                 zrf::Memory m;
@@ -201,29 +151,33 @@ public:
                 naming_ = false;
             } else if (key == LV_KEY_BACKSPACE) {
                 if (!name_.empty()) name_.pop_back();
-            } else if (key >= 32 && key < 127 && name_.size() < 20) {
-                name_ += char(key);
+            } else if (key >= 32 && key < 127) {
+                if (name_.size() < 20) name_ += char(key);
+            } else if (key != LV_KEY_UP && key != LV_KEY_DOWN && key != LV_KEY_LEFT && key != LV_KEY_RIGHT) {
+                return false;   // Esc (cancels), Tab and the shell's keys
             }
             update_labels();
             return true;
         }
-        // Typing a frequency.
-        if ((key >= '0' && key <= '9') || key == '.') {
-            if (entry_.size() < 9) entry_ += char(key);
-            update_labels();
-            return true;
-        }
-        if (!entry_.empty()) {
-            if (key == LV_KEY_BACKSPACE) {
-                entry_.pop_back();
+        // Typing a frequency, after Enter.
+        if (entering_) {
+            if ((key >= '0' && key <= '9') || key == '.') {
+                if (entry_.size() < 9) entry_ += char(key);
+            } else if (key == LV_KEY_BACKSPACE) {
+                if (!entry_.empty()) entry_.pop_back();
             } else if (key == LV_KEY_ENTER) {
                 double mhz = std::atof(entry_.c_str());
+                entering_ = false;
+                if (!entry_.empty()) {
+                    if (mhz * 1e6 >= kMinHz && mhz * 1e6 <= kMaxHz) tune(mhz * 1e6);
+                    else shell_toast("Out of range (0.5 to 1766 MHz)");
+                }
                 entry_.clear();
-                if (mhz * 1e6 >= kMinHz && mhz * 1e6 <= kMaxHz) tune(mhz * 1e6);
-                else shell_toast("Out of range (0.5 to 1766 MHz)");
-            } else {
-                return true;   // other keys do nothing while typing
+            } else if (key < 32 || key >= 127) {
+                // Esc (cancels), Tab and the shell's keys go on; arrows do nothing.
+                if (key != LV_KEY_UP && key != LV_KEY_DOWN && key != LV_KEY_LEFT && key != LV_KEY_RIGHT) return false;
             }
+            // Other letters do nothing while typing.
             update_labels();
             return true;
         }
@@ -269,7 +223,7 @@ public:
             break;
         case 'l': case 'L':
             memories_ = zrf::load_memories(memory_path());
-            if (memories_.empty()) shell_toast("No saved channels yet. A saves this one.");
+            if (memories_.empty()) shell_toast("No saved channels yet. Save this one first.");
             else show_memories(true);
             return true;
         case 'k': case 'K':
@@ -277,11 +231,6 @@ public:
             prefs::set_int("rf.keep_playing", keep_playing_ ? 1 : 0);
             shell_toast(keep_playing_ ? "Will keep playing when you leave" : "Will stop playing when you leave");
             break;
-        case 'h': case 'H': case '?':
-            help_open_ = true;
-            lv_obj_remove_flag(help_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_move_foreground(help_);
-            return true;
         case 'r': case 'R': toggle_record(); break;
         case 'w': case 'W':
             if (taping_) {
@@ -289,7 +238,7 @@ public:
                 client_.send("recordaudio off");
                 shell_toast("Saved " + tape_name_);
             } else if (!mode_) {
-                shell_toast("Press M to listen first");
+                shell_toast("Listen first (M)");
             } else {
                 std::string dir = home_dir() + "/Recordings";
                 mkdir(dir.c_str(), 0755);
@@ -316,10 +265,13 @@ public:
             }
             break;
         case 't': case 'T':
-            if (!rig_.active() || !rig_.connected()) shell_toast("Not connected to a rig (F to connect)");
+            if (!rig_.active() || !rig_.connected()) shell_toast("Not connected to a rig (F follows it)");
             else { rig_.set_freq(freq_); shell_toast(fmt("Rig set to %.5f MHz", freq_ / 1e6)); }
             break;
-        case LV_KEY_ENTER: return true;   // nothing to confirm; keep it from the hidden list
+        case LV_KEY_ENTER:
+            entering_ = true;   // type a frequency
+            entry_.clear();
+            break;
         case 'p': case 'P':
             peak_hold_ = !peak_hold_;
             std::fill(peak_.begin(), peak_.end(), 0);
@@ -337,16 +289,23 @@ public:
         return true;
     }
 
+    // Run a shortcut from the menu (Tab, or Ctrl + its letter) as its key.
+    void press(uint32_t key) {
+        on_key(key);
+    }
+
     bool on_back() override {
-        if (help_open_) { help_open_ = false; lv_obj_add_flag(help_, LV_OBJ_FLAG_HIDDEN); return true; }
         if (bands_open_) { show_bands(false); return true; }
         if (mems_open_) { show_memories(false); return true; }
         if (naming_) { naming_ = false; update_labels(); return true; }
-        if (entry_.empty()) leaving();
-        if (entry_.empty()) return false;
-        entry_.clear();
-        update_labels();
-        return true;
+        if (entering_) {
+            entering_ = false;
+            entry_.clear();
+            update_labels();
+            return true;
+        }
+        leaving();
+        return false;
     }
 
 private:
@@ -500,51 +459,76 @@ private:
 
     bool save_memories() { return zrf::save_memories(memory_path(), memories_); }
 
+    // A list over the picture (the bands, or the saved channels), in a
+    // bordered box. Its rows' actions run after the key, so they may close it.
+    void open_pick(int w) {
+        close_pick();
+        pick_box_ = lv_obj_create(root_);
+        style_plain(pick_box_);
+        lv_obj_set_style_bg_color(pick_box_, c(kBg), 0);
+        lv_obj_set_style_bg_opa(pick_box_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(pick_box_, 1, 0);
+        lv_obj_set_style_border_color(pick_box_, c(kAccent), 0);
+        lv_obj_set_style_radius(pick_box_, 4, 0);
+        int h = kBodyH - kTopH - 2;
+        lv_obj_set_pos(pick_box_, (kW - w) / 2, kTopH);
+        lv_obj_set_size(pick_box_, w, h);
+        lv_obj_remove_flag(pick_box_, LV_OBJ_FLAG_SCROLLABLE);
+        pick_.build(pick_box_, 2, 2, w - 6, h - 6);
+    }
+
+    void close_pick() {
+        if (group) lv_group_remove_all_objs(group);
+        pick_.reset();
+        if (pick_box_) lv_obj_delete(pick_box_);
+        pick_box_ = nullptr;
+    }
+
     // The list is rebuilt each time it opens: channels come and go.
     void show_memories(bool on) {
         mems_open_ = on;
-        lv_obj_clean(mem_list_);
-        if (!on) {
-            lv_obj_add_flag(mem_list_, LV_OBJ_FLAG_HIDDEN);
-            return;
+        close_pick();
+        if (on) {
+            open_pick(260);
+            for (size_t i = 0; i < memories_.size(); ++i) {
+                const zrf::Memory& m = memories_[i];
+                std::string mode = m.mode == "off" ? "" : m.mode;
+                for (char& ch : mode) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+                pick_.add(nullptr, m.name, fmt("%.4f %s", m.hz / 1e6, mode.c_str()), [this, i] { use_memory(i); });
+            }
+            pick_.finish();
         }
-        for (const zrf::Memory& m : memories_) {
-            lv_obj_t* row = list_button(mem_list_, nullptr, m.name.c_str(), on_memory_clicked, this);
-            lv_obj_t* v = lv_label_create(row);
-            std::string mode = m.mode == "off" ? "" : m.mode;
-            for (char& ch : mode) ch = char(std::toupper(static_cast<unsigned char>(ch)));
-            lv_label_set_text(v, fmt("%.4f %s", m.hz / 1e6, mode.c_str()).c_str());
-        }
-        finish_list(mem_list_);
-        lv_obj_remove_flag(mem_list_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(mem_list_);
-        lv_group_focus_obj(lv_obj_get_child(mem_list_, 0));
-        shell_toast("Enter tunes, D deletes");
+        set_actions();
     }
 
-    static void on_memory_clicked(lv_event_t* e) {
-        auto* self = static_cast<SpectrumApp*>(lv_event_get_user_data(e));
-        if (!self->mems_open_) return;
-        size_t i = lv_obj_get_index(static_cast<lv_obj_t*>(lv_event_get_target(e)));
-        if (i >= self->memories_.size()) return;
-        const zrf::Memory m = self->memories_[i];
-        // The row being clicked can't be removed from inside its own click.
-        lv_obj_add_flag(self->mem_list_, LV_OBJ_FLAG_HIDDEN);
-        self->mems_open_ = false;
-        self->tune(m.hz);
-        self->squelch_ = m.squelch;
-        self->send_squelch();
+    // The saved channel in focus goes (the shell has asked first).
+    void delete_memory() {
+        int i = pick_.focused();
+        if (!mems_open_ || i < 0 || i >= int(memories_.size())) return;
+        shell_toast("Deleted " + memories_[size_t(i)].name);
+        memories_.erase(memories_.begin() + i);
+        save_memories();
+        show_memories(!memories_.empty());
+    }
+
+    void use_memory(size_t i) {
+        if (!mems_open_ || i >= memories_.size()) return;
+        const zrf::Memory m = memories_[i];
+        show_memories(false);
+        tune(m.hz);
+        squelch_ = m.squelch;
+        send_squelch();
         // Listen the way the channel was saved, if already listening;
         // otherwise the next M press picks it.
         int wanted = 0;
         for (int k = 1; k < int(std::size(kModes)); ++k)
             if (m.mode == kModes[k]) wanted = k;
-        if (self->mode_ && wanted) {
-            self->mode_ = wanted;
-            self->client_.send(std::string("mode ") + kModes[wanted]);
+        if (mode_ && wanted) {
+            mode_ = wanted;
+            client_.send(std::string("mode ") + kModes[wanted]);
         }
-        self->mode_picked_ = false;
-        self->update_labels();
+        mode_picked_ = false;
+        update_labels();
     }
 
     // Come back to the same place next time. Written a couple of seconds
@@ -572,33 +556,80 @@ private:
 
     void show_bands(bool on) {
         bands_open_ = on;
+        close_pick();
         if (on) {
-            lv_obj_remove_flag(band_list_, LV_OBJ_FLAG_HIDDEN);
-            lv_group_focus_obj(lv_obj_get_child(band_list_, 0));
-        } else {
-            lv_obj_add_flag(band_list_, LV_OBJ_FLAG_HIDDEN);
+            open_pick(200);
+            for (size_t i = 0; i < std::size(kBands); ++i) pick_.add(nullptr, kBands[i].name, "", [this, i] { use_band(i); });
+            pick_.finish();
         }
+        set_actions();
     }
 
-    static void on_band_clicked(lv_event_t* e) {
-        auto* self = static_cast<SpectrumApp*>(lv_event_get_user_data(e));
-        if (!self->bands_open_) return;
-        const Band& b = kBands[lv_obj_get_index(static_cast<lv_obj_t*>(lv_event_get_target(e)))];
-        self->show_bands(false);
-        self->set_span(b.span);
-        self->tune(b.home);
+    void use_band(size_t i) {
+        if (!bands_open_) return;
+        const Band& b = kBands[i];
+        show_bands(false);
+        set_span(b.span);
+        tune(b.home);
         // A new band: the next M press picks its mode afresh; if already
         // listening, switch to it at once.
-        self->mode_picked_ = false;
-        if (self->mode_)
-            for (int i = 1; i < int(std::size(kModes)); ++i)
-                if (std::strcmp(kModes[i], b.mode) == 0) {
-                    self->mode_ = i;
-                    self->client_.send(std::string("mode ") + kModes[i]);
+        mode_picked_ = false;
+        if (mode_)
+            for (int k = 1; k < int(std::size(kModes)); ++k)
+                if (std::strcmp(kModes[k], b.mode) == 0) {
+                    mode_ = k;
+                    client_.send(std::string("mode ") + kModes[k]);
                 }
         // Sideband and Morse want fine tuning steps.
-        self->step_ = b.mode[0] == 'u' || b.mode[0] == 'l' || b.mode[0] == 'c' ? 2 : 4;
-        self->update_labels();
+        step_ = b.mode[0] == 'u' || b.mode[0] == 'l' || b.mode[0] == 'c' ? 2 : 4;
+        update_labels();
+    }
+
+    // What the keys do now, for the soft-key bar, the menu and the key sheet.
+    // Set again only when something in it changed: update_labels() runs
+    // several times a second while listening.
+    void set_actions() {
+        std::vector<Action> a;
+        if (bands_open_ || mems_open_) {
+            a.push_back({"Tune", 0, "Enter", nullptr});
+            a.push_back({"Close", 0, "Esc", nullptr});
+            if (mems_open_) {
+                Action d{"Delete", 'd', nullptr, [this] { delete_memory(); }, true, true};
+                d.confirm = "Delete this saved channel?";
+                a.push_back(d);
+            }
+        } else if (naming_) {
+            a.push_back({"Save channel", 0, "Enter", nullptr});
+            a.push_back({"Cancel", 0, "Esc", nullptr});
+        } else if (entering_) {
+            a.push_back({"Go", 0, "Enter", nullptr});
+            a.push_back({"Cancel", 0, "Esc", nullptr});
+        } else {
+            auto key = [this](uint32_t k) { return [this, k] { press(k); }; };
+            a.push_back({"Go to MHz", 0, "Enter", key(LV_KEY_ENTER)});
+            a.push_back({mode_ ? std::string("Listen: ") + kModeNames[mode_] : "Listen", 'm', "M", key('m')});
+            a.push_back({"Bands", 'b', "B", key('b')});
+            a.push_back({"Tune", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+            a.push_back({"Step", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr});
+            a.push_back({squelch_ ? "Squelch off" : "Squelch on", 's', "S", key('s')});
+            a.push_back({"Narrower view", 'z', "Z", key('z')});
+            a.push_back({"Wider view", 'x', "X", key('x')});
+            a.push_back({"Gain (next)", 'g', "G", key('g')});
+            a.push_back({"Save channel", 'a', "A", key('a')});
+            a.push_back({"Saved channels", 'l', "L", key('l')});
+            a.push_back({keep_playing_ ? "Stop playing on leaving" : "Keep playing on leaving", 'k', "K", key('k')});
+            a.push_back({peak_hold_ ? "Peak hold off" : "Peak hold on", 'p', "P", key('p')});
+            a.push_back({"Centre on peak", 'c', "C", key('c')});
+            a.push_back({taping_ ? "Stop audio recording" : "Record audio", 'w', "W", key('w')});
+            a.push_back({recording_ ? "Stop IQ recording" : "Record IQ", 'r', "R", key('r')});
+            a.push_back({rig_.active() ? "Stop following rig" : "Follow rig", 'f', "F", key('f')});
+            a.push_back({"Set rig to this", 't', "T", key('t')});
+        }
+        std::string sig;
+        for (auto& x : a) sig += x.label + "|";
+        if (sig == actions_sig_) return;
+        actions_sig_ = sig;
+        shell_set_actions(std::move(a));
     }
 
     void send_gain() {
@@ -673,7 +704,7 @@ private:
         g_rf_last_mode = mode_ ? kModes[mode_] : "";
         if (naming_) {
             lv_label_set_text(freq_label_, ("Name: " + name_ + "_").c_str());
-        } else if (!entry_.empty()) {
+        } else if (entering_) {
             lv_label_set_text(freq_label_, ("Go to " + entry_ + "_ MHz").c_str());
         } else {
             lv_label_set_text(freq_label_, fmt("%.5f MHz", freq_ / 1e6).c_str());
@@ -690,16 +721,14 @@ private:
         lv_label_set_text(low_label_, fmt("%.3f", (freq_ - half) / 1e6).c_str());
         lv_label_set_text(high_label_, fmt("%.3f", (freq_ + half) / 1e6).c_str());
         // Bottom line: the band we're in, then the signal strength while
-        // listening or the key hints otherwise.
+        // listening (the soft-key bar has the keys).
         const Band* band = band_at(freq_);
         std::string hint = band ? std::string(band->name) + "   " : "";
-        if (naming_) hint = "Enter save   Esc cancel";
-        else if (!entry_.empty()) hint = "Enter go   Esc cancel";
-        else if (mode_ == 1 && !station_name_.empty())
+        if (mode_ == 1 && !station_name_.empty())
             hint = station_name_ + (stereo_ ? "  stereo" : "") + (station_text_.empty() ? "" : "   " + station_text_);
         else if (mode_ && signal_db_ > -100) hint += fmt("signal %+.0f dB%s", signal_db_, mode_ == 1 && stereo_ ? "  stereo" : "");
-        else hint += band ? "M listen  H keys" : "B bands  M listen  H keys";
         lv_label_set_text(hint_label_, hint.c_str());
+        set_actions();
     }
 
     RadioLink link_;
@@ -721,10 +750,11 @@ private:
     RigLink rig_;
     bool squelch_ = false, bands_open_ = false, recording_ = false;
     std::string record_name_;
-    lv_obj_t* band_list_ = nullptr;
-    lv_obj_t *mem_list_ = nullptr, *help_ = nullptr;
+    lv_obj_t *root_ = nullptr, *pick_box_ = nullptr;
+    ListView pick_;   // the bands or the saved channels, while one is open
+    std::string actions_sig_;
     std::vector<zrf::Memory> memories_;
-    bool mems_open_ = false, naming_ = false, help_open_ = false;
+    bool mems_open_ = false, naming_ = false, entering_ = false;
     bool keep_playing_ = false, adopt_background_ = false;
     std::string name_, saved_key_;
     int unsaved_ticks_ = 0;

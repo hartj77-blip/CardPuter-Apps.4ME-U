@@ -6,8 +6,11 @@
 //                    speaker or headphones is the loudspeaker; the car's
 //                    play and skip buttons drive the play queue.
 //
-//   Enter  turn on/off, connect/disconnect      X  forget a Bluetooth device
+// A List screen (docs/UX.md in the OS) with the focused row explained on the
+// right. Enter turns USB stick mode on or off, or connects and disconnects a
+// device; the menu (Tab) has Forget, which asks first (Del does the same).
 #include "apps/common.h"
+#include "ui/list_view.h"
 
 namespace zs {
 namespace {
@@ -19,10 +22,11 @@ class CarApp : public App {
 public:
     void build(lv_obj_t* root) override {
         root_ = root;
+        shell_set_actions({{"Select", 0, "Enter", nullptr}});   // before laying out: the bar's room
         panel_ = lv_obj_create(root);
         style_panel(panel_);
         lv_obj_set_pos(panel_, kListW + 8, 6);
-        lv_obj_set_size(panel_, kScreenW - kListW - 14, kContentH - 12);
+        lv_obj_set_size(panel_, kScreenW - kListW - 14, kBodyH - 12);
         lv_obj_remove_flag(panel_, LV_OBJ_FLAG_SCROLLABLE);
         head_ = label(panel_, "", &zs_font_14, kText);
         lv_obj_set_width(head_, kScreenW - kListW - 26);
@@ -42,22 +46,26 @@ public:
             bool changed = st.state != stick_.state || st.percent != stick_.percent;
             stick_ = st;
             if (changed) {
-                if (usb_row_) lv_label_set_text(lv_obj_get_child(usb_row_, 1), usb_text().c_str());
+                list_.set_value(0, usb_value());
                 show_panel(focused());
+                set_actions();
             }
         }
         if (n_ % 50 == 0) refresh_devices();   // a car connects by itself when it starts
     }
 
     bool on_key(uint32_t key) override {
-        if (key == 'x' || key == 'X' || key == LV_KEY_DEL) {
+        if (key == LV_KEY_DEL) {   // not a letter: on a List screen letters filter
             int i = focused();
-            if (i >= 0 && rows_[i].kind == Row::Device && rows_[i].dev.paired) {
-                hal().bt_forget(rows_[i].dev.address);
-                shell_toast("Forgot " + rows_[i].dev.name);
-                devices_ = hal().bt_devices();
-                rebuild(i);
+            if (can_forget(i)) {
+                BtDevice d = rows_[size_t(i)].dev;
+                shell_confirm("Forget " + d.name + "?", "Pair it again to use it.", "Forget", [this, d] { forget(d); });
             }
+            return true;
+        }
+        if (list_.key(key)) {
+            show_panel(focused());   // the panel and the menu follow the focus
+            set_actions();
             return true;
         }
         return false;
@@ -69,56 +77,95 @@ private:
         BtDevice dev;
     };
 
-    std::string usb_text() const {
+    std::string usb_value() const {
         switch (stick_.state) {
-            case UsbStickStatus::Off: return "USB stick mode: off";
-            case UsbStickStatus::Building: return fmt("Copying music %d%%", stick_.percent);
-            case UsbStickStatus::Ready: return "USB stick mode: on";
-            case UsbStickStatus::Attached: return "USB stick: in use";
-            case UsbStickStatus::Error: return "USB stick mode: failed";
+            case UsbStickStatus::Off: return "Off";
+            case UsbStickStatus::Building: return fmt("%d%%", stick_.percent);
+            case UsbStickStatus::Ready: return "On";
+            case UsbStickStatus::Attached: return "In use";
+            case UsbStickStatus::Error: return "Failed";
         }
         return "";
     }
 
+    bool can_forget(int i) const {
+        return i >= 0 && i < int(rows_.size()) && rows_[size_t(i)].kind == Row::Device && rows_[size_t(i)].dev.paired;
+    }
+
+    void forget(const BtDevice& d) {
+        int i = focused();
+        hal().bt_forget(d.address);
+        shell_toast("Forgot " + d.name);
+        devices_ = hal().bt_devices();
+        rebuild(i);
+    }
+
+    // Enter's label says what it does to the row in focus; Forget only for
+    // a paired device.
+    void set_actions() {
+        int i = focused();
+        std::string enter = "Select";
+        if (i >= 0 && i < int(rows_.size())) {
+            const Row& r = rows_[size_t(i)];
+            switch (r.kind) {
+                case Row::Usb:
+                    enter = stick_.state == UsbStickStatus::Off || stick_.state == UsbStickStatus::Error ? "Turn on"
+                                                                                                       : "Turn off";
+                    break;
+                case Row::Device: enter = r.dev.connected ? "Disconnect" : r.dev.paired ? "Connect" : "Pair"; break;
+                case Row::Scan: enter = "Scan"; break;
+                case Row::Visible: enter = "Be found"; break;
+            }
+        }
+        std::vector<Action> a;
+        a.push_back({enter, 0, "Enter", nullptr});
+        Action f{"Forget", 'd', nullptr, nullptr, can_forget(i), true};
+        if (can_forget(i)) {
+            BtDevice d = rows_[size_t(i)].dev;
+            f.run = [this, d] { forget(d); };
+            f.confirm = "Forget " + d.name + "?";
+        } else {
+            f.run = [] {};
+        }
+        a.push_back(f);
+        shell_set_actions(std::move(a));
+    }
+
     void rebuild(int focus_index) {
-        if (list_) {
-            lv_group_remove_all_objs(group);
-            lv_obj_delete(list_);
-        }
+        lv_group_remove_all_objs(group);
         rows_.clear();
-        list_ = make_list(root_, 4, 4, kListW, kContentH - 8);
-        usb_row_ = add(LV_SYMBOL_USB, usb_text(), {Row::Usb, {}});
-        lv_list_add_text(list_, "Bluetooth");
-        for (auto& d : devices_) {
-            std::string text = d.name + (d.connected ? "  " LV_SYMBOL_OK : "");
-            lv_obj_t* b = add(d.connected ? LV_SYMBOL_VOLUME_MAX : LV_SYMBOL_BLUETOOTH, text, {Row::Device, d});
-            if (!d.paired) lv_obj_set_style_text_color(b, c(kMuted), 0);
-        }
-        add(ZS_ICON_SEARCH, "Scan for devices", {Row::Scan, {}});
-        add(LV_SYMBOL_EYE_OPEN, "Let the car find me", {Row::Visible, {}});
-        finish_list(list_);
-        if (focus_index >= int(buttons_.size())) focus_index = int(buttons_.size()) - 1;
-        if (focus_index >= 0) lv_group_focus_obj(buttons_[focus_index]);
-        show_panel(focus_index);
+        // The list lives in a box of its own, so building it again replaces
+        // the old one and leaves the panel be.
+        if (box_) lv_obj_delete(box_);
+        box_ = lv_obj_create(root_);
+        style_plain(box_);
+        lv_obj_set_pos(box_, 2, 4);
+        lv_obj_set_size(box_, kListW + 2, kBodyH - 8);
+        lv_obj_remove_flag(box_, LV_OBJ_FLAG_SCROLLABLE);
+        list_.build(box_, 0, 0, kListW + 2, kBodyH - 8);
+        add(LV_SYMBOL_USB, "USB stick mode", usb_value(), {Row::Usb, {}});
+        for (auto& d : devices_)
+            add(d.connected ? LV_SYMBOL_VOLUME_MAX : LV_SYMBOL_BLUETOOTH, d.name,
+                d.connected ? "On" : d.paired ? "" : "new", {Row::Device, d});
+        add(ZS_ICON_SEARCH, "Scan for devices", "", {Row::Scan, {}});
+        add(LV_SYMBOL_EYE_OPEN, "Let the car find me", "", {Row::Visible, {}});
+        list_.finish();
+        for (size_t i = 0; i < rows_.size(); ++i)
+            if (rows_[i].kind == Row::Device && rows_[i].dev.connected) list_.set_value_color(int(i), kGood);
+        if (focus_index >= int(rows_.size())) focus_index = int(rows_.size()) - 1;
+        if (focus_index >= 0) list_.focus(focus_index);
+        show_panel(focused());
+        set_actions();
     }
 
-    lv_obj_t* add(const char* symbol, const std::string& text, Row row) {
-        if (rows_.empty()) buttons_.clear();
-        lv_obj_t* b = list_button(list_, symbol, text.c_str(), on_click, this);
-        lv_obj_set_user_data(b, (void*)(intptr_t)rows_.size());
-        lv_obj_add_event_cb(b, on_focus, LV_EVENT_FOCUSED, this);
-        lv_obj_t* lbl = lv_obj_get_child(b, 1);
-        if (lbl) lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+    void add(const char* symbol, const std::string& text, const std::string& value, Row row) {
+        int i = int(rows_.size());
         rows_.push_back(std::move(row));
-        buttons_.push_back(b);
-        return b;
+        // Deferred by the list: activating rebuilds it.
+        list_.add(symbol, text, value, [this, i] { activate(i); });
     }
 
-    int focused() {
-        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
-        if (!f || !list_ || lv_obj_get_parent(f) != list_) return -1;
-        return int((intptr_t)lv_obj_get_user_data(f));
-    }
+    int focused() const { return list_.focused(); }
 
     // The panel on the right explains the row in focus.
     void show_panel(int i) {
@@ -146,7 +193,7 @@ private:
                         break;
                     case UsbStickStatus::Attached:
                         head = "In use";
-                        help = "The car is reading the stick. Use the car's buttons.\nEnter turns it off.";
+                        help = "The car is reading the stick. Use the car's buttons.";
                         color = kGood;
                         break;
                     case UsbStickStatus::Error:
@@ -159,9 +206,9 @@ private:
             case Row::Device:
                 head = r.dev.name;
                 color = r.dev.connected ? kGood : kText;
-                help = r.dev.connected  ? "Connected: sound goes here. Its play and skip buttons work.\nEnter disconnects."
-                       : r.dev.paired   ? "Paired.\nEnter connects.\nX forgets it."
-                                        : "Found nearby.\nEnter pairs and connects.";
+                help = r.dev.connected  ? "Connected: sound goes here. Its play and skip buttons work."
+                       : r.dev.paired   ? "Paired. Connect to send the sound here."
+                                        : "Found nearby. Pairing connects it too.";
                 break;
             case Row::Scan:
                 head = "Scan";
@@ -235,32 +282,16 @@ private:
         rebuild(i);
     }
 
-    static void on_click(lv_event_t* e) {
-        auto* self = static_cast<CarApp*>(lv_event_get_user_data(e));
-        self->pending_ = int((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
-        // Deferred: activating rebuilds the list, which deletes the clicked button.
-        lv_async_call([](void* p) {
-            auto* s = static_cast<CarApp*>(p);
-            s->activate(s->pending_);
-        }, self);
-    }
-    static void on_focus(lv_event_t* e) {
-        auto* self = static_cast<CarApp*>(lv_event_get_user_data(e));
-        self->show_panel(int((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e))));
-    }
-
     lv_obj_t* root_ = nullptr;
-    lv_obj_t* list_ = nullptr;
+    ListView list_;
+    lv_obj_t* box_ = nullptr;
     lv_obj_t* panel_ = nullptr;
     lv_obj_t* head_ = nullptr;
     lv_obj_t* help_ = nullptr;
-    lv_obj_t* usb_row_ = nullptr;
     std::vector<Row> rows_;
-    std::vector<lv_obj_t*> buttons_;
     std::vector<BtDevice> devices_;
     UsbStickStatus stick_;
     int n_ = 0;
-    int pending_ = -1;
 };
 }  // namespace
 

@@ -15,10 +15,12 @@ const char* cardinal(float h) {
 class CompassApp : public App {
 public:
     void build(lv_obj_t* root) override {
+        // Nothing to do but look: the bar only says how to leave.
+        shell_set_actions({{"Back", 0, "Esc", nullptr}});
         // Dial
         dial_ = lv_obj_create(root);
-        lv_obj_set_size(dial_, 136, 136);
-        lv_obj_set_pos(dial_, 10, 7);
+        lv_obj_set_size(dial_, 128, 128);
+        lv_obj_set_pos(dial_, 10, 5);
         lv_obj_set_style_radius(dial_, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_color(dial_, c(kSurface), 0);
         lv_obj_set_style_border_color(dial_, c(kSurface2), 0);
@@ -43,14 +45,14 @@ public:
         lv_obj_center(hub_);
 
         heading_ = label(root, "---", &zs_font_28);
-        lv_obj_set_pos(heading_, 160, 10);
+        lv_obj_set_pos(heading_, 160, 8);
         card_ = label(root, "", &zs_font_20, kAccent);
-        lv_obj_set_pos(card_, 160, 44);
+        lv_obj_set_pos(card_, 160, 40);
 
         // Level: bubble moves inside a ring.
         lv_obj_t* ring = lv_obj_create(root);
         lv_obj_set_size(ring, 70, 70);
-        lv_obj_set_pos(ring, 240, 74);
+        lv_obj_set_pos(ring, 240, 62);
         lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_color(ring, c(kSurface), 0);
         lv_obj_set_style_border_color(ring, c(kSurface2), 0);
@@ -65,7 +67,7 @@ public:
         lv_obj_center(bubble_);
 
         tilt_ = label(root, "", &zs_font_12, kMuted);
-        lv_obj_set_pos(tilt_, 160, 80);
+        lv_obj_set_pos(tilt_, 160, 72);
         refresh();
     }
 
@@ -84,13 +86,13 @@ private:
         lv_label_set_text(card_, cardinal(h));
 
         // Rotate the card so north points at magnetic north; needle stays up.
-        const int cx = 65, cy = 65, r = 52;
+        const int cx = 61, cy = 61, r = 48;
         for (int i = 0; i < 4; ++i) {
             double a = (i * 90 - h) * M_PI / 180.0;
             lv_obj_set_pos(marks_[i], int(cx + r * std::sin(a)) - 6, int(cy - r * std::cos(a)) - 9);
         }
         pts_[0] = {cx, cy + 22};
-        pts_[1] = {cx, cy - 40};
+        pts_[1] = {cx, cy - 36};
         lv_line_set_points(needle_, pts_, 2);
 
         float px = std::fmax(-25.f, std::fmin(25.f, s.roll_deg * 2.0f));

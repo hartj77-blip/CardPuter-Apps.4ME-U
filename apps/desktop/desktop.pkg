@@ -2,7 +2,7 @@
 # built-in screen or on the monitor in Dock mode.
 NAME="Desktop"
 SUMMARY="Remote desktop (VNC, RDP) on the built-in screen or a monitor"
-APP_VERSION="1.0.0"
+APP_VERSION="1.1.0"
 # zeroos-desktop-view links libvncclient and FreeRDP 3 (Debian trixie's
 # names). On the monitor: gvncviewer for VNC, FreeRDP's Wayland client in a
 # foot window for RDP (as Remote's D key did).

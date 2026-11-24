@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "apps/common.h"
+#include "ui/list_view.h"
 #include "ui/prefs.h"
 #include "ui/remote.h"
 
@@ -134,7 +135,7 @@ public:
         panel_ = lv_obj_create(root);
         style_panel(panel_);
         lv_obj_set_pos(panel_, kListW + 8, 4);
-        lv_obj_set_size(panel_, kScreenW - kListW - 14, kContentH - 8);
+        lv_obj_set_size(panel_, kScreenW - kListW - 14, kBodyH - 8);
         lv_obj_remove_flag(panel_, LV_OBJ_FLAG_SCROLLABLE);
         head_ = label(panel_, "", &zs_font_14, kText);
         lv_obj_set_width(head_, kScreenW - kListW - 26);
@@ -152,6 +153,12 @@ public:
         read_state();
         refresh_nodes();
         rebuild(0);
+    }
+
+    bool on_key(uint32_t key) override {
+        bool used = list_.key(key);
+        show_panel(focused());   // the focus may have moved
+        return used;
     }
 
     void tick() override {
@@ -391,57 +398,90 @@ private:
         int node = -1;
     };
 
-    std::string row_text(Row r) const {
+    // A mode row's state, in the row's value column.
+    std::string row_state(Row r) const {
         std::string mode = r == Row::Ethernet ? "ethernet" : "usb";
-        std::string name = mode_name(mode);
-        if (pending_ == mode) return name + ": starting...";
-        if (st_.mode == mode) return name + (st_.error ? ": failed" : cable_ ? ": in use" : ": on");
-        return name + ": off";
+        if (pending_ == mode) return "starting...";
+        if (st_.mode == mode) return st_.error ? "failed" : cable_ ? "in use" : "on";
+        return "off";
+    }
+
+    void add_mode(const char* symbol, Row r) {
+        std::string state = row_state(r);
+        int i = add(symbol, mode_name(r == Row::Ethernet ? "ethernet" : "usb"), {r}, state);
+        if (state != "off") list_.set_value_color(i, state == "failed" ? kBad : state == "starting..." ? kWarn : kGood);
     }
 
     void rebuild(int focus) {
-        if (list_) {
+        if (list_obj_) {
             if (group) lv_group_remove_all_objs(group);
-            lv_obj_delete(list_);
+            lv_obj_delete(list_obj_);
         }
         items_.clear();
-        buttons_.clear();
-        list_ = make_list(root_, 4, 4, kListW, kContentH - 8);
+        // In a box of its own, so a rebuild deletes just the list.
+        list_obj_ = lv_obj_create(root_);
+        style_plain(list_obj_);
+        lv_obj_set_pos(list_obj_, 0, 0);
+        lv_obj_set_size(list_obj_, kListW + 6, kBodyH);
+        lv_obj_remove_flag(list_obj_, LV_OBJ_FLAG_SCROLLABLE);
+        list_.build(list_obj_, 4, 4, kListW, kBodyH - 8);
+        list_.set_empty_text("No exit nodes");
         if (page_ == Page::Main) {
-            add(LV_SYMBOL_SHUFFLE, row_text(Row::Ethernet), {Row::Ethernet});
-            add(LV_SYMBOL_USB, row_text(Row::Usb), {Row::Usb});
+            add_mode(LV_SYMBOL_SHUFFLE, Row::Ethernet);
+            add_mode(LV_SYMBOL_USB, Row::Usb);
             const ExitNode* n = chosen();
-            add(ZS_ICON_GLOBE, "Exit node: " + (n ? n->name : std::string("none")), {Row::ExitNode});
+            // The node's name on its own line: next to "Exit node" a long one wraps.
+            add(ZS_ICON_GLOBE, n ? "Via " + n->name : std::string("No exit node"), {Row::ExitNode});
         } else {
             for (size_t i = 0; i < nodes_.size(); ++i) {
                 const ExitNode& n = nodes_[i];
-                lv_obj_t* b = add(n.selected ? LV_SYMBOL_OK : n.place.empty() ? ZS_ICON_DESKTOP : ZS_ICON_GLOBE,
-                                  n.name, {Row::Node, int(i)});
-                if (!n.online) lv_obj_set_style_text_color(b, c(kMuted), 0);
+                int r = add(n.selected ? LV_SYMBOL_OK : n.place.empty() ? ZS_ICON_DESKTOP : ZS_ICON_GLOBE, n.name,
+                            {Row::Node, int(i)}, n.online ? "" : "offline");
+                if (!n.online) list_.set_value_color(r, kMuted);
             }
             add(LV_SYMBOL_CLOSE, "None", {Row::NoNode});
         }
-        finish_list(list_);
+        list_.finish();
         if (focus < 0) focus = 0;
-        if (focus >= int(buttons_.size())) focus = int(buttons_.size()) - 1;
-        if (focus >= 0) lv_group_focus_obj(buttons_[size_t(focus)]);
+        if (focus >= int(items_.size())) focus = int(items_.size()) - 1;
+        if (focus >= 0) list_.focus(focus);
+        shown_ = -2;   // the actions and the panel, for this page
         show_panel(focus);
     }
 
-    lv_obj_t* add(const char* symbol, const std::string& text, Item item) {
-        lv_obj_t* b = list_button(list_, symbol, text.c_str(), on_click, this);
-        lv_obj_set_user_data(b, (void*)(intptr_t)items_.size());
-        lv_obj_add_event_cb(b, on_focus, LV_EVENT_FOCUSED, this);
-        if (lv_obj_t* lbl = lv_obj_get_child(b, 1)) lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+    int add(const char* symbol, const std::string& text, Item item, const std::string& value = "") {
+        int i = int(items_.size());
         items_.push_back(item);
-        buttons_.push_back(b);
-        return b;
+        return list_.add(symbol, text, value, [this, i] { activate(i); });
     }
 
-    int focused() {
-        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
-        if (!f || !list_ || lv_obj_get_parent(f) != list_) return -1;
-        return int((intptr_t)lv_obj_get_user_data(f));
+    int focused() const { return list_.focused(); }
+
+    // The soft-key bar and the menu, for the row in focus (Enter's word
+    // changes with it).
+    void set_actions(int i) {
+        std::vector<Action> a;
+        if (page_ == Page::Nodes) {
+            a.push_back({"Use", 0, "Enter", nullptr});
+            a.push_back({"Refresh", 'r', nullptr, [this] {
+                             refresh_nodes();
+                             dirty_ = true;
+                         }});
+            shell_set_actions(std::move(a));
+            return;
+        }
+        const char* enter = "Choose";
+        if (i >= 0 && i < int(items_.size()) && items_[size_t(i)].row != Row::ExitNode) {
+            std::string mode = items_[size_t(i)].row == Row::Ethernet ? "ethernet" : "usb";
+            enter = st_.mode == mode || pending_ == mode ? "Turn off" : "Turn on";
+        }
+        bool on = !st_.mode.empty() || (!pending_.empty() && pending_ != "off");
+        a.push_back({enter, 0, "Enter", nullptr});
+        a.push_back({"Choose exit node", 'x', nullptr, [this] { activate(2); }});
+        Action off{"Turn the router off", 'o', nullptr, [this] { turn_off(); }};
+        off.enabled = on;
+        a.push_back(off);
+        shell_set_actions(std::move(a));
     }
 
     // Where the laptop's traffic goes, in a few lines.
@@ -463,6 +503,13 @@ private:
     }
 
     void show_panel(int i) {
+        // Enter's word follows the row and the router's state.
+        std::string sig = std::to_string(i) + signature();
+        if (i != shown_ || sig != actions_sig_) {
+            shown_ = i;
+            actions_sig_ = sig;
+            set_actions(i);
+        }
         if (!head_ || i < 0 || i >= int(items_.size())) return;
         const Item& it = items_[size_t(i)];
         std::string head, body;
@@ -478,11 +525,11 @@ private:
                 } else if (st_.mode == mode && st_.error) {
                     head = "Failed";
                     color = kBad;
-                    body = st_.error_text + "\nEnter turns it off.";
+                    body = st_.error_text;
                 } else if (st_.mode == mode) {
                     head = cable_ ? "Sharing" : "On";
                     color = kGood;
-                    body = status_lines() + "Enter turns it off.";
+                    body = status_lines();
                 } else if (mode == "usb") {
                     head = "USB-C";
                     body = "One cable: the laptop powers the Cardputer and gets its network.\nSwitch on the left: "
@@ -502,8 +549,8 @@ private:
                 else if (ts_state_ == "NeedsLogin") body = "Sign in to Tailscale in Remote first.";
                 else if (ts_state_ != "Running") body = "Starting Tailscale...";
                 else if (n) body = (n->place.empty() ? std::string("") : n->place + "\n") +
-                                   (n->online ? "Online." : "Offline.") + "\nEnter picks another.";
-                else body = "Where the laptop's traffic comes out. Enter picks one.";
+                                   (n->online ? "Online." : "Offline.");
+                else body = "Where the laptop's traffic comes out.";
                 break;
             }
             case Row::Node: {
@@ -554,20 +601,6 @@ private:
         rebuild(i);
     }
 
-    static void on_click(lv_event_t* e) {
-        auto* self = static_cast<RouterApp*>(lv_event_get_user_data(e));
-        self->pending_click_ = int((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e)));
-        // Deferred: activating rebuilds the list, which deletes the clicked button.
-        lv_async_call([](void* p) {
-            auto* s = static_cast<RouterApp*>(p);
-            s->activate(s->pending_click_);
-        }, self);
-    }
-    static void on_focus(lv_event_t* e) {
-        auto* self = static_cast<RouterApp*>(lv_event_get_user_data(e));
-        self->show_panel(int((intptr_t)lv_obj_get_user_data(lv_event_get_target_obj(e))));
-    }
-
     struct Clock {
         uint32_t start = lv_tick_get();
         long ms() const { return long(lv_tick_elaps(start)); }
@@ -575,12 +608,14 @@ private:
     };
 
     lv_obj_t* root_ = nullptr;
-    lv_obj_t* list_ = nullptr;
+    lv_obj_t* list_obj_ = nullptr;
+    ListView list_;
     lv_obj_t* panel_ = nullptr;
     lv_obj_t* head_ = nullptr;
     lv_obj_t* body_ = nullptr;
     std::vector<Item> items_;
-    std::vector<lv_obj_t*> buttons_;
+    int shown_ = -2;                  // the row the panel and the actions are for
+    std::string actions_sig_;
     Page page_ = Page::Main;
 
     RouterState st_;
@@ -604,7 +639,6 @@ private:
 
     bool dirty_ = false;
     int n_ = 0;
-    int pending_click_ = -1;
 };
 }  // namespace
 

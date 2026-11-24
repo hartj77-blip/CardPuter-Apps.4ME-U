@@ -26,16 +26,19 @@ You need the **Remote** app installed and signed in to Tailscale (see
 ## Using it
 
 1. Open **Router**.
-2. **Exit node**: press Enter and pick one. Your own machines come first, then
+2. **Exit node** (the third row, **No exit node** or **Via** a machine): press Enter
+   and pick one. Your own machines come first, then
    Mullvad's locations if your tailnet has them. Machines that are offline
-   are greyed out.
+   say so. (Tab, then X, opens the list from any row.)
 3. Press Enter on **Ethernet** or **USB-C**. It says **starting...** for a few
    seconds, then **on**.
 4. Plug in the laptop. The row says **in use**, and the panel shows the
    laptop's name and address and the speed in both directions.
 
-Enter on the row again turns it off. Turning on the other one turns the first
-one off: one at a time.
+Enter on the row again turns it off, and so does Tab, then O (Turn the router
+off), from any row. Turning on the other one turns the first one off: one at a
+time. The bar along the bottom of the screen says what Enter does on the row
+in focus.
 
 Router mode **stays on after a restart**: if the Cardputer shuts down with it
 on, it comes back on by itself. While it is on, **Settings > Tailscale** is
@@ -87,7 +90,7 @@ on a charger for long sessions (on USB-C, the laptop is the charger).
 | --- | --- |
 | Router needs Remote (Tailscale) | Install **Remote** from Apps and sign in. |
 | Sign in to Tailscale in Remote first | Open **Remote** and scan the sign-in code. |
-| Pick an exit node first | **Exit node** > Enter, then pick one. If the list is empty, make a machine an exit node (above). |
+| Pick an exit node first | Enter on the third row (or Tab, then X), then pick one. If the list is empty, make a machine an exit node (above). |
 | *name* is offline: no internet until it's back | The exit node is off or unreachable. Pick another, or wait. |
 | No USB device port: set the switch on the left to Slave | USB-C mode needs the switch on **Slave**. Turn it off and on again after moving the switch. |
 | Car's USB stick mode is using the port | Turn off **USB stick mode** in Car; the port does one thing at a time. |

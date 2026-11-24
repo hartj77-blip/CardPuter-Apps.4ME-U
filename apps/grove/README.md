@@ -14,8 +14,10 @@ Install **Grove** from the Apps app, open it and choose **LED strip (NeoPixel)**
 | --- | --- |
 | Up / Down | Choose a row |
 | Left / Right (or Enter) | Change it |
-| Space | Lights on or off |
+| Space (or Tab, then L) | Lights on or off |
 | Esc | Back to the device list |
+
+The bar along the bottom of the screen shows these keys, and Tab opens the menu.
 
 - **Effect**: Solid, Breathe, Rainbow, Chase or Sparkle.
 - **Colour**: used by every effect except Rainbow.

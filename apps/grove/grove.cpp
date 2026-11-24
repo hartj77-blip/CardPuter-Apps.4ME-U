@@ -2,10 +2,9 @@
 // For now, a NeoPixel (WS2812 / SK6812) LED strip such as M5Stack's Grove
 // RGB LED strip. More Grove devices go in the list on the first page.
 //
-// LED strip page:
-//   Up / Down     choose a row
-//   Left / Right  change it (Enter also steps it on)
-//   Space         lights on / off
+// LED strip page: a list of settings rows (Left / Right or Enter change
+// the one in focus), and Space turns the lights on or off. The soft-key bar
+// and the Tab menu say so.
 // The strip itself is driven by zeroos-grove-ledd (shell/ledd/), a small
 // root service, because the Grove pins need SMI and DMA for the strip's
 // timing. This page tells it what to show over a socket; the lights keep
@@ -22,6 +21,7 @@
 
 #include "apps/common.h"
 #include "leds.h"
+#include "ui/list_view.h"
 #include "ui/prefs.h"
 #include "ui/tracker.h"
 
@@ -150,16 +150,20 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (!strip_page_) return false;
-        switch (key) {
-        case LV_KEY_UP: select(row_ - 1); return true;
-        case LV_KEY_DOWN: select(row_ + 1); return true;
-        case LV_KEY_LEFT: change(-1); return true;
-        case LV_KEY_RIGHT:
-        case LV_KEY_ENTER: change(1); return true;
-        case ' ': set_on(!on_); return true;
+        if (strip_page_) {
+            // Space is the lights' switch (a Control key, in the bar), unless
+            // it is part of a filter being typed.
+            if (key == ' ' && list_.filter().empty()) {
+                set_on(!on_);
+                return true;
+            }
+            // The Lights row is a switch: Left / Right flip it too.
+            if ((key == LV_KEY_LEFT || key == LV_KEY_RIGHT) && list_.focused() == lights_row_) {
+                set_on(!on_);
+                return true;
+            }
         }
-        return false;
+        return list_.key(key);
     }
 
     bool on_back() override {
@@ -169,46 +173,118 @@ public:
     }
 
 private:
-    enum Row { RowLights, RowEffect, RowColor, RowBrightness, RowSpeed, RowCount, NRows };
-
     // ---- First page: what's on the port --------------------------------
     void show_devices() {
         clear();
         strip_page_ = false;
-        page_ = lv_obj_create(root_);
-        style_plain(page_);
-        lv_obj_set_size(page_, kScreenW, kContentH);
-        lv_obj_remove_flag(page_, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_t* list = make_list(page_, 4, 4, kScreenW - 8, 78);
-        list_button(list, LV_SYMBOL_CHARGE, "LED strip (NeoPixel)", [](lv_event_t* e) {
-            static_cast<GroveApp*>(lv_event_get_user_data(e))->show_strip();
-        }, this);
-        finish_list(list);
+        shell_set_actions({{"Open", 0, "Enter", nullptr}});
+        page_ = make_page();
+        list_.build(page_, 4, 4, kScreenW - 8, 48);
+        list_.add(LV_SYMBOL_CHARGE, "LED strip (NeoPixel)", "", [this] { show_strip(); });
+        list_.finish();
         lv_obj_t* note = label(page_,
                                "Power the Cardputer off before plugging in.\n"
                                "Grove pins: GPIO 14 and 15 (UART mode), 5 V.\n"
                                "More Grove devices will be listed here.",
                                &zs_font_12, kMuted);
-        lv_obj_set_pos(note, 8, 90);
+        lv_obj_set_pos(note, 8, 56);
+    }
+
+    lv_obj_t* make_page() {
+        lv_obj_t* p = lv_obj_create(root_);
+        style_plain(p);
+        lv_obj_set_size(p, kScreenW, kBodyH);
+        lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
+        return p;
     }
 
     // ---- LED strip page --------------------------------------------------
+    // The settings are value rows (ListView): Left / Right step them, Enter
+    // steps forward. Rebuilt whole when the strip's state comes from outside
+    // (the service had it lit already), keeping the row in focus.
     void show_strip() {
+        int keep = strip_page_ ? list_.focused() : -1;
         clear();
         strip_page_ = true;
-        page_ = lv_obj_create(root_);
-        style_plain(page_);
-        lv_obj_set_size(page_, kScreenW, kContentH);
-        lv_obj_remove_flag(page_, LV_OBJ_FLAG_SCROLLABLE);
+        shell_set_actions({{"Change", 0, "Enter", nullptr},
+                           {"Lights on/off", 'l', "Space", [this] { set_on(!on_); }}});
+        page_ = make_page();
+        dots_box_ = lv_obj_create(page_);
+        lv_obj_remove_style_all(dots_box_);
+        lv_obj_set_size(dots_box_, kScreenW, 18);
+        lv_obj_remove_flag(dots_box_, LV_OBJ_FLAG_SCROLLABLE);
+        draw_dots();
 
-        // The strip on screen: one dot per LED.
+        list_.build(page_, 4, 20, kScreenW - 8, kBodyH - 20 - 18);
+        lights_row_ = list_.add(LV_SYMBOL_POWER, "Lights", "", [this] { set_on(!on_); });
+        std::vector<std::string> names;
+        int at = kNEffects;
+        for (int i = 0; i < kNEffects; ++i) {
+            names.push_back(effect_title(kEffects[i]));
+            if (kEffects[i] == effect_) at = i;
+        }
+        if (at == kNEffects) names.push_back(effect_title(effect_));   // "Set by a script"
+        effect_row_ = list_.add_choice(LV_SYMBOL_SHUFFLE, "Effect", names, at, [this](int i) {
+            effect_ = i < kNEffects ? kEffects[i] : leds::Effect::Pixels;
+            changed();
+        });
+        names.clear();
+        for (auto& col : kColors) names.push_back(col.name);
+        list_.add_choice(LV_SYMBOL_IMAGE, "Colour", names, color_, [this](int i) {
+            color_ = i;
+            changed();
+        });
+        names.clear();
+        at = 0;
+        for (int i = 0; i < kNBrightness; ++i) {
+            names.push_back(fmt("%d%%", kBrightness[i]));
+            if (kBrightness[i] <= s_.brightness) at = i;
+        }
+        list_.add_choice(LV_SYMBOL_EYE_OPEN, "Brightness", names, at, [this](int i) {
+            s_.brightness = kBrightness[i];
+            changed();
+        });
+        names.clear();
+        for (int i = 1; i <= leds::kMaxSpeed; ++i) names.push_back(std::to_string(i));
+        list_.add_choice(LV_SYMBOL_LOOP, "Speed", names, s_.speed - 1, [this](int i) {
+            s_.speed = i + 1;
+            changed();
+        });
+        names.clear();
+        for (int i = 1; i <= leds::kMaxLeds; ++i) names.push_back(std::to_string(i));
+        list_.add_choice(LV_SYMBOL_LIST, "LEDs", names, s_.count - 1, [this](int i) {
+            s_.count = i + 1;
+            save();
+            draw_dots();   // the new length
+            push();
+        });
+        list_.finish();
+        list_.focus(keep >= 0 ? keep : effect_row_);
+
+        status_text_.clear();
+        status_ = label(page_, "", &zs_font_12, kMuted);
+        lv_obj_set_width(status_, kScreenW - 16);
+        lv_label_set_long_mode(status_, LV_LABEL_LONG_DOT);
+        lv_obj_set_pos(status_, 8, kBodyH - 16);
+
+        show_lights();
+        timer_ = lv_timer_create([](lv_timer_t* t) {
+            static_cast<GroveApp*>(lv_timer_get_user_data(t))->animate();
+        }, 40, this);
+        animate();
+        tick();
+    }
+
+    // The strip on screen: one dot per LED.
+    void draw_dots() {
+        lv_obj_clean(dots_box_);
         int n = std::min(s_.count, kPreviewMax);
         int pitch = std::min(16, (kScreenW - 16) / n);
         int size = std::max(4, pitch - 3);
         int x0 = (kScreenW - pitch * n) / 2;
         dots_.clear();
         for (int i = 0; i < n; ++i) {
-            lv_obj_t* d = lv_obj_create(page_);
+            lv_obj_t* d = lv_obj_create(dots_box_);
             lv_obj_remove_style_all(d);
             lv_obj_set_size(d, size, size);
             lv_obj_set_pos(d, x0 + i * pitch + (pitch - size) / 2, 4 + (14 - size) / 2);
@@ -218,35 +294,7 @@ private:
             lv_obj_set_style_border_color(d, c(kSurface2), 0);
             dots_.push_back(d);
         }
-
-        static const char* kNames[NRows] = {"Lights", "Effect", "Colour", "Brightness", "Speed", "LEDs"};
-        for (int r = 0; r < NRows; ++r) {
-            lv_obj_t* row = lv_obj_create(page_);
-            lv_obj_remove_style_all(row);
-            lv_obj_set_size(row, kScreenW - 12, 18);
-            lv_obj_set_pos(row, 6, 22 + r * 18);
-            lv_obj_set_style_radius(row, 5, 0);
-            lv_obj_set_style_bg_color(row, c(kAccent), 0);
-            lv_obj_t* k = label(row, kNames[r], &zs_font_12, kMuted);
-            lv_obj_align(k, LV_ALIGN_LEFT_MID, 6, 0);
-            lv_obj_t* v = label(row, "", &zs_font_12, kText);
-            lv_obj_align(v, LV_ALIGN_RIGHT_MID, -6, 0);
-            rows_[r] = row;
-            keys_[r] = k;
-            values_[r] = v;
-        }
-        status_ = label(page_, "", &zs_font_12, kMuted);
-        lv_obj_set_width(status_, kScreenW - 16);
-        lv_label_set_long_mode(status_, LV_LABEL_LONG_DOT);
-        lv_obj_set_pos(status_, 8, 133);
-
-        select(row_);
-        show_values();
-        timer_ = lv_timer_create([](lv_timer_t* t) {
-            static_cast<GroveApp*>(lv_timer_get_user_data(t))->animate();
-        }, 40, this);
         animate();
-        tick();
     }
 
     void clear() {
@@ -254,59 +302,26 @@ private:
         timer_ = nullptr;
         if (group) lv_group_remove_all_objs(group);
         if (page_) lv_obj_delete(page_);
-        page_ = nullptr;
+        list_.reset();
+        page_ = dots_box_ = status_ = nullptr;
         dots_.clear();
     }
 
-    void select(int r) {
-        row_ = std::clamp(r, 0, NRows - 1);
-        for (int i = 0; i < NRows; ++i) {
-            bool on = i == row_;
-            lv_obj_set_style_bg_opa(rows_[i], on ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
-            lv_obj_set_style_text_color(keys_[i], c(on ? kOnAccent : kMuted), 0);
-            lv_obj_set_style_text_color(values_[i], c(on ? kOnAccent : kText), 0);
+    // A look was changed: that turns the lights on, so you see what you chose.
+    void changed() {
+        if (!on_) {
+            on_ = true;
+            hal().set_ext_power(true);
         }
-    }
-
-    void change(int d) {
-        switch (row_) {
-        case RowLights: set_on(!on_); return;
-        case RowEffect: {
-            int i = 0;
-            while (i < kNEffects && kEffects[i] != effect_) ++i;
-            // From "set by a script" (not in the list), go to the first.
-            effect_ = kEffects[i == kNEffects ? 0 : (i + d + kNEffects) % kNEffects];
-            break;
-        }
-        case RowColor: {
-            color_ = (color_ + d + kNColors) % kNColors;
-            break;
-        }
-        case RowBrightness: {
-            int i = 0;
-            while (i < kNBrightness - 1 && kBrightness[i] < s_.brightness) ++i;
-            s_.brightness = kBrightness[std::clamp(i + d, 0, kNBrightness - 1)];
-            break;
-        }
-        case RowSpeed: s_.speed = std::clamp(s_.speed + d, 1, leds::kMaxSpeed); break;
-        case RowCount: {
-            s_.count = std::clamp(s_.count + d, 1, leds::kMaxLeds);
-            save();
-            show_strip();   // redraw the dots for the new length
-            push();
-            return;
-        }
-        }
-        if (!on_ && row_ != RowLights) on_ = true;   // changing the look turns it on: you see what you chose
         save();
-        show_values();
+        show_lights();
         push();
     }
 
     void set_on(bool on) {
         on_ = on;
         if (on) hal().set_ext_power(true);
-        show_values();
+        show_lights();
         push();
         // The 5 V stays on for the mesh or a GPS track that also need it.
         if (!on && !hal().mesh().running && !track_state().recording) hal().set_ext_power(false);
@@ -326,14 +341,10 @@ private:
         client_.send_line(w.effect == leds::Effect::Off ? "off" : "set " + leds::to_line(w));
     }
 
-    void show_values() {
+    void show_lights() {
         if (!strip_page_) return;
-        lv_label_set_text(values_[RowLights], on_ ? "On" : "Off");
-        lv_label_set_text(values_[RowEffect], fmt("< %s >", effect_title(effect_)).c_str());
-        lv_label_set_text(values_[RowColor], fmt("< %s >", kColors[color_].name).c_str());
-        lv_label_set_text(values_[RowBrightness], fmt("< %d%% >", s_.brightness).c_str());
-        lv_label_set_text(values_[RowSpeed], fmt("< %d >", s_.speed).c_str());
-        lv_label_set_text(values_[RowCount], fmt("< %d >", s_.count).c_str());
+        list_.set_value(lights_row_, on_ ? "On" : "Off");
+        list_.set_value_color(lights_row_, on_ ? kGood : kMuted);
     }
 
     void animate() {
@@ -375,12 +386,8 @@ private:
                 uint32_t c = (uint32_t(now.color.r) << 16) | (uint32_t(now.color.g) << 8) | now.color.b;
                 for (int i = 0; i < kNColors; ++i)
                     if (kColors[i].rgb == c) color_ = i;
-                if (now.count != s_.count) {
-                    s_.count = now.count;
-                    show_strip();
-                    return;
-                }
-                show_values();
+                s_.count = now.count;
+                show_strip();   // every row shows it
             }
         }
     }
@@ -402,10 +409,10 @@ private:
             text = "Strip: " + hw_error_;
             color = kBad;
         } else if (hardware_ == "on" && on_) {
-            text = "Lit. Space: on/off. Leave the app: it stays lit.";
+            text = "Lit. It stays lit after you leave the app.";
             color = kGood;
         } else {
-            text = on_ ? "Starting the strip..." : "Off. Space turns it on.";
+            text = on_ ? "Starting the strip..." : "Off";
         }
         if (text != status_text_) {
             status_text_ = text;
@@ -434,11 +441,12 @@ private:
     lv_obj_t* root_ = nullptr;
     lv_obj_t* page_ = nullptr;
     lv_obj_t* status_ = nullptr;
-    lv_obj_t *rows_[NRows] = {}, *keys_[NRows] = {}, *values_[NRows] = {};
+    lv_obj_t* dots_box_ = nullptr;
+    ListView list_;
+    int lights_row_ = 0, effect_row_ = 0;
     std::vector<lv_obj_t*> dots_;
     lv_timer_t* timer_ = nullptr;
     bool strip_page_ = false;
-    int row_ = RowEffect;
 
     leds::Settings s_;
     leds::Effect effect_ = leds::Effect::Rainbow;

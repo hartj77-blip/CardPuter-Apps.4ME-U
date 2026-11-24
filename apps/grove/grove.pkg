@@ -2,7 +2,7 @@
 # (WS2812 / SK6812) LED strip, lit by zeroos-grove-ledd through SMI and DMA.
 NAME="Grove"
 SUMMARY="Light a NeoPixel LED strip on the Grove port, with effects"
-APP_VERSION="1.0.0"
+APP_VERSION="1.1.0"
 # Started by its socket when the app (or a script) connects.
 ENABLE="zeroos-grove-ledd.socket"
 STOP_ON_REMOVE="zeroos-grove-ledd.service"

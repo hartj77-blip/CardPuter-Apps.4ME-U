@@ -259,7 +259,20 @@ private:
         self->send();
     }
 
+    // The provider needs a key and none is set: sending can only fail.
+    bool key_missing() const {
+        const ai::Provider* p = ai::find_provider(cfg_.provider);
+        return p && p->needs_key && cfg_.key.empty();
+    }
+
     void send() {
+        if (key_missing()) {   // say what's wrong and go where it's fixed
+            failed_ = true;
+            shell_toast("Add your API key first");
+            page_ = Page::Settings;
+            defer_rebuild();
+            return;
+        }
         failed_ = false;
         job_ = std::make_shared<Job>();
         auto job = job_;
@@ -317,7 +330,12 @@ private:
         if (job_) {
             thinking_ = label(chat_, "Thinking", &zs_font_12, kMuted);
         } else if (failed_ && !h.empty() && h.back().user) {
-            label(chat_, "Not answered. Send it again with Try again in the menu.", &zs_font_12, kBad);
+            lv_obj_t* l = label(chat_,
+                                key_missing() ? "Not answered: no API key. Add one in Settings (P), then press Enter."
+                                              : "Not answered. Send it again with Try again in the menu.",
+                                &zs_font_12, kBad);
+            lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+            lv_obj_set_width(l, kScreenW - 24);
         }
         lv_obj_update_layout(chat_);
         lv_obj_scroll_to_y(chat_, LV_COORD_MAX, LV_ANIM_OFF);

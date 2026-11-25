@@ -123,7 +123,11 @@ jobs:
           # The previous release, for the builds devices on the level below still need.
           mkdir -p previous
           gh release download --dir previous --pattern 'zeroos-app*' 2>/dev/null || echo "no previous release"
-          PREVIOUS=$PWD/previous tools/assemble.sh dist "${{ needs.levels.outputs.built_for }}" levels/level-*
+          # download-artifact unpacks a lone match straight into levels/, not
+          # levels/level-N/, so with one level the folder is levels itself.
+          dirs=(levels/level-*/)
+          [ -d "${dirs[0]}" ] || dirs=(levels)
+          PREVIOUS=$PWD/previous tools/assemble.sh dist "${{ needs.levels.outputs.built_for }}" "${dirs[@]}"
           cat dist/zeroos-apps.index
       - name: Sign
         env:

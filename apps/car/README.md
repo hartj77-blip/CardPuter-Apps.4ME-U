@@ -1,16 +1,17 @@
 # In the car
 
-The **Car** app gives two ways to play music through a car stereo. Neither is
+The **Car** app gives three ways to play music through a car stereo. None is
 CarPlay or Android Auto: those only accept a phone certified by Apple or
 Google, and the Cardputer cannot stand in for one.
 
-| | USB stick mode | Bluetooth |
-| --- | --- | --- |
-| Works with | Any stereo that plays music from a USB stick | Stereos, speakers and headphones with Bluetooth music |
-| What plays | Files in `~/Music` | Anything Media or Jellyfin plays |
-| Who is the player | The car | The Cardputer |
-| Car buttons | All of them (it is the car's own player) | Play, pause, next, previous |
-| Cable | One USB-C cable, data and power | None for sound; any USB charger for power |
+| | USB stick mode | Bluetooth | Music from your phone |
+| --- | --- | --- | --- |
+| Works with | Any stereo that plays music from a USB stick | Stereos, speakers and headphones with Bluetooth music | A stereo with an aux input (or Bluetooth music) |
+| What plays | Files in `~/Music` | Anything Media or Jellyfin plays | Anything the phone plays: Spotify, the Jellyfin app, podcasts |
+| Who is the player | The car | The Cardputer | The phone |
+| Car buttons | All of them (it is the car's own player) | Play, pause, next, previous | None over aux; Bluetooth: play, pause, next, previous |
+| Track names on the car | Yes | No | No; on the Cardputer's screen |
+| Cable | One USB-C cable, data and power | None for sound; any USB charger for power | Aux: a 3.5 mm cable from the headphone jack |
 
 ## USB stick mode
 
@@ -61,6 +62,47 @@ Bluetooth is on. **Settings > Bluetooth auto-off** turns Bluetooth off after
 a while with nothing connected, so set it to **Never** if the Cardputer lives
 in the car.
 
+## Music from your phone
+
+For a car with an aux input but no Bluetooth music: the phone sends its
+music to the Cardputer over Bluetooth, and the Cardputer plays it out of
+its headphone jack into the aux, like a Bluetooth aux adapter. Calls stay
+on the phone: the Cardputer takes the phone's music but doesn't offer to
+be its hands-free kit, so the phone rings and you talk on it as usual, and
+the music pauses for the call.
+
+**Pair the phone once.** In **Car**, press Enter on **Add a phone**. The
+Cardputer can be found as `cardputer` for 2 minutes: on the phone, open
+the Bluetooth settings, pick **cardputer** and accept. (Or open the phone's
+Bluetooth settings so it can be found, then use **Scan for devices** here.)
+The phone then shows in the list with a phone icon.
+
+**In the car.** Plug a 3.5 mm cable from the Cardputer's headphone jack
+into the car's aux and pick AUX on the stereo. Connect the phone (Enter on
+its row in **Car** if it didn't connect by itself) and play music on it.
+The row says **Playing** or **Paused**, and the panel beside it shows the
+song and the artist.
+
+| To | Press |
+| --- | --- |
+| Pause or play | Enter on the phone's row |
+| Next or previous song | **Tab > N** or **Tab > B** (Ctrl + N, Ctrl + B) |
+| Disconnect the phone | **Tab > X** |
+| Pause, play and skip from anywhere, also with the screen off | Fn + Q, W, E (needs a ZeroOS newer than 0.7.2) |
+| Change the volume | The phone's volume, the Cardputer's volume keys, or the car's knob |
+
+The car's buttons can't reach the Cardputer over an aux cable: that carries
+only sound. With a ZeroOS up to 0.7.2, Fn + Q, W, E start the Cardputer's own
+music over the phone's; use the menu or the phone instead.
+
+If a Bluetooth car, speaker or headphones is connected as well, the phone's
+music goes there instead of the headphone jack, and on a newer ZeroOS that
+device's play and skip buttons reach the phone too. While the Cardputer
+plays something of its own (Media, Jellyfin), the keys are for that.
+
+Keep **Settings > Bluetooth auto-off** at a setting that suits you: a
+connected phone counts as connected, so Bluetooth stays on while it is.
+
 ## Power
 
 A car's USB socket often gives only 0.5 A (2.5 W), about what the Cardputer
@@ -76,22 +118,37 @@ things still to check on a device.
 | `zeroos-usb-stick.service` | Runs `/usr/lib/zeroos/usb-stick` as root: builds the image with `sfdisk`, `mkfs.vfat` and mtools, then sets up a USB mass-storage gadget (configfs) on the `dwc2` controller. Progress goes to `/run/zeroos/usb-stick.state`. |
 | Bluetooth | `bluetoothctl` pairs, trusts and connects; PipeWire's Bluetooth module (`libspa-0.2-bluetooth`) carries the sound; `pipewire-alsa` routes sox's playback of local files through PipeWire as well. |
 | Car buttons | BlueZ presents a connected device's buttons as a Linux input device (via `uinput`). ZeroShell reads any input device that has media keys but no letters, so a USB multimedia remote works too. |
+| A phone's music | PipeWire receives it (the A2DP sink role) and plays it on the default output, as any other sound: the headphone jack, or a connected Bluetooth car. The phone's player (AVRCP) is an `org.bluez.MediaPlayer1` object under its device; Car reads the song and sends play, pause and skip with `busctl` (`phone_player.h`). A device counts as a phone when `bluetoothctl info` lists an Audio Source or the phone icon. On ZeroOS after 0.7.2, ZeroShell sends Fn + Q, W, E and a Bluetooth car's buttons to that player too, while it plays nothing itself. |
+| `/etc/wireplumber/wireplumber.conf.d/60-zeroos-car.conf` | WirePlumber settings. Bluetooth audio without a login: ZeroShell runs as a service, and WirePlumber otherwise only starts Bluetooth audio for an active login (`monitor.bluez.seat-monitoring`). And the Bluetooth roles without `hfp_hf`, so a phone isn't offered a hands-free kit and calls stay on it. Car restarts WirePlumber once when it opens after an install or update, so the settings apply without a restart. |
+
+## Checked on a device
+
+USB stick mode has worked in a car: the stereo took the stick, showed the
+track names, and its buttons played, paused and skipped.
 
 ## Not checked on a device yet
 
-None of this has run on a Cardputer or in a car. In particular:
+The rest hasn't run on a Cardputer or in a car yet. In particular:
 
-- that the right-hand USB-C port enumerates as a device with the stock
-  `dtoverlay=dwc2` once the switch is on Slave;
-- whether a given car accepts the stick (old stereos can be picky about
+- whether other cars accept the stick (old stereos can be picky about
   size, folder depth and file types);
 - whether the data port charges the battery;
 - pairing with a real car, and that sound moves to it when it connects;
-- that the car's buttons arrive as media keys.
+- that the car's buttons arrive as media keys;
+- that Bluetooth audio needed the seat setting in `60-zeroos-car.conf`, and
+  that restarting WirePlumber when Car opens applies it;
+- music from a phone: pairing an Android phone and an iPhone with
+  **Add a phone** (an iPhone may not list a Cardputer: then use **Scan for
+  devices**), sound out of the headphone jack, the song on the screen,
+  play, pause and skip, and that the phone keeps its calls (and whether it
+  plays its ringtone over the aux too);
+- how far behind the phone the sound runs (Bluetooth adds a fraction of a
+  second; it doesn't matter for music).
 
 ## Limits
 
 - The car's screen does not show the track name over Bluetooth.
+- Music from a phone: one phone at a time, and no calls through the car.
 - No iPod emulation, so a stereo that only knows "iPod" on its USB socket
   will not see the Cardputer.
 - Pairing and scanning freeze the screen while they run (up to 40 seconds for

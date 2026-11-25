@@ -178,7 +178,7 @@ the app. It all goes again when you remove the app.
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
 | [Games](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen or a TV on the HDMI port; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Two (up to four) players with USB or Bluetooth gamepads. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
-| [Car](apps/car/README.md) | `car` | Music in the car: the Cardputer as a USB stick of your music, or Bluetooth audio with the car's buttons | mtools, dosfstools, fdisk |
+| [Car](apps/car/README.md) | `car` | Music in the car: the Cardputer as a USB stick of your music, Bluetooth audio with the car's buttons, or your phone's music through the Cardputer to the aux | mtools, dosfstools, fdisk |
 
 ### Networks and other computers
 
@@ -540,7 +540,7 @@ with Games are Debian's.
 | Net Tools | File capabilities on `arp-scan` (`cap_net_raw`) and `tcpdump` (`cap_net_raw,cap_net_admin`), which become `root:netdev 0750`, so members of `netdev` can scan and capture. Nothing runs as root. Removing the app puts both back to `root:root 0755` | Discover and Capture need raw sockets. Version 2.0 used a sudo rule instead, which amounted to passwordless root (`sudo tcpdump -z` runs any program); 2.1 removes it, so upgrade |
 | Router | A polkit rule letting your user start and stop `zeroos-router@ethernet` and `zeroos-router@usb` | Router turns routing on and off without asking for a password |
 | RF Tools | A udev rule giving your user the RTL-SDR dongle, and a modprobe rule keeping the kernel's DVB-T driver off it | So the radio daemon runs as you, not as root |
-| Car | Loads the `uinput` and `libcomposite` kernel modules at boot | The car's buttons become key presses; the Cardputer can act as a USB stick |
+| Car | Loads the `uinput` and `libcomposite` kernel modules at boot, and adds WirePlumber settings (Bluetooth audio without a login; no hands-free role for phones) | The car's buttons become key presses; the Cardputer can act as a USB stick; Bluetooth audio works from a service, and a phone's calls stay on the phone |
 
 **Your data.** AI's API keys are in `~/.config/zeroos/ai.conf` with mode 600, and are handed to
 curl through a private temporary file so they never appear in the process list. The Jellyfin app uses your

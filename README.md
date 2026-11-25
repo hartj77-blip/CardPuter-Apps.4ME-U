@@ -173,7 +173,7 @@ the app. It all goes again when you remove the app.
 
 | App | Id | What it does | Brings |
 | --- | --- | --- | --- |
-| [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, over a file explorer, with pixel-art skins (a 1970s hi-fi, liquid chrome): music on the SD card, USB drives and mounted server shares (SMB, NFS), and http(s) addresses | mpv |
+| [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, over a file explorer, with pixel-art skins (a 1970s hi-fi, liquid chrome) and classic Winamp skins (`.wsz`): music on the SD card, USB drives and mounted server shares (SMB, NFS), and http(s) addresses | mpv |
 | [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: home screen cards, Continue Watching, a now-playing bar | mpv, libmpv |
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
@@ -226,6 +226,7 @@ Terminal, SSH, or another computer.
 | `~/Documents/logbook.adi` | Your radio contacts, as ADIF | RF Tools (Logbook, FT8) |
 | `~/Recordings/` | Voice notes (16 kHz WAV), and packet captures (`.pcap`) | Recorder, Net Tools (Capture) |
 | `~/Music/` | Music to play, and what Car's USB stick mode copies | you; Media and Car read it |
+| `~/Skins/` | Classic Winamp skins (`.wsz`) for Media | you; Media reads it |
 | `~/Pictures/DCIM/Camera/` | Photos | Camera |
 | `~/Downloads/` | Files sent to the Cardputer with Taildrop | Remote |
 | `~/Games/` | Your games (a folder per console), saves, downloaded cores | you, Games |

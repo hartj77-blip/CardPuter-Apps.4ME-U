@@ -5,7 +5,8 @@ player: an LCD with the time and a spectrum analyser, the title scrolling
 past, transport buttons. Underneath, where the playlist used to be, is a file
 explorer: the music on the SD card, USB drives, and shares on a server. It
 comes in three skins: the classic look, a 1970s hi-fi receiver and a
-liquid-chrome player from 2001.
+liquid-chrome player from 2001. It also wears classic Winamp skins (`.wsz`)
+that you copy to `~/Skins`.
 
 Media is for music only. Up to 3.0 it also played video files; that's gone,
 so video files aren't listed any more.
@@ -55,6 +56,37 @@ the player; on the player, Esc, **L**, Up or Down go to the playlist. On a
 skin's playlist the preset keys **1** to **6** open that row.
 
 Up to 3.1 Media had eight colour themes instead; they're gone.
+
+## Winamp skins
+
+Media wears classic Winamp skins, the `.wsz` files of Winamp 2 (thousands
+are free to download, from the Winamp Skin Museum for one). Copy them to
+`~/Skins` on the SD card. After the three built-in skins, **T** steps
+through them by name. A skin unpacked into a folder in `~/Skins` works too.
+
+Winamp's main window is 275 x 116 pixels, so it fits on the screen at its own
+size, every pixel as the skin's artist drew it:
+
+- The **Player** tab is the main window: play, pause or stop and the time in
+  the skin's digits, the title scrolling in its letters, the analyser in its
+  colours (`viscolor.txt`), the seek bar's thumb where the track is, the
+  volume slider, Shuffle lit when it's on, and the transport button you just
+  pressed held down for a moment.
+- The **Library** is the playlist window, stretched across the screen. The
+  explorer's rows are in the system font, since Winamp's 5 x 6 letters are too
+  small for file names, in the skin's own colours (`pledit.txt`). Where you
+  are scrolls along the box at the bottom, and the time goes next to it.
+
+What only a mouse could do is drawn but does nothing: the balance, the EQ
+and playlist buttons, repeat, the window buttons. Media plays from the
+keyboard as in any other skin.
+
+Only classic skins work. Winamp 3 and 5's modern skins (`.wal`, and `.wsz`
+files without a `main.bmp`) are layouts with scripts, not pictures, and are
+passed by. So is any skin that can't be read: **T** goes to the next one
+and says why. When a part is missing from a skin, the main window's own
+picture shows in its place. Winamp would draw its own skin's part there, and
+that skin isn't ours to ship.
 
 ## Places
 
@@ -142,7 +174,7 @@ The marquee shows the artist as the folder two up from the track
 
 ## Limits
 
-- The spectrum analyser, and the skins' VU meters, are for the look: the
+- The spectrum analysers and the VU meters are for the look: the
   player doesn't hand the sound to the app, so they dance to a made-up beat.
 - No seeking within a track: ZeroOS's music player can't do it yet, so Left /
   Right on the Player skip tracks.

@@ -176,7 +176,7 @@ you won't notice. Other sound (key clicks, games) isn't affected.
   where), and that device's play and skip buttons reach the phone too
   (ZeroOS 0.8.0 or newer).
 - The phone's music and the Cardputer's own (Media, Jellyfin, a video)
-  never play at once (ZeroOS 0.8.2 or newer): whichever you start last
+  never play at once (ZeroOS 0.8.4 or newer): whichever you start last
   plays, and the other pauses. Start music on the Cardputer and the phone
   pauses; press play on the phone and the Cardputer's music pauses, with
   "Paused: your phone is playing".

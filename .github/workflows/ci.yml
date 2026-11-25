@@ -21,7 +21,7 @@ jobs:
         # main: ZeroOS as it is now, so an OS change that breaks an app shows here first.
         os: [pinned, main]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           submodules: true
           fetch-depth: 0   # tools/check-versions.sh compares with main
@@ -67,7 +67,7 @@ jobs:
           apt-get update -qq
           apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file >/dev/null
           apt-get install -y -qq --no-install-recommends pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev >/dev/null
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           submodules: true
       - name: Add Raspberry Pi's repository (as on the device)

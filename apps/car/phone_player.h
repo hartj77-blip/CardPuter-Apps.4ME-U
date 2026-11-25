@@ -6,7 +6,8 @@
 // The parsing is a copy of the OS's shell/src/hal/bt_player.h (tested by
 // its shell/tests/bt_player_test.cpp), in a namespace of its own: the app
 // then runs on a ZeroOS without that file, and the two never clash inside
-// ZeroShell. Keep them the same.
+// ZeroShell. Keep them the same; this copy also reads the song's length and
+// where it is (tests/phone_player_test.cpp).
 #pragma once
 
 #include <sys/stat.h>
@@ -119,12 +120,14 @@ inline std::vector<std::string> words(const std::string& line) {
 struct Info {
     std::string status;   // playing, paused, stopped, forward-seek, reverse-seek, error; "" if unknown
     std::string title, artist;
+    int duration_ms = -1, position_ms = -1;   // -1: the phone didn't say
     bool playing() const { return status == "playing" || status == "forward-seek" || status == "reverse-seek"; }
 };
 
 // "busctl get-property org.bluez <player> org.bluez.MediaPlayer1 Status Track":
 //   s "playing"
 //   a{sv} 3 "Title" s "Song" "Artist" s "Band" "Duration" u 215000
+//   u 61000            (Position, when asked for: milliseconds in)
 inline Info parse_info(const std::string& out) {
     Info info;
     size_t at = 0;
@@ -133,9 +136,11 @@ inline Info parse_info(const std::string& out) {
         std::vector<std::string> w = words(out.substr(at, nl == std::string::npos ? std::string::npos : nl - at));
         at = nl == std::string::npos ? out.size() : nl + 1;
         if (w.size() == 2 && w[0] == "s") info.status = w[1];
+        if (w.size() == 2 && w[0] == "u") info.position_ms = std::atoi(w[1].c_str());
         if (w.size() < 2 || w[0] != "a{sv}") continue;
         // Pairs of name, type, value. Every Track field is a string or a number.
         for (size_t i = 2; i + 2 < w.size(); i += 3) {
+            if (w[i] == "Duration" && w[i + 1] == "u") info.duration_ms = std::atoi(w[i + 2].c_str());
             if (w[i + 1] != "s") continue;
             if (w[i] == "Title") info.title = w[i + 2];
             if (w[i] == "Artist") info.artist = w[i + 2];
@@ -195,7 +200,8 @@ inline std::string player_of(const std::string& address) {
 
 inline Info read_player(const std::string& path) {
     if (path.empty()) return {};
-    return parse_info(run("busctl get-property org.bluez " + path + " org.bluez.MediaPlayer1 Status Track"));
+    // Position last: a phone without it still gives the other two.
+    return parse_info(run("busctl get-property org.bluez " + path + " org.bluez.MediaPlayer1 Status Track Position"));
 }
 
 // path is from player_paths(): letters, digits, '_' and '/' only.

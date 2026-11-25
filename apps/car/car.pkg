@@ -6,12 +6,16 @@ APP_VERSION="1.2.2"
 DEPENDS="mtools, dosfstools, fdisk"
 NEEDS="mtools"
 STOP_ON_REMOVE="zeroos-usb-stick.service"
+# Wi-Fi off while a phone's music plays and Wi-Fi isn't connected (README.md).
+ENABLE="zeroos-car-wifi.service"
 # BlueALSA (from the base image) takes a phone's music before PipeWire can,
 # then can't play it ("Host is down"): turned off at install (README.md).
 DISABLE_DEPS="bluealsa-aplay.service bluealsa.service"
 payload() {
     install -D -m 0755 "$F/zeroos-usb-stick" "$D/usr/lib/zeroos/usb-stick"
     install -D -m 0644 "$F/zeroos-usb-stick.service" "$D/etc/systemd/system/zeroos-usb-stick.service"
+    install -D -m 0755 "$F/zeroos-car-wifi" "$D/usr/lib/zeroos/car-wifi"
+    install -D -m 0644 "$F/zeroos-car-wifi.service" "$D/etc/systemd/system/zeroos-car-wifi.service"
     # uinput: BlueZ turns the car's play/skip buttons into key presses with it.
     install -d "$D/etc/modules-load.d"
     printf 'uinput\nlibcomposite\n' > "$D/etc/modules-load.d/zeroos-car.conf"

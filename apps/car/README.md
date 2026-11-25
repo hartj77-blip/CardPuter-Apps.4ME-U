@@ -100,6 +100,25 @@ music goes there instead of the headphone jack, and on a newer ZeroOS that
 device's play and skip buttons reach the phone too. While the Cardputer
 plays something of its own (Media, Jellyfin), the keys are for that.
 
+### Wi-Fi and Bluetooth
+
+The Cardputer has one radio chip for both, and they take turns. When Wi-Fi
+is on but not connected to anything, as it usually is in a car, it searches
+for known networks every few seconds, and each search makes the phone's
+music skip. So while the phone's music plays and Wi-Fi isn't connected, Car
+turns Wi-Fi off, and turns it on again about half a minute after the music
+stops or the phone goes. This works with Car closed and the screen off.
+
+- Connected Wi-Fi (your phone's hotspot, say) stays on. Light use such as
+  SSH, messages or syncing is fine alongside the music; a big download may
+  still make it skip.
+- Wi-Fi that is connecting at that moment is left alone.
+- Turn Wi-Fi on yourself while the music plays and it stays on until the
+  music stops.
+- If the Cardputer restarts while Wi-Fi is off because of this, Wi-Fi comes
+  back on.
+- To switch this off: `sudo systemctl disable --now zeroos-car-wifi`.
+
 Keep **Settings > Bluetooth auto-off** at a setting that suits you: a
 connected phone counts as connected, so Bluetooth stays on while it is.
 
@@ -119,6 +138,7 @@ things still to check on a device.
 | Bluetooth | `bluetoothctl` pairs, trusts and connects; PipeWire's Bluetooth module (`libspa-0.2-bluetooth`) carries the sound; `pipewire-alsa` routes sox's playback of local files through PipeWire as well. |
 | Car buttons | BlueZ presents a connected device's buttons as a Linux input device (via `uinput`). ZeroShell reads any input device that has media keys but no letters, so a USB multimedia remote works too. |
 | A phone's music | PipeWire receives it (the A2DP sink role) and plays it on the default output, as any other sound: the headphone jack, or a connected Bluetooth car. The phone's player (AVRCP) is an `org.bluez.MediaPlayer1` object under its device; Car reads the song and sends play, pause and skip with `busctl` (`phone_player.h`). A device counts as a phone when `bluetoothctl info` lists an Audio Source or the phone icon. On ZeroOS 0.8.0 and newer, ZeroShell sends Fn + Q, W, E and a Bluetooth car's buttons to that player too, while it plays nothing itself. |
+| `zeroos-car-wifi.service` | Runs `/usr/lib/zeroos/car-wifi` as root: every 5 seconds it asks BlueZ whether a phone's player is playing (`busctl`) and NetworkManager whether Wi-Fi is connected (`nmcli`), and turns Wi-Fi off or on again as above. What it turned off is noted in `/var/lib/zeroos/car`, so it is put back after a restart and when the service stops. Tested by `tests/car-wifi-test.sh`. |
 | A bigger buffer | While a phone's music plays, `60-zeroos-car.conf` makes PipeWire run in 2048-sample steps (about 43 ms) instead of 512 (`node.force-quantum` on `bluez_input.*` nodes), so its buffer for the phone's music holds more and a short stall of the CPU or the radio doesn't skip. The music starts that much later, which doesn't matter. If it still skips, turning Wi-Fi off in the car helps: Wi-Fi and Bluetooth share one radio. |
 | BlueALSA off | The base image also runs BlueALSA (`bluealsa`, `bluealsa-aplay`), a second Bluetooth audio stack. It took a phone's music before PipeWire could and then couldn't play it (`bluealsa-aplay` runs as root and can't reach the user's PipeWire: "Host is down"), so the phone was connected and its buttons worked, but nothing played. Installing Car turns both services off; ZeroOS 0.8.1 and newer do too. |
 | `/etc/wireplumber/wireplumber.conf.d/60-zeroos-car.conf` | WirePlumber settings. Bluetooth audio without a login: ZeroShell runs as a service, and WirePlumber otherwise only starts Bluetooth audio for an active login (`monitor.bluez.seat-monitoring`). And the Bluetooth roles without `hfp_hf`, so a phone isn't offered a hands-free kit and calls stay on it. Car restarts WirePlumber once when it opens after an install or update, so the settings apply without a restart. |
@@ -156,6 +176,9 @@ The rest hasn't run on a Cardputer or in a car yet. In particular:
 - music from a phone: an Android phone; the song on the screen; that the
   phone keeps its calls (and whether it plays its ringtone over the aux
   too); that turning BlueALSA off at install is enough without a restart;
+- that the bigger buffer and Wi-Fi off while the music plays stop the
+  skips, and that an iPhone reports "playing" for its player (the Wi-Fi
+  helper goes by that);
 - how far behind the phone the sound runs (Bluetooth adds a fraction of a
   second; it doesn't matter for music).
 

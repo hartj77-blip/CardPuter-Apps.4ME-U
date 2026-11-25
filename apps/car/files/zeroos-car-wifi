@@ -1,0 +1,73 @@
+#!/bin/sh
+# zeroos-car-wifi: Wi-Fi off while a phone's music plays and Wi-Fi isn't
+# connected to anything (Car's README.md, "Wi-Fi and Bluetooth").
+#
+# The Cardputer's one radio chip does both; while Wi-Fi is on but not
+# connected, NetworkManager searches for known networks every few seconds and
+# each search takes the radio away from the music, which skips. Connected
+# Wi-Fi (a phone's hotspot) is left alone. Once the music has stopped for a
+# while, or the phone has gone, Wi-Fi comes back on. If you turn Wi-Fi on
+# yourself while the music plays, it stays on until the music stops.
+#
+# Runs as root (zeroos-car-wifi.service). "zeroos-car-wifi once" does one
+# check, for tests. State lives in $STATE (the marker survives a restart, so
+# Wi-Fi this turned off comes back on after one).
+set -u
+STATE=${ZEROOS_CAR_WIFI_STATE:-/var/lib/zeroos/car}
+OFF=$STATE/wifi-off        # we turned Wi-Fi off
+KEEP=$STATE/wifi-keep      # you turned it back on: leave it until the music stops
+QUIET=$STATE/quiet         # checks in a row without the phone playing
+GRACE=${ZEROOS_CAR_WIFI_GRACE:-6}   # x 5 s: pauses between songs don't count
+INTERVAL=5
+
+# A phone (it sends music) whose player says "playing".
+phone_playing() {
+    for p in $(busctl --list tree org.bluez 2>/dev/null |
+               grep -E '^/org/bluez/hci[0-9]+/dev(_[0-9A-Fa-f]{2}){6}/player[0-9]+$'); do
+        a=$(echo "$p" | sed -E 's|.*/dev_([0-9A-Fa-f_]{17})/.*|\1|' | tr _ :)
+        bluetoothctl info "$a" 2>/dev/null | grep -qE 'Audio Source +\(0000110a|Icon: phone' || continue
+        busctl get-property org.bluez "$p" org.bluez.MediaPlayer1 Status 2>/dev/null | grep -q '"playing"' && return 0
+    done
+    return 1
+}
+wifi_on() { [ "$(nmcli -t radio wifi 2>/dev/null)" = enabled ]; }
+wifi_connected() { nmcli -t -f TYPE,STATE device 2>/dev/null | grep -qx 'wifi:connected'; }
+
+restore() {   # Wi-Fi back as it was
+    if [ -e "$OFF" ]; then
+        nmcli radio wifi on 2>/dev/null || true
+        echo "music stopped: Wi-Fi on again"
+    fi
+    rm -f "$OFF" "$KEEP" "$QUIET"
+}
+
+check() {
+    if phone_playing; then
+        rm -f "$QUIET"
+        if [ -e "$OFF" ] && wifi_on; then
+            # Turned back on by hand while the music plays: keep it on.
+            rm -f "$OFF"
+            touch "$KEEP"
+        elif [ ! -e "$KEEP" ] && wifi_on && ! wifi_connected; then
+            # Only when it isn't connecting either: "connecting" is left alone.
+            if nmcli -t -f TYPE,STATE device 2>/dev/null | grep -qE '^wifi:(disconnected|unavailable)$'; then
+                nmcli radio wifi off 2>/dev/null && touch "$OFF" && echo "phone music, Wi-Fi not connected: Wi-Fi off"
+            fi
+        fi
+        return 0
+    fi
+    [ -e "$OFF" ] || [ -e "$KEEP" ] || return 0
+    n=$(( $(cat "$QUIET" 2>/dev/null || echo 0) + 1 ))
+    if [ "$n" -ge "$GRACE" ]; then restore; else echo "$n" > "$QUIET"; fi
+}
+
+mkdir -p "$STATE"
+case "${1:-run}" in
+    once) check ;;
+    restore) restore ;;
+    run)
+        # After a restart (or a crash) with Wi-Fi off because of us: back on.
+        restore
+        while :; do check; sleep "$INTERVAL"; done ;;
+    *) echo "usage: zeroos-car-wifi [run|once|restore]" >&2; exit 2 ;;
+esac

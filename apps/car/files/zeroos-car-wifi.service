@@ -1,0 +1,15 @@
+# Wi-Fi off while a phone's music plays and Wi-Fi isn't connected (Car's
+# README.md, "Wi-Fi and Bluetooth"). Installed and started with the Car app.
+[Unit]
+Description=ZeroOS Car: Wi-Fi off while a phone's music plays, unless connected
+After=bluetooth.service NetworkManager.service
+
+[Service]
+ExecStart=/usr/lib/zeroos/car-wifi run
+ExecStopPost=/usr/lib/zeroos/car-wifi restore
+Restart=on-failure
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

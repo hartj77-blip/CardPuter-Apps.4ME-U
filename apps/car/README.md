@@ -88,11 +88,11 @@ song and the artist.
 | Pause or play | Enter on the phone's row |
 | Next or previous song | **Tab > N** or **Tab > B** (Ctrl + N, Ctrl + B) |
 | Disconnect the phone | **Tab > X** |
-| Pause, play and skip from anywhere, also with the screen off | Fn + Q, W, E (needs a ZeroOS newer than 0.7.2) |
+| Pause, play and skip from anywhere, also with the screen off | Fn + Q, W, E (ZeroOS 0.8.0 or newer) |
 | Change the volume | The phone's volume, the Cardputer's volume keys, or the car's knob |
 
 The car's buttons can't reach the Cardputer over an aux cable: that carries
-only sound. With a ZeroOS up to 0.7.2, Fn + Q, W, E start the Cardputer's own
+only sound. With ZeroOS 0.7.2 or older, Fn + Q, W, E start the Cardputer's own
 music over the phone's; use the menu or the phone instead.
 
 If a Bluetooth car, speaker or headphones is connected as well, the phone's
@@ -118,7 +118,7 @@ things still to check on a device.
 | `zeroos-usb-stick.service` | Runs `/usr/lib/zeroos/usb-stick` as root: builds the image with `sfdisk`, `mkfs.vfat` and mtools, then sets up a USB mass-storage gadget (configfs) on the `dwc2` controller. Progress goes to `/run/zeroos/usb-stick.state`. |
 | Bluetooth | `bluetoothctl` pairs, trusts and connects; PipeWire's Bluetooth module (`libspa-0.2-bluetooth`) carries the sound; `pipewire-alsa` routes sox's playback of local files through PipeWire as well. |
 | Car buttons | BlueZ presents a connected device's buttons as a Linux input device (via `uinput`). ZeroShell reads any input device that has media keys but no letters, so a USB multimedia remote works too. |
-| A phone's music | PipeWire receives it (the A2DP sink role) and plays it on the default output, as any other sound: the headphone jack, or a connected Bluetooth car. The phone's player (AVRCP) is an `org.bluez.MediaPlayer1` object under its device; Car reads the song and sends play, pause and skip with `busctl` (`phone_player.h`). A device counts as a phone when `bluetoothctl info` lists an Audio Source or the phone icon. On ZeroOS after 0.7.2, ZeroShell sends Fn + Q, W, E and a Bluetooth car's buttons to that player too, while it plays nothing itself. |
+| A phone's music | PipeWire receives it (the A2DP sink role) and plays it on the default output, as any other sound: the headphone jack, or a connected Bluetooth car. The phone's player (AVRCP) is an `org.bluez.MediaPlayer1` object under its device; Car reads the song and sends play, pause and skip with `busctl` (`phone_player.h`). A device counts as a phone when `bluetoothctl info` lists an Audio Source or the phone icon. On ZeroOS 0.8.0 and newer, ZeroShell sends Fn + Q, W, E and a Bluetooth car's buttons to that player too, while it plays nothing itself. |
 | `/etc/wireplumber/wireplumber.conf.d/60-zeroos-car.conf` | WirePlumber settings. Bluetooth audio without a login: ZeroShell runs as a service, and WirePlumber otherwise only starts Bluetooth audio for an active login (`monitor.bluez.seat-monitoring`). And the Bluetooth roles without `hfp_hf`, so a phone isn't offered a hands-free kit and calls stay on it. Car restarts WirePlumber once when it opens after an install or update, so the settings apply without a restart. |
 
 ## Checked on a device

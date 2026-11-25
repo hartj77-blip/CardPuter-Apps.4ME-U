@@ -128,7 +128,7 @@ USB stick mode has worked in a car: the stereo took the stick, showed the
 track names, and its buttons played, paused and skipped.
 
 Music from an iPhone: it paired, and the song controls worked. Its music
-only played once BlueALSA was off (Car 1.2.1 does that).
+only played once BlueALSA was off (Car 1.2.2 does that).
 
 If a phone is connected and its buttons work but nothing plays, in the
 Terminal:

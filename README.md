@@ -14,11 +14,15 @@ This is a community project. It isn't made, endorsed or supported by M5Stack.
 - [Newest release of the apps](https://github.com/hartj77-blip/CardPuter-Apps.4ME-U/releases/latest)
 - [Report a problem](https://github.com/hartj77-blip/CardPuter-Apps.4ME-U/issues)
 - [The OS repository](https://github.com/hartj77-blip/CardPuter-OS.4ME-U)
+- [Try every app in your browser](https://hartj77-blip.github.io/emu-cardputer-os.4me-u/) ([the emulator's repository](https://github.com/hartj77-blip/emu-cardputer-os.4me-u))
+- [M5Stack's app store on ZeroOS: compatibility checklist](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/M5-APPS.md)
 
 | Repository | What's in it |
 | --- | --- |
 | [CardPuter-OS.4ME-U](https://github.com/hartj77-blip/CardPuter-OS.4ME-U) | The OS: the home screen (ZeroShell), the four built-in apps, the hardware layer, the SD card image, OS updates |
-| This one | Every other app, the packages the Apps app downloads, and the index that lists them |
+| This one | Every other ZeroOS app, the packages the Apps app downloads, and the index that lists them |
+| [emu-cardputer-os.4me-u](https://github.com/hartj77-blip/emu-cardputer-os.4me-u) | The browser emulator: the real home screen and apps compiled to WebAssembly, [running here](https://hartj77-blip.github.io/emu-cardputer-os.4me-u/) |
+| [M5Stack's app store](https://github.com/CardputerZero/packages) | Not ours: about 180 community apps made for M5's own launcher, which ZeroOS can install too. [Which ones work on ZeroOS](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/M5-APPS.md) |
 
 ## Contents
 
@@ -146,6 +150,10 @@ M5's store out of the list: **Apps > Tab > P**, highlight it, **Tab > D**. On th
 a GitHub repo** and type `m5stack`. How it works on the device is in the OS's
 [apps guide](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/APPS.md#m5stacks-app-store).
 
+Not every M5 app works on ZeroOS. The OS repository keeps a
+[compatibility checklist](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/M5-APPS.md) of all of them: what a look inside each package
+found, and what has been checked on a real Cardputer.
+
 ## The apps
 
 Every app is keyboard-only, like the rest of ZeroOS: arrow keys move, **Enter** opens, **Esc**
@@ -173,7 +181,7 @@ the app. It all goes again when you remove the app.
 
 | App | Id | What it does | Brings |
 | --- | --- | --- | --- |
-| [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, over a file explorer, with pixel-art skins (a 1970s hi-fi, liquid chrome): music on the SD card, USB drives and mounted server shares (SMB, NFS), and http(s) addresses | mpv |
+| [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, over a file explorer, with pixel-art skins (a 1970s hi-fi, liquid chrome) and classic Winamp skins (`.wsz`): music on the SD card, USB drives and mounted server shares (SMB, NFS), and http(s) addresses | mpv |
 | [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: home screen cards, Continue Watching, a now-playing bar | mpv, libmpv |
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
@@ -226,6 +234,7 @@ Terminal, SSH, or another computer.
 | `~/Documents/logbook.adi` | Your radio contacts, as ADIF | RF Tools (Logbook, FT8) |
 | `~/Recordings/` | Voice notes (16 kHz WAV), and packet captures (`.pcap`) | Recorder, Net Tools (Capture) |
 | `~/Music/` | Music to play, and what Car's USB stick mode copies | you; Media and Car read it |
+| `~/Skins/` | Classic Winamp skins (`.wsz`) for Media | you; Media reads it |
 | `~/Pictures/DCIM/Camera/` | Photos | Camera |
 | `~/Downloads/` | Files sent to the Cardputer with Taildrop | Remote |
 | `~/Games/` | Your games (a folder per console), saves, downloaded cores | you, Games |

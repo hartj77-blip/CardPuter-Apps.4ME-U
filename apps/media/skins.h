@@ -50,5 +50,8 @@ public:
 
 std::unique_ptr<Skin> make_hifi_skin();
 std::unique_ptr<Skin> make_chrome_skin();
+// A classic Winamp skin (winamp.cpp): a .wsz file, or a folder of its files.
+// Null, with a reason, if it can't be read.
+std::unique_ptr<Skin> make_winamp_skin(const std::string& path, std::string* why);
 
 }  // namespace zs::media

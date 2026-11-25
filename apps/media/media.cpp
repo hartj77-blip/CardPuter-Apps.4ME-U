@@ -21,7 +21,8 @@
 // with a player screen and a playlist screen; the playlist is the Library
 // tab and the player the Player tab (L flips between them too). In a skin
 // the app draws the explorer itself, so it moves the selection here rather
-// than through LVGL's focus.
+// than through LVGL's focus. Classic Winamp skins (winamp.cpp) are skins
+// too, read from ~/Skins when T comes to them.
 //
 // Playing goes through the shell's queue (ui/player.h), so it carries on to
 // the next track after you leave the app or the screen turns off.
@@ -63,9 +64,12 @@ constexpr uint32_t kButtonText = 0xc4c4d8;
 constexpr uint32_t kFolder = 0xdcb85a;
 constexpr uint32_t kSpecLo = 0x10c010, kSpecHi = 0xe01e00, kPeak = 0x9a9aa8;
 
-// The skins T steps through; 0 is the classic look above.
-const char* const kSkinNames[] = {"Classic", "Hi-Fi Receiver", "Liquid Chrome"};
-constexpr int kSkinCount = 3;
+// The skins T steps through: the classic look above (0), the two built
+// into skins.cpp, then the Winamp skins in kSkinsDir (README.md, "Winamp
+// skins"): .wsz files, or folders of a skin's files.
+const char* const kBuiltInSkins[] = {"Classic", "Hi-Fi Receiver", "Liquid Chrome"};
+constexpr int kBuiltIn = 3;
+constexpr const char* kSkinsDir = "/Skins";   // under the home folder
 
 constexpr int kH = kBodyH;            // the soft-key bar takes the bottom
 constexpr int kBars = 19;             // spectrum analyser columns
@@ -135,6 +139,34 @@ std::string parent_of(const std::string& path) {
 bool is_dir(const std::string& path) {
     struct stat st{};
     return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+struct SkinChoice {
+    std::string name;   // what the toast and the menu say
+    std::string path;   // a Winamp skin's file or folder; "" for a built-in one
+};
+
+// Every skin T can step through, the Winamp ones by name.
+std::vector<SkinChoice> skin_choices() {
+    std::vector<SkinChoice> v;
+    for (auto n : kBuiltInSkins) v.push_back({n, ""});
+    std::string dir = home_dir() + kSkinsDir;
+    std::vector<SkinChoice> found;
+    if (DIR* d = opendir(dir.c_str())) {
+        while (dirent* e = readdir(d)) {
+            std::string n = e->d_name;
+            if (n.empty() || n[0] == '.') continue;
+            std::string path = dir + "/" + n;
+            bool folder = is_dir(path);
+            if (!folder && ext_of(n) != ".wsz" && ext_of(n) != ".zip") continue;
+            found.push_back({folder ? n : stem(n), path});
+        }
+        closedir(d);
+    }
+    std::sort(found.begin(), found.end(),
+              [](const SkinChoice& a, const SkinChoice& b) { return lower(a.name) < lower(b.name); });
+    v.insert(v.end(), found.begin(), found.end());
+    return v;
 }
 
 // A plain box: no padding, no scrolling, a 1-pixel border.
@@ -211,9 +243,17 @@ public:
     void build(lv_obj_t* root) override {
         root_ = root;
         shuffle_ = prefs::get_str("media.shuffle", "0") == "1";
-        std::string want = prefs::get_str("media.skin", kSkinNames[0]);
-        for (int i = 0; i < kSkinCount; ++i)
-            if (want == kSkinNames[i]) skin_ = i;
+        skins_ = skin_choices();
+        std::string want = prefs::get_str("media.skin", kBuiltInSkins[0]);
+        for (size_t i = 0; i < skins_.size(); ++i)
+            if (want == skins_[i].name) skin_ = int(i);
+        // A Winamp skin that is gone or broken now: the classic look.
+        std::string why;
+        auto first = make_skin(skin_, &why);
+        if (skin_ && !first) {
+            shell_toast("Skin " + skins_[size_t(skin_)].name + ": " + why);
+            skin_ = 0;
+        }
         // Back where you were last time, if it is still there.
         std::string last = prefs::get_str("media.folder", "");
         std::string base = prefs::get_str("media.place", "");
@@ -222,7 +262,7 @@ public:
             cwd_ = last;
         }
 
-        build_player();
+        build_player(std::move(first));
         anim_ = lv_timer_create([](lv_timer_t* t) { static_cast<MediaApp*>(lv_timer_get_user_data(t))->animate(); },
                                 60, this);
         set_actions();
@@ -249,7 +289,7 @@ public:
             if (queue_paths_[i] == pb.path) at = int(i);
         std::string marquee;
         if (pb.path.empty()) {
-            marquee = std::string("ZeroOS Media  ***  ") + kSkinNames[skin_] + "  ***  ";
+            marquee = "ZeroOS Media  ***  " + skin_name() + "  ***  ";
         } else {
             std::string name = q ? q->title : stem(pb.path);
             std::string artist = q ? q->artist : "";
@@ -327,8 +367,20 @@ private:
 
     // ---- Building the screen --------------------------------------------
 
-    // The whole player in the current skin. Called again to change it.
-    void build_player() {
+    const std::string& skin_name() const { return skins_[size_t(skin_)].name; }
+
+    // Skin i, to draw with: null for the classic look, and (with a reason)
+    // for a Winamp skin that can't be read.
+    std::unique_ptr<media::Skin> make_skin(int i, std::string* why) const {
+        if (i == 1) return media::make_hifi_skin();
+        if (i == 2) return media::make_chrome_skin();
+        if (i < kBuiltIn || i >= int(skins_.size())) return nullptr;
+        return media::make_winamp_skin(skins_[size_t(i)].path, why);
+    }
+
+    // The whole player in the current skin, s (made by make_skin). Called
+    // again to change it.
+    void build_player(std::unique_ptr<media::Skin> s) {
         if (skin_ == 0) {
             skin_obj_.reset();
             lv_obj_t* frame = box(root_, 0, 0, kScreenW, kH, kChrome, kChrome);
@@ -337,7 +389,7 @@ private:
             build_main_window(frame);
             return;
         }
-        skin_obj_ = skin_ == 1 ? media::make_hifi_skin() : media::make_chrome_skin();
+        skin_obj_ = std::move(s);
         pixels_.assign(size_t(kScreenW) * kH, 0);
         canvas_ = lv_canvas_create(root_);
         lv_canvas_set_buffer(canvas_, pixels_.data(), kScreenW, kH, LV_COLOR_FORMAT_RGB565);
@@ -351,8 +403,27 @@ private:
         std::string keep_path = keep >= 0 && keep < int(entries_.size()) ? entries_[size_t(keep)].path : "";
         if (player_page_) keep_path = back_to_;   // the classic Player tab has no list
         bool was_player = on_player();            // stay on the same tab
-        skin_ = (skin_ + 1) % kSkinCount;
-        prefs::set_str("media.skin", kSkinNames[skin_]);
+        // The Winamp skins as they are now: some may have been added.
+        std::string was = skin_name();
+        skins_ = skin_choices();
+        int at = 0;
+        for (size_t i = 0; i < skins_.size(); ++i)
+            if (skins_[i].name == was) at = int(i);
+        // The next one that loads; one that doesn't says why and is passed by.
+        std::unique_ptr<media::Skin> s;
+        std::string skipped;
+        int n = int(skins_.size());
+        for (int k = 1; k <= n; ++k) {
+            int i = (at + k) % n;
+            std::string why;
+            s = make_skin(i, &why);
+            if (i == 0 || s) {
+                skin_ = i;
+                break;
+            }
+            if (skipped.empty()) skipped = " (" + skins_[size_t(i)].name + " can't be used: " + why + ")";
+        }
+        prefs::set_str("media.skin", skin_name());
         lv_group_remove_all_objs(group);
         lv_obj_clean(root_);
         list_ = nullptr;
@@ -361,7 +432,7 @@ private:
         for (int i = 0; i < kBars; ++i) level_[i] = peak_[i] = peak_hold_[i] = 0;
         for (auto& f : flash_at_) f = 0;
         shown_marquee_.clear();
-        build_player();
+        build_player(std::move(s));
         if (skin_) {
             // The skin's own screens stand for the tabs.
             player_page_ = false;
@@ -382,7 +453,7 @@ private:
             }
             tick();
         }
-        shell_toast(std::string("Skin: ") + kSkinNames[skin_]);
+        shell_toast("Skin: " + skin_name() + skipped);
     }
 
     void build_title_bar(lv_obj_t* frame) {
@@ -525,7 +596,7 @@ private:
     void set_actions() {
         std::vector<Action> a;
         auto shuffle = [this] { return std::string(shuffle_ ? "Shuffle off" : "Shuffle on"); };
-        auto skin = [this] { return std::string("Skin: ") + kSkinNames[skin_] + " (next)"; };
+        auto skin = [this] { return "Skin: " + skin_name() + " (next)"; };
         if (on_player()) {
             // The track keys are the keyboard's media keys, Fn + Q / W / E,
             // which work on every screen; no letters of the Player's own.
@@ -1450,7 +1521,8 @@ private:
     std::string filter_;               // the search, within this folder
     std::vector<std::string> queue_paths_;   // what we queued, for "3/12"
     bool shuffle_ = false;
-    int skin_ = 0;                     // kSkinNames[skin_]; 0 is the classic look
+    std::vector<SkinChoice> skins_;    // what T steps through
+    int skin_ = 0;                     // skins_[skin_]; 0 is the classic look
 
     // A skin: it draws the whole app area into one canvas.
     std::unique_ptr<media::Skin> skin_obj_;

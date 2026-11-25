@@ -4,4 +4,4 @@
 # Settings option "On HDMI: start Dock mode" works without this app.
 NAME="Dock"
 SUMMARY="Desktop on an HDMI monitor: browser, video, terminal, files"
-APP_VERSION="1.1.1"
+APP_VERSION="1.1.2"

@@ -1,7 +1,7 @@
 # GPS (README.md): a GPS module on the UART (G14/G15, EXT and Grove).
 NAME="GPS"
 SUMMARY="Position, saved spots and GPX tracks with a GPS module"
-APP_VERSION="1.1.1"
+APP_VERSION="1.1.2"
 DEPENDS="gpsd, gpsd-clients"
 NEEDS="gpsd"
 # gpsd starts when a client connects and only reads the receiver while someone watches.

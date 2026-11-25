@@ -119,12 +119,27 @@ things still to check on a device.
 | Bluetooth | `bluetoothctl` pairs, trusts and connects; PipeWire's Bluetooth module (`libspa-0.2-bluetooth`) carries the sound; `pipewire-alsa` routes sox's playback of local files through PipeWire as well. |
 | Car buttons | BlueZ presents a connected device's buttons as a Linux input device (via `uinput`). ZeroShell reads any input device that has media keys but no letters, so a USB multimedia remote works too. |
 | A phone's music | PipeWire receives it (the A2DP sink role) and plays it on the default output, as any other sound: the headphone jack, or a connected Bluetooth car. The phone's player (AVRCP) is an `org.bluez.MediaPlayer1` object under its device; Car reads the song and sends play, pause and skip with `busctl` (`phone_player.h`). A device counts as a phone when `bluetoothctl info` lists an Audio Source or the phone icon. On ZeroOS 0.8.0 and newer, ZeroShell sends Fn + Q, W, E and a Bluetooth car's buttons to that player too, while it plays nothing itself. |
+| BlueALSA off | The base image also runs BlueALSA (`bluealsa`, `bluealsa-aplay`), a second Bluetooth audio stack. It took a phone's music before PipeWire could and then couldn't play it (`bluealsa-aplay` runs as root and can't reach the user's PipeWire: "Host is down"), so the phone was connected and its buttons worked, but nothing played. Installing Car turns both services off; ZeroOS after 0.8.0 does too. |
 | `/etc/wireplumber/wireplumber.conf.d/60-zeroos-car.conf` | WirePlumber settings. Bluetooth audio without a login: ZeroShell runs as a service, and WirePlumber otherwise only starts Bluetooth audio for an active login (`monitor.bluez.seat-monitoring`). And the Bluetooth roles without `hfp_hf`, so a phone isn't offered a hands-free kit and calls stay on it. Car restarts WirePlumber once when it opens after an install or update, so the settings apply without a restart. |
 
 ## Checked on a device
 
 USB stick mode has worked in a car: the stereo took the stick, showed the
 track names, and its buttons played, paused and skipped.
+
+Music from an iPhone: it paired, and the song controls worked. Its music
+only played once BlueALSA was off (Car 1.2.1 does that).
+
+If a phone is connected and its buttons work but nothing plays, in the
+Terminal:
+
+```
+sudo systemctl disable --now bluealsa-aplay bluealsa
+systemctl --user restart wireplumber
+```
+
+then disconnect and connect the phone again. `wpctl status` lists the phone
+under Sources, and a stream while music plays.
 
 ## Not checked on a device yet
 
@@ -137,11 +152,9 @@ The rest hasn't run on a Cardputer or in a car yet. In particular:
 - that the car's buttons arrive as media keys;
 - that Bluetooth audio needed the seat setting in `60-zeroos-car.conf`, and
   that restarting WirePlumber when Car opens applies it;
-- music from a phone: pairing an Android phone and an iPhone with
-  **Add a phone** (an iPhone may not list a Cardputer: then use **Scan for
-  devices**), sound out of the headphone jack, the song on the screen,
-  play, pause and skip, and that the phone keeps its calls (and whether it
-  plays its ringtone over the aux too);
+- music from a phone: an Android phone; the song on the screen; that the
+  phone keeps its calls (and whether it plays its ringtone over the aux
+  too); that turning BlueALSA off at install is enough without a restart;
 - how far behind the phone the sound runs (Bluetooth adds a fraction of a
   second; it doesn't matter for music).
 

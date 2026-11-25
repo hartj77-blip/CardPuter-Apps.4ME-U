@@ -114,6 +114,12 @@ inline void raised(lv_obj_t* o) {
 
 // A text box: a dark well with a grey border that turns white while typing.
 inline void field(lv_obj_t* ta) {
+    // Fixed padding. LVGL's theme scales it with the screen's DPI, and on the
+    // device the framebuffer reports about 190 dpi (130 in the simulator), so
+    // a fixed-height one-line box was left shorter inside than a line of text:
+    // LVGL then scrolled it down and back up on every key, and the text
+    // bounced. 8 is what the simulator already shows.
+    lv_obj_set_style_pad_all(ta, 8, 0);
     lv_obj_set_style_radius(ta, 0, 0);
     lv_obj_set_style_bg_color(ta, col(kGrey1), 0);
     lv_obj_set_style_bg_opa(ta, LV_OPA_COVER, 0);

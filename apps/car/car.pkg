@@ -2,7 +2,7 @@
 # the car's play and skip buttons, and a phone's music through the Cardputer.
 NAME="Car"
 SUMMARY="USB stick mode for a car stereo, Bluetooth audio with the car's buttons, your phone's music to the aux"
-APP_VERSION="1.2.0"
+APP_VERSION="1.2.1"
 DEPENDS="mtools, dosfstools, fdisk"
 NEEDS="mtools"
 STOP_ON_REMOVE="zeroos-usb-stick.service"

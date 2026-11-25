@@ -22,7 +22,7 @@ This is a community project. It isn't made, endorsed or supported by M5Stack.
 | [CardPuter-OS.4ME-U](https://github.com/hartj77-blip/CardPuter-OS.4ME-U) | The OS: the home screen (ZeroShell), the four built-in apps, the hardware layer, the SD card image, OS updates |
 | This one | Every other ZeroOS app, the packages the Apps app downloads, and the index that lists them |
 | [emu-cardputer-os.4me-u](https://github.com/hartj77-blip/emu-cardputer-os.4me-u) | The browser emulator: the real home screen and apps compiled to WebAssembly, [running here](https://hartj77-blip.github.io/emu-cardputer-os.4me-u/) |
-| [M5Stack's app store](https://github.com/CardputerZero/packages) | Not ours: about 180 community apps made for M5's own launcher, which ZeroOS can install too. [Which ones work on ZeroOS](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/M5-APPS.md) |
+| [M5Stack's app store](https://github.com/CardputerZero/packages) | Not ours: about 190 community apps made for M5's own launcher, which ZeroOS can install too. [Which ones work on ZeroOS](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/M5-APPS.md) |
 
 ## Contents
 
@@ -117,7 +117,7 @@ The id of each app is in the tables below (the folder name).
 
 ### Apps from M5Stack's app store
 
-M5Stack runs its own app store for the Cardputer Zero: about 180 community apps, listed in
+M5Stack runs its own app store for the Cardputer Zero: about 190 community apps, listed in
 [CardputerZero/packages](https://github.com/CardputerZero/packages) and reviewed there before
 they are published. They are made for M5's own launcher, which ZeroOS replaces, but they are
 ordinary Debian packages, so ZeroOS installs them too. This needs a ZeroOS newer than 0.4.0.
@@ -132,6 +132,12 @@ ordinary Debian packages, so ZeroOS installs them too. This needs a ZeroOS newer
 - **Opening one** hands it the whole screen, the way Camera works: ZeroShell stops drawing and the
   app draws on the LCD and reads the keyboard itself. **Hold Esc for 3 seconds** to leave an app
   that has no way out of its own. Apps marked to run in a terminal open in the Terminal.
+- **Tested on a real device:** 181 of them were installed, opened, used briefly, left and removed
+  on a Cardputer Zero running ZeroOS 0.7.1 (2026-11-25). Most work. Some can't be left with
+  hold Esc (only restarting ZeroShell gets out), a few stop at launch, two don't install, and
+  removing RaspyJack leaves its web services, a 4 GB swap file and the Kismet suite behind.
+  [The compatibility checklist](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/M5-APPS.md)
+  has the result for each app.
 
 How they differ from the apps here:
 

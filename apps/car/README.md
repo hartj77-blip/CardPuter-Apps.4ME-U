@@ -175,8 +175,13 @@ you won't notice. Other sound (key clicks, games) isn't affected.
   phone's music goes there instead of the headphone jack (the card shows
   where), and that device's play and skip buttons reach the phone too
   (ZeroOS 0.8.0 or newer).
-- While the Cardputer plays something of its own (Media, Jellyfin), Fn +
-  Q/W/E and a car's buttons are for that, not the phone.
+- The phone's music and the Cardputer's own (Media, Jellyfin, a video)
+  never play at once (ZeroOS 0.8.2 or newer): whichever you start last
+  plays, and the other pauses. Start music on the Cardputer and the phone
+  pauses; press play on the phone and the Cardputer's music pauses, with
+  "Paused: your phone is playing".
+- While the Cardputer plays something of its own, Fn + Q/W/E and a car's
+  buttons are for that, not the phone.
 - A connected phone counts as connected for **Settings > Bluetooth
   auto-off**, so Bluetooth stays on while it is.
 - With ZeroOS 0.7.2 or older, Fn + Q, W, E start the Cardputer's own music

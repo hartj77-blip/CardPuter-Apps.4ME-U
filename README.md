@@ -69,7 +69,8 @@ This is where things stand.
 | Every app loads as a module into a real ZeroShell | Yes, in CI |
 | Every app installs, side by side with all the others, and removes cleanly with the real apt on Debian trixie arm64 | Yes, in CI, in a container with Raspberry Pi's repository added |
 | The apps still build against the next ZeroOS (its `main` branch) | Yes, in CI, as a second build of everything |
-| Unit tests for the parts that can run without a screen (AI requests, Browser's page engine, Desktop's host list, Grove's LED effects, RF Tools' DSP, Router's script) | Yes, in CI |
+| Unit tests for the parts that can run without a screen (AI requests, Browser's page engine, Desktop's host list, Grove's LED effects, Jellyfin's requests and cover art, RF Tools' DSP, Router's script) | Yes, in CI |
+| Jellyfin against a stand-in server: signing in, lists, search, covers and signing out over real HTTP ([what it checks](apps/jellyfin/README.md#how-it-is-built-and-tested)) | Yes, in CI |
 | The apps on a real Cardputer Zero | Mostly not yet. Owners have run some; most have only been run in the simulator and CI |
 | Hardware add-ons: GPS module, Cap LoRa-1262, LED strip, RTL-SDR dongle, USB stick mode in a car, USB networking to a laptop | Not checked on a device yet. Each app's README has a "to confirm" list |
 
@@ -188,7 +189,7 @@ the app. It all goes again when you remove the app.
 | App | Id | What it does | Brings |
 | --- | --- | --- | --- |
 | [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, over a file explorer, with pixel-art skins (a 1970s hi-fi, liquid chrome) and classic Winamp skins (`.wsz`): music on the SD card, USB drives and mounted server shares (SMB, NFS), and http(s) addresses | mpv |
-| [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: home screen cards, Continue Watching, a now-playing bar | mpv, libmpv |
+| [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: cover art, home screen rows (Continue Watching, Next Up, what is new), poster grids, a search that finds as you type, a now-playing bar | mpv, libmpv |
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
 | [Games](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen or a TV on the HDMI port; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Two (up to four) players with USB or Bluetooth gamepads. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
@@ -250,11 +251,12 @@ Terminal, SSH, or another computer.
 | `~/Code/` | Your projects | Dev Tools |
 | `~/IR/` | Remotes you taught or saved | IR Remote |
 | `~/.cache/zeroos/browser/` | Pages and pictures you opened, to read offline. Safe to delete | Browser |
+| `~/.cache/zeroos/jellyfin/` | Cover art from your Jellyfin server, at the size of the screen's cards (mode 700). Emptied when you sign out. Safe to delete | Jellyfin |
 | `~/.config/zeroos/browser/` | Browser's bookmarks, history, settings and cookies (`cookies.txt` holds your sign-ins; mode 600) | Browser |
 | `~/.config/zeroos/ai.conf` | AI's settings and API keys (mode 600) | AI |
 | `~/.config/zeroos/desktop-hosts` | Computers you saved in Desktop | Desktop |
 | `~/.config/zeroos/rf-memories.tsv` | Saved frequencies | RF Tools |
-| `~/.config/zeroos/settings.conf` | Small settings: Jellyfin server and sign-in token, Grove's last effect, your callsign, Router's mode | several apps, through ZeroOS |
+| `~/.config/zeroos/settings.conf` | Small settings: Jellyfin server, sign-in token and recent searches, Grove's last effect, your callsign, Router's mode | several apps, through ZeroOS |
 
 Removing an app never deletes these. Sync shares **Notes**, **Documents** and **Recordings** with
 your other devices, so if Sync is on, packet captures and your logbook travel too.
@@ -580,8 +582,8 @@ shows here before the OS is released.
 | --- | --- | --- |
 | Every changed app has a new version | `tools/check-versions.sh`: compares each app folder with `main`; a change to a kit file counts for every app that uses it. README and test changes don't count | An app that changed without a new version, which devices would never be offered |
 | Simulator and headless builds | Builds every app into the SDL and headless ZeroShell | Code that doesn't compile |
-| Unit tests | `ctest`: AI's requests, replies and settings (no network); Browser's Markdown and HTML parsing, forms, pictures, layout and addresses; Desktop's host list; Grove's LED effects; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
-| App script tests | `apps/<id>/tests/*-test.sh`: Router's routing script against stand-ins | A broken helper script |
+| Unit tests | `ctest`: AI's requests, replies and settings (no network); Browser's Markdown and HTML parsing, forms, pictures, layout and addresses; Desktop's host list; Grove's LED effects; Jellyfin's requests and replies, cover art and background threads; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
+| App script tests | `apps/<id>/tests/*-test.sh`: Router's routing script against stand-ins; the Jellyfin app against a stand-in server | A broken helper script |
 | Open every app | `tools/screenshots.sh`: drives the headless build through the home screen and every app, and every tool inside Net Tools and RF Tools, and saves a screenshot of each (uploaded as an artifact). Games plays a test-pattern core; AI gets a canned answer; RF Tools runs against a simulated radio | An app that crashes or hangs when opened |
 | Apps as modules | Builds every app as a module and loads each into a ZeroShell that has none built in | A module with a missing symbol or the wrong app level |
 | Install every app for real | On arm64 Debian trixie with Raspberry Pi's repository added, as on the device: builds the real packages, installs them all side by side with the real apt, then removes each and checks nothing is left | A dependency that doesn't exist, two apps that clash, leftovers after removal |
@@ -882,7 +884,7 @@ Parts built in or shipped from elsewhere, each described in that app's README:
 | --- | --- | --- |
 | [LVGL](https://lvgl.io) 9.2 | every app, through ZeroShell | MIT |
 | [quirc](https://github.com/dlbeer/quirc) | Camera's QR reader | ISC |
-| [stb_image.h](https://github.com/nothings/stb) v2.34 | Games' PNG border pictures (vendored); Browser's pictures in pages (fetched at build time, same commit) | Public domain or MIT, see [apps/games/third_party](apps/games/third_party/README.md) |
+| [stb_image.h](https://github.com/nothings/stb) v2.34 | Games' PNG border pictures (vendored); Browser's pictures in pages and Jellyfin's cover art (fetched at build time, same commit) | Public domain or MIT, see [apps/games/third_party](apps/games/third_party/README.md) |
 | [M5Stack CameraApp](https://github.com/CardputerZero/CameraApp) | Camera (installed as M5's own package) | MIT |
 | [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) | IR Remote's code database | CC0-1.0, see [apps/ir/README.md](apps/ir/README.md#licence) |
 | ft8_lib and others | RF Tools | see [apps/rf/files/THIRD_PARTY.md](apps/rf/files/THIRD_PARTY.md) |

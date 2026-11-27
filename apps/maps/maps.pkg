@@ -1,0 +1,10 @@
+# Maps (README.md): an offline moving map. The map of New Jersey comes in
+# the package (prepare.sh builds it from OpenStreetMap data). The GPS app
+# sets up the receiver (gpsd); Maps reads the position the same way.
+NAME="Maps"
+SUMMARY="Offline map of New Jersey that follows your GPS position. Install the GPS app too"
+APP_VERSION="1.0.0"
+payload() {
+    [ -s "$WORK/maps/new-jersey.zmap" ] || { echo "error: no map at $WORK/maps (prepare.sh builds it)" >&2; exit 1; }
+    install -D -m 0644 "$WORK/maps/new-jersey.zmap" "$D/usr/share/zeroos/maps/new-jersey.zmap"
+}

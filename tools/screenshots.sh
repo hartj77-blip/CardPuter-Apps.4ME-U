@@ -30,6 +30,12 @@ for id in $ids; do
 done
 export ZS_GAMES_CORES="$(dirname "$BIN")/test-cores"
 export ZEROOS_AI_FAKE="Four."
+# Maps: a map of the made-up town the simulated GPS walks through.
+if [ -x "$(dirname "$BIN")/bin/zmap-build" ]; then
+    mkdir -p "$DEMO/Maps"
+    "$(dirname "$BIN")/bin/zmap-build" --name Zeroville --poly "$ROOT/apps/maps/tests/town.poly" --imperial \
+        "$ROOT/apps/maps/tests/town.osm.pbf" "$DEMO/Maps/town.zmap" 2>/dev/null
+fi
 (cd "$OUT" && HOME="$DEMO" TZ=UTC "$BIN" --script "$steps,home")
 python3 "$ROOT/base/shell/tools/ppm2png.py" "$OUT"
 for id in $shots; do

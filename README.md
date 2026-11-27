@@ -6,7 +6,7 @@ for the M5Stack Cardputer Zero.
 ZeroOS itself ships with just three apps: **Apps**, **Settings** (which includes Wi-Fi and
 Bluetooth) and **Update**. That's
 enough to get online, keep the OS up to date and install things. Everything else is in this
-repository, one folder per app: 28 packages, from a clock to a software-defined radio. You install
+repository, one folder per app: 29 packages, from a clock to a software-defined radio. You install
 them from the **Apps** app on the device, and each one is versioned and released on its own, so
 updating one app never touches another.
 
@@ -221,6 +221,7 @@ the app. It all goes again when you remove the app.
 | App | Id | What it does | Needs | Brings |
 | --- | --- | --- | --- | --- |
 | [IR Remote](apps/ir/README.md) | `ir` | A universal remote with about 4,500 remotes for AV and home: TVs, projectors, displays, screens, receivers, players, cable boxes, video conferencing, switchers, lighting and more, brand remotes (pick Sony, TVs: it finds the code once, then every button just works) and remotes you teach it | nothing (the IR LED and receiver are built in) | v4l-utils, ir-keytable, the code database |
+| [Maps](apps/maps/README.md) | `maps` | An offline map of New Jersey that follows your position: your speed, the road you're on and its speed limit. Made from OpenStreetMap data | a GPS module, as for GPS (install GPS too) | the map (about 60 MB) |
 | [GPS](apps/gps/README.md) | `gps` | Position, speed, saved spots and GPX track recording | the Cap LoRa-1262 (it has GPS), a Grove GPS unit, or a USB GPS | gpsd |
 | [Mesh](apps/mesh/README.md) | `mesh` | Meshtastic text messages over LoRa, with no phone signal or internet | the Cap LoRa-1262 | meshtasticd (from Meshtastic's repository) |
 | [Grove](apps/grove/README.md) | `grove` | Light a NeoPixel (WS2812 / SK6812) LED strip on the Grove port, with effects | an LED strip on the Grove port | its own LED service |
@@ -247,6 +248,7 @@ Terminal, SSH, or another computer.
 | `~/Notes/` | Your notes (`notes.txt` and any more you make) | Notes |
 | `~/Documents/waypoints.txt` | Spots you saved, one per line | GPS |
 | `~/Documents/Tracks/` | Recorded tracks, as GPX | GPS |
+| `~/Maps/` | Maps you add (`.zmap` files), used before the one Maps comes with | you; Maps reads it |
 | `~/Documents/logbook.adi` | Your radio contacts, as ADIF | RF Tools (Logbook, FT8) |
 | `~/Recordings/` | Voice notes (16 kHz WAV), and packet captures (`.pcap`) | Recorder, Net Tools (Capture) |
 | `~/Music/` | Music to play, and what Car's USB stick mode copies | you; Media and Car read it |
@@ -646,7 +648,7 @@ You need Linux (or WSL) with CMake, a C++17 compiler and SDL2:
 ```sh
 git clone --recurse-submodules https://github.com/hartj77-blip/CardPuter-Apps.4ME-U
 cd CardPuter-Apps.4ME-U
-sudo apt install cmake g++ libsdl2-dev
+sudo apt install cmake g++ libsdl2-dev zlib1g-dev
 cmake -S . -B build/sim && cmake --build build/sim -j
 ./build/sim/zeroshell
 ```
@@ -685,7 +687,7 @@ Releases are built on arm64 Debian trixie. To build them yourself, on an arm64 D
 machine or container (a Raspberry Pi 4 or 5 on Raspberry Pi OS trixie works):
 
 ```sh
-sudo apt install cmake g++ dpkg-dev curl gpg python3 pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev
+sudo apt install cmake g++ dpkg-dev curl gpg python3 pkgconf zlib1g-dev libvncserver-dev freerdp3-dev librtlsdr-dev
 cmake -S . -B build/device -DZS_BACKEND=device
 cmake --build build/device -j
 tools/build.sh build/device build/apps           # every package, and the index, in build/apps
@@ -724,7 +726,7 @@ place of the old one (AI was once called `zclaw`).
    | --- | --- |
    | 10 to 90 | Terminal 10, Remote 20, Desktop 25, Sync 30, Files 40, Notes 50, Recorder 55, AI 60, Browser 65, Media 70, Jellyfin 72, Grove 75, Camera 80, Car 90 |
    | 100 | the OS's own apps |
-   | 110 to 190 | Tether 110, Router 115, IR Remote 120, GPS 130, Mesh 140, Compass 150, Battery 160, Clock 170, Dock 180, System 190 |
+   | 110 to 190 | Tether 110, Router 115, IR Remote 120, GPS 130, Maps 135, Mesh 140, Compass 150, Battery 160, Clock 170, Dock 180, System 190 |
    | 200 to 220 | the OS's own apps, Net Tools 220 |
    | 300 and up | Dev Tools 300 to 330, Libretro 400, RF Tools 500 |
 
@@ -911,6 +913,7 @@ and it will be added. The OS underneath has [its own credits](https://github.com
 | [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) (commit `d126fb1`) | IR Remote's code database | CC0-1.0, see [apps/ir/README.md](apps/ir/README.md#licence) |
 | [Webamp](https://github.com/captbaritone/webamp)'s documentation of the Winamp skin layout (`skinSprites.ts` and its CSS) | Where Media finds each sprite in a classic Winamp skin. No Winamp skins are shipped; you bring your own, for example from the [Winamp Skin Museum](https://skins.webamp.org) | MIT |
 | [M5Stack CameraApp](https://github.com/CardputerZero/CameraApp) 1.0.4 | Camera (installed as M5's own package) | MIT |
+| [OpenStreetMap](https://www.openstreetmap.org) data © OpenStreetMap contributors, New Jersey extract and outline from [Geofabrik](https://download.geofabrik.de) | The map in Maps | ODbL-1.0, see [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright) |
 | [Meshtastic](https://github.com/meshtastic/firmware)'s board config for the Cardputer Zero | Mesh's settings for the Cap LoRa-1262 | GPL-3.0 |
 
 ### Programs the apps install

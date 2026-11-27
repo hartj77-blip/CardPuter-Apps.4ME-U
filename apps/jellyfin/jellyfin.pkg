@@ -1,8 +1,9 @@
 # Jellyfin (README.md): music and video from a Jellyfin server, in Jellyfin's
-# own look. Music plays through the shell's player; video through libmpv,
-# which comes with mpv. It used to be a tab in the Media app.
+# own look, with cover art. Music plays through the shell's player; video
+# through libmpv, which comes with mpv. Lists and covers are fetched with
+# curl, which is part of ZeroOS. It used to be a tab in the Media app.
 NAME="Jellyfin"
-SUMMARY="Music, movies and shows from your Jellyfin server, in Jellyfin's own look"
-APP_VERSION="1.1.1"
+SUMMARY="Music, movies and shows from your Jellyfin server, with cover art and search, in Jellyfin's own look"
+APP_VERSION="2.0.0"
 DEPENDS="mpv, libmpv2"
 NEEDS="mpv"

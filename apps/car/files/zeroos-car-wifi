@@ -19,9 +19,22 @@ KEEP=$STATE/wifi-keep      # you turned it back on: leave it until the music sto
 QUIET=$STATE/quiet         # checks in a row without the phone playing
 GRACE=${ZEROOS_CAR_WIFI_GRACE:-6}   # x 5 s: pauses between songs don't count
 INTERVAL=5
+RFKILL=${ZEROOS_CAR_WIFI_RFKILL:-/sys/class/rfkill}   # the tests' made-up one
 
-# A phone (it sends music) whose player says "playing".
+# Bluetooth is switched on (what "rfkill list bluetooth" calls not soft
+# blocked). Read from /sys: no program is started to find out.
+bt_on() {
+    for r in "$RFKILL"/rfkill*; do
+        [ "$(cat "$r/type" 2>/dev/null)" = bluetooth ] && [ "$(cat "$r/soft" 2>/dev/null)" = 0 ] && return 0
+    done
+    return 1
+}
+
+# A phone (it sends music) whose player says "playing". With Bluetooth off
+# there is none, and BlueZ isn't asked: ZeroOS stops bluetoothd while
+# Bluetooth is off, and a question over D-Bus would start it again every 5 s.
 phone_playing() {
+    bt_on || return 1
     for p in $(busctl --list tree org.bluez 2>/dev/null |
                grep -E '^/org/bluez/hci[0-9]+/dev(_[0-9A-Fa-f]{2}){6}/player[0-9]+$'); do
         a=$(echo "$p" | sed -E 's|.*/dev_([0-9A-Fa-f_]{17})/.*|\1|' | tr _ :)

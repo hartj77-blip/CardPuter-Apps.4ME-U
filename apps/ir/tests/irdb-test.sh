@@ -27,6 +27,16 @@ grep -q '^type: raw' "$T/db/universal/TVs.ir" && fail "no raw codes in TVs (all 
 grep -B5 '^command: 8C 73 00 00' "$T/db/universal/Projectors.ir" | grep -q '^name: Input$' ||
     fail "Epson Source under Projectors Input"
 
+# Brand remotes: Sony has two TV remotes in the sample (Bravia and the Pronto KV-27FS).
+grep -qP '^TVs\tSony\t2\tTVs/Sony.ir\t' "$T/db/brands/index.tsv" || fail "brands/index.tsv has Sony TVs"
+[ -f "$T/db/brands/TVs/Sony.ir" ] || fail "brands/TVs/Sony.ir"
+# Their Power is the same SIRC code (one raw): one entry, under the canonical name.
+[ "$(grep -c '^name: Power$' "$T/db/brands/TVs/Sony.ir")" = 1 ] || fail "Sony TVs Power once"
+grep -q '^name: Vol_up$' "$T/db/brands/TVs/Sony.ir" || fail "Sony TVs Vol_up (from VOL +)"
+# Two remotes each: Epson projectors (sample and Pronto), LG TVs.
+grep -qP '^Projectors\tEpson' "$T/db/brands/index.tsv" || fail "Epson Projectors (sample + Pronto)"
+grep -qP '^TVs\tLG\t' "$T/db/brands/index.tsv" || fail "LG TVs (two in the sample)"
+
 python3 -I - "$HERE/../irdb" <<'EOF'
 import sys
 sys.path.insert(0, sys.argv[1])

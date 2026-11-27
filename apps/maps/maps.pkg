@@ -6,7 +6,7 @@
 # speaks the turns.
 NAME="Maps"
 SUMMARY="Offline map of New Jersey with spoken turn-by-turn directions, and your position and GPX tracks, with a GPS module"
-APP_VERSION="1.1.0"
+APP_VERSION="1.2.0"
 REPLACES="gps"   # the GPS app, now a screen in Maps (Tab > Position and tracks)
 DEPENDS="gpsd, gpsd-clients, navit, xvfb, dbus-daemon, dbus-bin, espeak-ng"
 NEEDS="gpsd, Navit, Xvfb, espeak-ng"
@@ -16,7 +16,7 @@ DISABLE_DEPS="gpsd.service"
 STOP_ON_REMOVE="gpsd.service"
 payload() {
     local f
-    for f in zmap search navit; do
+    for f in zmap search addr navit; do
         [ -s "$WORK/maps/new-jersey.$f" ] || { echo "error: no new-jersey.$f at $WORK/maps (prepare.sh builds it)" >&2; exit 1; }
         install -D -m 0644 "$WORK/maps/new-jersey.$f" "$D/usr/share/zeroos/maps/new-jersey.$f"
     done

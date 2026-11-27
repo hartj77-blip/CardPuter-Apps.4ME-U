@@ -1,7 +1,7 @@
 # Maps
 
 A map of New Jersey for the car that works with no internet, with spoken turn-by-turn directions.
-Type a town or a street, and Maps plans the route, shows the next turn, and says it as you get
+Type an address, a street or a town, and Maps plans the route, shows the next turn, and says it as you get
 there. It also shows how fast you're going, the road you're on and its speed limit.
 
 Everything comes with the app, made from [OpenStreetMap](https://www.openstreetmap.org) data
@@ -23,6 +23,9 @@ Installing or updating Maps replaces the GPS app.
 
 1. Press **G** (Go to) and type. Every word you type must start a word of the place: `nassau`,
    `main st princeton`, `washington st hob`. Towns come first, then streets, the nearest first.
+   Start with a house number for an address: `20 nassau st`, `100 washington st hob`. The
+   addresses come first (with a house icon), then the street itself, in case that number
+   isn't on the map.
 2. Pick one with the arrows and press **Enter**. The places you went to last are listed before you type.
 3. Maps plans the route (a few seconds) and draws it in blue.
 
@@ -111,8 +114,9 @@ before the GPS has a fix.
 | --- | --- |
 | `/usr/share/zeroos/maps/new-jersey.zmap` | The map the app comes with (about 60 MB) |
 | `/usr/share/zeroos/maps/new-jersey.search` | Go to's list of towns and streets (about 7 MB) |
+| `/usr/share/zeroos/maps/new-jersey.addr` | Go to's house numbers (about 7 MB) |
 | `/usr/share/zeroos/maps/new-jersey.navit` | The roads, for Navit to plan routes on (about 26 MB) |
-| `~/Maps/` | Maps you add yourself (the same three files, with the same name before the dot): they come first |
+| `~/Maps/` | Maps you add yourself (the same files, with the same name before the dot): they come first. A map without a `.addr` file still finds towns and streets |
 | `~/Documents/waypoints.txt`, `~/Documents/Tracks/` | Spots you saved, and the tracks you recorded (GPX) |
 | `/etc/default/gpsd` | gpsd's settings, set by Maps for the expansion port's UART and USB dongles. The one that was there is kept and put back when Maps is removed |
 | `~/.config/zeroos/settings.conf` | The places you went to last (`maps.recent`), where directions were going (`maps.dest`), and the app's settings |
@@ -136,7 +140,7 @@ Jersey extract and its outline and runs [tools/zmap_build.cpp](tools/zmap_build.
 OpenStreetMap data, builds the sea from the coastline (OpenStreetMap has no sea areas, only the
 line where land meets it), simplifies everything for each level of detail and cuts it into tiles.
 It also writes the search list (each place, and each named road once in each town it runs
-through) and the roads a car may use, with their turn restrictions, which Navit's `maptool` turns
+through), the house numbers, and the roads a car may use, with their turn restrictions, which Navit's `maptool` turns
 into Navit's routing map. It all takes under a minute and about half a gigabyte of memory, which is
 why it isn't done on the Cardputer.
 
@@ -144,15 +148,30 @@ To make maps of somewhere else, build `zmap-build` (it comes with the simulator 
 `build/<dir>/bin/`) and run it on any extract:
 
 ```sh
-zmap-build --name "Delaware" --poly delaware.poly --imperial --search delaware.search --roads delaware.osm delaware-latest.osm.pbf delaware.zmap
+zmap-build --name "Delaware" --poly delaware.poly --imperial --search delaware.search --addresses delaware.addr --roads delaware.osm delaware-latest.osm.pbf delaware.zmap
 ```
 
 ```sh
 maptool -i delaware.osm delaware.navit
 ```
 
-Put `delaware.zmap`, `delaware.search` and `delaware.navit` in `~/Maps` on the Cardputer. Geofabrik has
+Put `delaware.zmap`, `delaware.search`, `delaware.addr` and `delaware.navit` in `~/Maps` on the Cardputer. Geofabrik has
 extracts, and a `.poly` outline for each, at [download.geofabrik.de](https://download.geofabrik.de).
+
+### House numbers
+
+OpenStreetMap has about 374,000 house numbers in New Jersey, on points and on buildings (`addr:housenumber`
+with `addr:street`; a building's address is put at its middle). How many depends on the town: thousands
+in Trenton, Toms River, Cherry Hill or Princeton, a few hundred to a couple of thousand in Newark,
+Jersey City, Hoboken or Paterson. Where a number isn't there, Go to still offers the street.
+
+`zmap-build --addresses` writes them to the `.addr` file ([addr.h](addr.h)): the streets sorted by
+name, each with its numbers and where they are, and the town if the address gives one. The app maps
+it into memory and finds a street by bisection, so the numbers are never all read in. Typing `20
+nassau st`, Go to finds the streets called Nassau Street (as for `nassau st`), looks up 20 on each,
+and keeps the one nearest where that street is. Short forms in names are written out for this
+(`Market St.` is `Market Street`, but not a first `St.`, which is usually Saint;
+[fold.h](fold.h)). A number not found as typed finds ones that start with it: 12 finds 12A.
 
 ### Directions
 
@@ -203,7 +222,7 @@ whose `.osm.pbf` is committed) and checks:
 - the map: what each level holds, what colour each place is drawn, names that don't overlap, the
   road and speed limit found at a point (and at a junction, by heading), and hundreds of damaged
   copies of the file, which must never crash the app;
-- the search, and the roads written for Navit;
+- the search, the house numbers (and damaged `.addr` files), and the roads written for Navit;
 - reading Navit's answers: the route's line, the turns and their words, the position sent to it;
 - a real route: where Navit is installed (CI installs it), Navit plans one across the town, and
   nothing of it is left running afterwards.

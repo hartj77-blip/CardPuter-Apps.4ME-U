@@ -12,11 +12,12 @@ NAVIT_TEST=$(realpath "$4")
 TMP=$(mktemp -d)
 trap 'rm -rf -- "${TMP:?}"' EXIT
 "$BUILD" --name Zeroville --poly "$HERE/town.poly" --imperial --date 2026-01-01 \
-    --search "$TMP/town.search" --roads "$TMP/town.roads.osm" \
+    --search "$TMP/town.search" --addresses "$TMP/town.addr" --roads "$TMP/town.roads.osm" \
     "$HERE/town.osm.pbf" "$TMP/town.zmap" 2>"$TMP/log" || { cat "$TMP/log"; echo "FAIL zmap-build"; exit 1; }
 grep -q '^sea: 1 stretches of coast, 2 areas and islands' "$TMP/log" || { cat "$TMP/log"; echo "FAIL the sea wasn't built"; exit 1; }
 # The roads a car may use, for Navit: no railway, river or driveway; the motorway and service road, yes.
 grep -q 'wrote .*town.roads.osm: [0-9]* nodes, 11 roads' "$TMP/log" || { cat "$TMP/log"; echo "FAIL the roads for Navit"; exit 1; }
+grep -q 'wrote .*town.addr: 5 house numbers on 3 streets' "$TMP/log" || { cat "$TMP/log"; echo "FAIL the house numbers"; exit 1; }
 grep -q '<tag k="maxspeed" v="30 mph"/>' "$TMP/town.roads.osm" || { echo "FAIL the roads keep their tags"; exit 1; }
 if grep -q 'railway\|waterway\|driveway' "$TMP/town.roads.osm"; then echo "FAIL only roads go to Navit"; exit 1; fi
 # Without an outline the region is the box around the data.
@@ -25,7 +26,7 @@ if grep -q 'railway\|waterway\|driveway' "$TMP/town.roads.osm"; then echo "FAIL 
 if "$BUILD" --name Bad "$HERE/town.poly" "$TMP/bad.zmap" 2>/dev/null; then echo "FAIL a .poly was read as a .pbf"; exit 1; fi
 [ ! -e "$TMP/bad.zmap" ] || { echo "FAIL a failed build left a map behind"; exit 1; }
 "$TEST" "$TMP/town.zmap"
-"$NAV_TEST" "$TMP/town.search"
+"$NAV_TEST" "$TMP/town.search" "$TMP/town.addr"
 
 # A real route, if Navit and what it needs are here.
 for p in navit maptool Xvfb dbus-daemon dbus-send; do

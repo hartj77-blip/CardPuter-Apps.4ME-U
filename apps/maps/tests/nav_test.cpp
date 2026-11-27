@@ -1,12 +1,16 @@
 // Maps: reading Navit's answers (nav_parse.h), the search (search.h) and
 // the stand-in engine (nav.h), with no Navit.
-//   nav_test town.search        (maps_check.sh builds it)
+//   nav_test town.search town.addr        (maps_check.sh builds them)
 #include <cmath>
 #include <cstdio>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "apps/maps/addr.h"
+#include "apps/maps/fold.h"
 #include "apps/maps/nav.h"
 #include "apps/maps/nav_parse.h"
 #include "apps/maps/search.h"
@@ -193,10 +197,73 @@ int main(int argc, char** argv) {
         }
     }
 
+    // ---- House numbers ------------------------------------------------
+    {
+        CHECK_EQ(fold_key("  Main  St. "), "main st");
+        CHECK_EQ(street_key("Market St."), "market street");
+        CHECK_EQ(street_key("St. Georges Ave"), "st georges avenue");   // the first word is left: Saint
+        CHECK_EQ(street_key("North Harrison Street"), "north harrison street");
+        CHECK_EQ(street_key(""), "");
+        AddressFile none;
+        CHECK(!none.open("/nonexistent") && none.find("x", "1").empty());
+        if (argc > 2) {
+            // make-town.py's addresses, east and north of its origin in metres.
+            auto near = [](const Place& p, double east, double north) {
+                double lat = 51.500729 + north / 111320.0, lon = -0.124625 + east / (111320.0 * std::cos(51.500729 * 3.14159265358979 / 180));
+                return std::fabs(p.lat - lat) < 2e-6 && std::fabs(p.lon - lon) < 3e-6;
+            };
+            AddressFile f;
+            CHECK(f.open(argv[2]) && f.size() == 5);   // the one outside the region is left out
+            std::vector<Address> a = f.find("high street", "12");
+            CHECK(a.size() == 1 && a[0].number == "12" && a[0].street == "High Street");
+            a = f.find("high street", "12a");                      // the case doesn't matter
+            CHECK(a.size() == 1 && a[0].number == "12A");
+            CHECK(f.find("high street", "1").empty());           // not 12, 12A or 120: and 1 was outside
+            CHECK(f.find("high street", "99").empty());
+            CHECK(f.find("low street", "12").empty());
+            a = f.find("market street", "7");                    // written "Market St."
+            CHECK(a.size() == 1 && a[0].city == "Zeroville");
+
+            SearchIndex s;
+            CHECK(s.load(argv[1]) && s.load_addresses(argv[2]) && s.has_addresses());
+            std::vector<Place> r = s.find("12 high st", 5, false, 0, 0);
+            CHECK(r.size() >= 2 && r[0].kind == 'a' && r[0].name == "12 High Street" && r[0].town == "Zeroville" && near(r[0], 40, 25));
+            CHECK(r.size() >= 2 && r[1].kind == 'r' && r[1].name == "High Street");   // then the street
+            r = s.find("12A High Street Zeroville", 5, false, 0, 0);
+            CHECK(!r.empty() && r[0].name == "12A High Street" && near(r[0], 60, 35));
+            r = s.find("20 south row", 5, true, 51.5007, -0.1246);   // a building: its middle
+            CHECK(!r.empty() && r[0].kind == 'a' && r[0].name == "20 South Row" && near(r[0], 200, -185) && r[0].metres > 0);
+            r = s.find("7 market", 5, false, 0, 0);
+            CHECK(!r.empty() && r[0].name == "7 Market St." && r[0].town == "Zeroville");
+            r = s.find("99 high st", 5, false, 0, 0);               // no such number: the street
+            CHECK(r.size() == 1 && r[0].kind == 'r' && r[0].name == "High Street");
+            CHECK(s.find("12", 5, false, 0, 0).empty());           // a number alone is nothing
+
+            // A damaged file is refused or finds less; it never crashes.
+            std::ifstream in(argv[2], std::ios::binary);
+            std::string good((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            std::string tmp = std::string(argv[2]) + ".damaged";
+            uint32_t seed = 99;
+            for (int round = 0; round < 300; round++) {
+                std::string bad = good.substr(0, round % 7 == 0 ? good.size() * size_t(round % 5 + 1) / 6 : good.size());
+                for (int k = 0; k < 1 + round % 5 && !bad.empty(); k++) {
+                    seed = seed * 1664525u + 1013904223u;
+                    bad[(seed >> 8) % bad.size()] = char(seed >> 16);
+                }
+                std::ofstream(tmp, std::ios::binary).write(bad.data(), std::streamsize(bad.size()));
+                AddressFile d;
+                if (d.open(tmp))
+                    for (const char* st : {"high street", "market street", "south row", ""})
+                        for (const Address& x : d.find(st, "12")) CHECK(x.number.size() < 4096);
+            }
+            std::remove(tmp.c_str());
+        }
+    }
+
     if (fails) {
         std::printf("%d checks failed\n", fails);
         return 1;
     }
-    std::printf("ok   maps: Navit's answers, the position feed, the stand-in engine, search\n");
+    std::printf("ok   maps: Navit's answers, the position feed, the stand-in engine, search, house numbers\n");
     return 0;
 }

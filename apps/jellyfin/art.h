@@ -44,4 +44,9 @@ bool cache_decode(const std::string& bytes, int w, int h, Pixels& out);
 // five, darkened to sit on the app's black.
 uint32_t tint_for(const std::string& name);
 
+// The colour behind the now-playing page, from its cover (0xRRGGBB): the
+// cover's average, dark enough that white text on it stays easy to read, as
+// Jellyfin's player tints its page with the blurred cover. Black for none.
+uint32_t backdrop_for(const Pixels& p);
+
 }  // namespace zs::jfapp

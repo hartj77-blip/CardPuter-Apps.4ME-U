@@ -13,6 +13,8 @@
 #   - covers are fetched as JPEG at the size of a card, drawn, kept on disk and
 #     not fetched twice
 #   - a long library is fetched a page at a time, to the end
+#   - playing a track opens the player with its cover; the queue picks
+#     another track; leaving the app and coming back, Y finds the player again
 #   - a search asks once for each kind of thing
 #   - a favourite reaches the server
 #   - signing out forgets the token, the covers and the searches
@@ -25,8 +27,23 @@ BIN=$(realpath "${1:-$ROOT/build/headless}")/zeroshell
 [ -x "$BIN" ] || { echo "error: no $BIN: cmake -S . -B build/headless -DZS_BACKEND=headless && cmake --build build/headless" >&2; exit 1; }
 T=$(mktemp -d)
 SERVER=
-trap '[ -n "$SERVER" ] && kill "$SERVER" 2>/dev/null; rm -rf -- "${T:?}"' EXIT
-mkdir -p "$T/shots"
+cleanup() {
+    # Under set -e: a kill of what has already gone must not end this early.
+    if [ -n "$SERVER" ]; then kill "$SERVER" 2>/dev/null || true; fi
+    if [ -s "$T/mpv.pids" ]; then kill $(cat "$T/mpv.pids") 2>/dev/null || true; fi
+    rm -rf -- "${T:?}"
+}
+trap cleanup EXIT
+mkdir -p "$T/shots" "$T/bin"
+# A stand-in mpv: music "plays" (ZeroShell's player starts mpv for a stream)
+# and what it was asked to play is written down.
+cat > "$T/bin/mpv" <<STUB
+#!/bin/sh
+echo \$\$ >> "$T/mpv.pids"
+printf '%s\n' "\$*" >> "$T/mpv.log"
+exec sleep 60
+STUB
+chmod +x "$T/bin/mpv"
 H=$T/home   # the Cardputer's home folder: its settings and its covers
 CONF=$H/.config/zeroos/settings.conf
 CACHE=$H/.cache/zeroos/jellyfin
@@ -44,7 +61,7 @@ serve() {   # [--old]: start the stand-in (again), on a port of its own
 run() {   # steps: one visit to the app; what the server saw is in $T/log
     : > "$T/log"
     mkdir -p "$H"
-    if ! (cd "$T/shots" && HOME="$H" TZ=UTC "$BIN" --real-hal --script "$1") > "$T/out" 2>&1; then
+    if ! (cd "$T/shots" && PATH="$T/bin:$PATH" HOME="$H" TZ=UTC "$BIN" --real-hal --script "$1") > "$T/out" 2>&1; then
         echo "FAIL zeroshell: $(tail -5 "$T/out")"
         exit 1
     fi
@@ -84,7 +101,9 @@ SIGN_AGAIN="open:jellyfin,wait:300,enter,wait:300,enter,wait:300,enter,wait:300,
 # ---- A first visit: sign in, look round, search, sign out ---------------------
 serve
 run "${SIGN_IN/URL/$URL},live:4000,shot:home.ppm\
-,enter,live:2500,shot:albums.ppm,enter,live:2500,shot:album.ppm,ctrl:v,live:1200,esc,wait:200,esc,wait:300\
+,enter,live:2500,shot:albums.ppm,enter,live:2500,shot:album.ppm\
+,enter,live:2000,shot:player.ppm,key:q,live:600,shot:queue.ppm,down,enter,live:1500,shot:player2.ppm,key:v,live:1200\
+,home,live:300,open:jellyfin,live:2500,key:y,live:1000,shot:player-again.ppm,esc,live:400\
 ,right,right,right,right,enter,live:5000,shot:archive.ppm,esc,wait:300\
 ,key:f,live:600,type:love,live:3500,shot:search.ppm,esc,wait:200,esc,wait:300\
 ,ctrl:o,wait:400,enter,live:800,shot:signed-out.ppm"
@@ -95,8 +114,9 @@ rest = [r for r in log if r["path"] not in ("/Users/AuthenticateByName", "/Syste
 ok(rest and all(r["token"] for r in rest), "every request carries the token in its Authorization header")
 ok(not any(r["token_in_url"] for r in log), "the token is never in an address")
 ok(all(r["status"] in (200, 204, 404) for r in rest), "no request refused")
+# The app is opened twice on this visit (it is left and opened again).
 for p in ("/UserViews", "/UserItems/Resume", "/Shows/NextUp"):
-    ok(len(paths(p)) == 1, "Home asks once for " + p)
+    ok(len(paths(p)) == 2, "Home asks once for " + p + " each time the app opens")
 ok(len(paths("/Items/Latest")) >= 4, "Home asks what is new in each library")
 ok(not paths("/Users/", "GET"), "a current server isn't asked for the old paths")
 
@@ -126,6 +146,14 @@ ok(shot("search.ppm") > 40, "search results show their covers")
 
 fav = paths("/UserFavoriteItems/", "POST")
 ok(len(fav) == 1 and fav[0]["status"] == 200, "a favourite reaches the server")
+
+ok(shot("player.ppm") > 100, "playing a track opens the player, with the album's cover")
+ok(shot("player2.ppm") > 100, "a track picked in the queue plays in the player")
+ok(shot("player-again.ppm") > 100, "after leaving the app, Y opens the player with its cover")
+streams = [l for l in open(os.path.join(T, "mpv.log")).read().splitlines() if "/Audio/" in l]
+ids = [l.split("/Audio/")[1].split("/")[0] for l in streams]
+ok(len(ids) == 2 and ids[0] != ids[1], f"the first track, then the one picked in the queue ({len(ids)} streams)")
+ok(all("--include=" in l and "Token" not in l for l in streams), "the token goes to mpv in a file, not on its command line")
 PY
 grep -q '^jellyfin.token=$' "$CONF" || { echo "FAIL signing out left the token in $CONF"; exit 1; }
 grep -q '^jellyfin.searches=$' "$CONF" || { echo "FAIL signing out left the searches in $CONF"; exit 1; }

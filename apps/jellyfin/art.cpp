@@ -198,6 +198,29 @@ bool cache_decode(const std::string& bytes, int w, int h, Pixels& out) {
     return true;
 }
 
+uint32_t backdrop_for(const Pixels& p) {
+    if (p.px.empty()) return 0;
+    long r = 0, g = 0, b = 0;
+    for (uint16_t v : p.px) {
+        r += (v >> 11) * 255 / 31;
+        g += ((v >> 5) & 0x3F) * 255 / 63;
+        b += (v & 0x1F) * 255 / 31;
+    }
+    long n = long(p.px.size());
+    r /= n;
+    g /= n;
+    b /= n;
+    // At most a quarter of full light, keeping the colour: white text on it
+    // keeps a contrast of 10:1 or better.
+    long top = std::max({r, g, b});
+    if (top > 64) {
+        r = r * 64 / top;
+        g = g * 64 / top;
+        b = b * 64 / top;
+    }
+    return uint32_t((r << 16) | (g << 8) | b);
+}
+
 uint32_t tint_for(const std::string& name) {
     // Jellyfin's defaultCardBackground1 to 5, at about a third of their light.
     static const uint32_t kTints[] = {0x4a3e0c, 0x143646, 0x282740, 0x4e1a12, 0x21483c};

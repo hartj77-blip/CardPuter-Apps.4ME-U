@@ -515,7 +515,10 @@ pauses timed workflows after 60 days without a commit; running it by hand wakes 
 4. **Publish** (`tools/assemble.sh`): put every level's packages together, carry over the level
    below from the previous release, write one index, check that every package it lists is there
    and matches its checksum, and publish it as a new release, `apps-<date>-<run>`, marked latest.
-   The release notes list every app and its version.
+   The release notes list every app and its version. Publishing waits for an OK on the `release`
+   environment. Runs build side by side, but only one publishes at a time: a newer run replaces
+   an older one still waiting for its OK, and a run whose commit is older than the newest release
+   publishes nothing.
 
 A release is triggered when a change under `apps/`, `tools/`, `CMakeLists.txt` or the OS pin
 lands on `main`; every 3 hours if ZeroOS moved on; or by hand.

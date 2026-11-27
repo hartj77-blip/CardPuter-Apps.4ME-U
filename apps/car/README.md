@@ -233,8 +233,8 @@ on the USB cable too there is only one connection, and nothing to hum.
   [iPod mode](#ipod-mode) for the same without the delay, on a stereo that
   takes it.
 - **Other apps carry on.** The modes run outside the Car app: press Esc and
-  open GPS (or anything else), and the music plays on, also with the screen
-  off. The GPS on a Cap LoRa-1262 or the Grove port works in Slave; a USB
+  open GPS or Maps (or anything else), and the music plays on, also with
+  the screen off. Maps' spoken directions come out of the car as well. The GPS on a Cap LoRa-1262 or the Grove port works in Slave; a USB
   GPS dongle doesn't, because the USB-A port is off.
 
 Two other ways to be rid of the hum, with the aux lead kept: a ground loop
@@ -295,6 +295,10 @@ What to expect:
   tell it not to. For music that doesn't matter. It does mean a press of
   pause or skip takes that long to be heard, and it is no good for a video
   or a game.
+- **Spoken directions are late too.** Maps' turn-by-turn voice goes to the
+  car with everything else, three to five seconds after it is spoken: fine
+  for "in 300 metres", too late for "turn now", so keep an eye on the
+  screen. iPod mode, Bluetooth and aux don't have the delay.
 - **The car's buttons work**, as far as a stick allows. Next and previous
   on the car skip the song on the phone (or in Media's queue); pause on the
   car pauses it, and play carries on. The Cardputer works these out from

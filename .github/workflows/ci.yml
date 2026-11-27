@@ -30,7 +30,8 @@ jobs:
         run: git -C base fetch --depth 1 origin main && git -C base checkout FETCH_HEAD
       - name: Install dependencies
         # libvncserver-dev and freerdp3-dev: Desktop's viewer (apps/desktop/app.cmake). librtlsdr-dev: RF Tools' zrfd.
-        run: sudo apt-get update && sudo apt-get install -y cmake g++ libsdl2-dev python3-pil pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev
+        # dosfstools and mtools: Car's car-live-test.sh checks the stick it serves.
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libsdl2-dev python3-pil pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev dosfstools mtools
       - name: Every changed app has a new version
         if: github.event_name == 'pull_request' && matrix.os == 'pinned'
         run: tools/check-versions.sh "origin/${{ github.base_ref }}"

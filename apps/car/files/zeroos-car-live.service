@@ -1,0 +1,11 @@
+# USB live sound (Car's README.md): serves the made-up stick the car reads,
+# fed with the sound the UI user's session plays. Started and stopped by
+# zeroos-usb-stick.service (/usr/lib/zeroos/usb-stick), never by itself.
+[Unit]
+Description=ZeroOS Car: USB live sound (the stick the car reads)
+After=user@1000.service
+
+[Service]
+ExecStart=/usr/lib/zeroos/usb-stick live-daemon
+# Stopped by itself while the car reads: the stick is taken away.
+ExecStopPost=/usr/lib/zeroos/usb-stick live-gone

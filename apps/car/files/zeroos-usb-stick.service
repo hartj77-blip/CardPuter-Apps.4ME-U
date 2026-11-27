@@ -1,8 +1,9 @@
-# USB stick mode (docs/CAR.md): offers a copy of ~/Music on the USB device
-# port. ZeroShell's Car app starts and stops it. Building the music image
-# the first time can take a while, hence the long start timeout.
+# The Car app's USB modes (README.md), on the USB device port: USB stick
+# mode (a copy of ~/Music) or USB live sound (what plays now). The Car app
+# names the mode, then starts and stops this. Building the music image the
+# first time can take a while, hence the long start timeout.
 [Unit]
-Description=ZeroOS USB stick mode (music for a car stereo)
+Description=ZeroOS Car: music for a car stereo over USB
 
 [Service]
 Type=oneshot

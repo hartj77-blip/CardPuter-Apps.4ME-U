@@ -1,24 +1,42 @@
 #!/bin/bash
-# USB stick mode: the Cardputer shows up as a read-only USB stick holding a
-# copy of ~/Music, so a car stereo (or anything that plays from a stick) can
-# play it and its own buttons work. Run as root by zeroos-usb-stick.service.
+# The Car app's three USB modes (README.md), one at a time, on the USB
+# device port. Run as root by zeroos-usb-stick.service; the Car app names
+# the mode in ~/.config/zeroos/car-usb before it starts the service.
 #
-#   zeroos-usb-stick start    build the music image if ~/Music changed, then
-#                             offer it on the USB device port
+#   files   USB stick mode: the Cardputer shows up as a read-only USB stick
+#           holding a copy of ~/Music, so a car stereo (or anything that
+#           plays from a stick) can play it and its own buttons work.
+#   live    USB live sound: a stick whose songs are whatever the Cardputer
+#           is playing now (zeroos-car-live serves it; this sets it up).
+#
+#   zeroos-usb-stick start    set up the mode the Car app asked for
 #   zeroos-usb-stick stop     take it away again
-#   zeroos-usb-stick build IMAGE MUSIC_DIR    only build the image (tests)
+#   zeroos-usb-stick build IMAGE MUSIC_DIR    only build the music image (tests)
+#   zeroos-usb-stick live-daemon     what zeroos-car-live.service runs
+#   zeroos-usb-stick live-capture KBPS   the sound, as MP3, on stdout (as the UI user)
+#   zeroos-usb-stick live-gone       zeroos-car-live.service has stopped
 #
 # The board's Host/Slave switch (left side) must be on Slave; the right-hand
 # USB-C port is then the device port. Progress is written to $STATE for
-# ZeroShell: "building N", "ready", "attached" or "error: why".
+# ZeroShell: "building N", "ready" or "error: why"; the mode to $MODE_STATE.
 set -u
 export LC_ALL=C.UTF-8          # so accented file names survive the copy
 
-MUSIC=${ZEROOS_MUSIC:-/home/pi/Music}
+# The UI user is uid 1000: "pi", or the name Raspberry Pi Imager gave it.
+UI_USER=$(id -nu 1000 2>/dev/null || echo pi)
+UI_HOME=$(getent passwd "$UI_USER" 2>/dev/null | cut -d: -f6)
+UI_HOME=${UI_HOME:-/home/pi}
+MUSIC=${ZEROOS_MUSIC:-$UI_HOME/Music}
 DIR=${ZEROOS_CAR_DIR:-/var/lib/zeroos/car}
 IMG=$DIR/music.img
 STAMP=$DIR/music.stamp
 STATE=${ZEROOS_CAR_STATE:-/run/zeroos/usb-stick.state}
+MODE_FILE=${ZEROOS_CAR_MODE_FILE:-$UI_HOME/.config/zeroos/car-usb}
+MODE_STATE=${ZEROOS_CAR_MODE_STATE:-/run/zeroos/usb-stick.mode}
+LIVE_DIR=${ZEROOS_CAR_LIVE_DIR:-/run/zeroos/car-live}
+LIVE_BIN=${ZEROOS_CAR_LIVE_BIN:-/usr/lib/zeroos/car-live}
+LIVE_CONF=${ZEROOS_CAR_LIVE_CONF:-/etc/zeroos/car-live.conf}
+LIVE_UNIT=zeroos-car-live.service
 GADGET=/sys/kernel/config/usb_gadget/zeroos-stick
 START=2048                      # first sector of the FAT partition (1 MiB)
 EXTS='mp3|m4a|aac|wma|wav|flac|ogg|opus'
@@ -31,7 +49,21 @@ say() {
     if [ "${ZEROOS_CAR_PROGRESS:-}" = stdout ]; then echo "$*"; return; fi
     mkdir -p "$(dirname "$STATE")"; echo "$*" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
 }
-fail() { say "error: $*"; echo "zeroos-usb-stick: $*" >&2; exit 1; }
+fail() {
+    say "error: $*"
+    echo "zeroos-usb-stick: $*" >&2
+    [ -n "${STARTING:-}" ] && teardown   # nothing half set up is left behind
+    exit 1
+}
+
+# The mode the Car app asked for. The file is the user's: only one of the
+# words below is taken from it.
+wanted_mode() {
+    case $(head -c 16 "$MODE_FILE" 2>/dev/null | tr -cd 'a-z') in
+        live) echo live ;;
+        *) echo files ;;
+    esac
+}
 
 # Music files under $1, sorted, as NUL-separated paths relative to it.
 music_files() {
@@ -122,28 +154,26 @@ build_as_owner() {
 
 udc() { ls /sys/class/udc 2>/dev/null | head -1; }
 
-stop() {
+# Everything a mode set up, whichever it was. The state file stays.
+teardown() {
     if [ -d "$GADGET" ]; then
         echo "" > "$GADGET/UDC" 2>/dev/null || true
         rm -f "$GADGET/configs/c.1/mass_storage.0"
         rmdir "$GADGET/configs/c.1/strings/0x409" "$GADGET/configs/c.1" \
               "$GADGET/functions/mass_storage.0" "$GADGET/strings/0x409" "$GADGET" 2>/dev/null || true
     fi
-    rm -f "$STATE"
+    # After the gadget, which had its file open. Not waited for: at
+    # shutdown systemd is stopping it already.
+    systemctl stop --no-block "$LIVE_UNIT" 2>/dev/null || true
 }
 
-start() {
-    modprobe libcomposite 2>/dev/null || true
-    [ -n "$(udc)" ] || fail "no USB device port: set the switch on the left to Slave"
-    mkdir -p "$DIR"
-    local now
-    now=$(fingerprint "$MUSIC")
-    if [ ! -f "$IMG" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$now" ]; then
-        say "building 0"
-        build_as_owner
-        echo "$now" > "$STAMP"
-    fi
-    stop
+stop() {
+    teardown
+    rm -f "$STATE" "$MODE_STATE"
+}
+
+# offer FILE PRODUCT CONFIG: FILE as a read-only USB stick on the device port.
+offer() {
     mkdir -p "$GADGET" || fail "USB device mode isn't available on this kernel"
     cd "$GADGET" || fail "USB device mode isn't available on this kernel"
     echo 0x1d6b > idVendor          # Linux Foundation
@@ -151,16 +181,95 @@ start() {
     echo 0x0200 > bcdUSB
     mkdir -p strings/0x409 configs/c.1/strings/0x409 functions/mass_storage.0
     echo "ZeroOS" > strings/0x409/manufacturer
-    echo "Cardputer Music" > strings/0x409/product
+    echo "$2" > strings/0x409/product
     tr -d '\n-' < /etc/machine-id | cut -c1-16 > strings/0x409/serialnumber
-    echo "Music" > configs/c.1/strings/0x409/configuration
+    echo "$3" > configs/c.1/strings/0x409/configuration
     echo 500 > configs/c.1/MaxPower     # ask the car for 500 mA
     echo 1 > functions/mass_storage.0/lun.0/ro
     echo 1 > functions/mass_storage.0/lun.0/removable
     echo 0 > functions/mass_storage.0/lun.0/cdrom
-    echo "$IMG" > functions/mass_storage.0/lun.0/file || fail "can't offer the music image"
+    echo "$1" > functions/mass_storage.0/lun.0/file || fail "can't offer the stick"
     ln -s functions/mass_storage.0 configs/c.1/
     udc > UDC || fail "the USB device port is busy"
+}
+
+start_files() {
+    local now
+    now=$(fingerprint "$MUSIC")
+    if [ ! -f "$IMG" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$now" ]; then
+        say "building 0"
+        build_as_owner
+        echo "$now" > "$STAMP"
+    fi
+    offer "$IMG" "Cardputer Music" "Music"
+}
+
+# --- USB live sound ---------------------------------------------------------
+
+# One whole number from /etc/zeroos/car-live.conf (KEY=123), or the default.
+live_setting() {
+    local v
+    v=$(sed -n "s/^$1=\([0-9]\{2,5\}\)[[:space:]]*\$/\1/p" "$LIVE_CONF" 2>/dev/null | tail -1)
+    echo "${v:-$2}"
+}
+
+start_live() {
+    command -v lame >/dev/null && command -v pw-record >/dev/null || fail "lame or pw-record isn't installed"
+    systemctl start "$LIVE_UNIT" || fail "live sound didn't start"
+    local i=0
+    until [ -f "$LIVE_DIR/stick.img" ]; do
+        i=$(( i + 1 ))
+        [ "$i" -gt 50 ] && fail "live sound didn't start"
+        sleep 0.1
+    done
+    offer "$LIVE_DIR/stick.img" "Cardputer Live" "Live sound"
+}
+
+# zeroos-car-live.service: the stick, fed by live-capture run as the UI user
+# (the sound system is theirs).
+live_daemon() {
+    local kbps delay
+    kbps=$(live_setting KBPS 320)
+    delay=$(live_setting DELAY_MS 3000)
+    mkdir -p "$(dirname "$LIVE_DIR")"
+    exec "$LIVE_BIN" --kbps "$kbps" --backlog-ms "$delay" "$LIVE_DIR" -- \
+        runuser -u "$UI_USER" -- env XDG_RUNTIME_DIR="/run/user/$(id -u "$UI_USER")" "$SELF" live-capture "$kbps"
+}
+
+# The sound, as MP3 on stdout. pw-record appears to the sound system as an
+# output called "Car (USB)", ahead of the speaker, the headphone jack and
+# Bluetooth, so everything plays into it while it runs and goes back where
+# it was when it stops. lame: constant bit rate, each frame on its own (no
+# bit reservoir) and written at once, no tag.
+live_capture() {
+    pw-record -P '{ media.class=Audio/Sink node.name=zeroos_car node.description="Car (USB)" priority.session=2500 }' \
+        --rate 44100 --channels 2 --format s16 --latency 50ms - |
+        lame --quiet -r -s 44.1 --bitwidth 16 --signed --little-endian -m j --cbr -b "$1" -q 7 \
+             --nores -t --noreplaygain --flush - -
+}
+
+# zeroos-car-live.service has stopped. If the stick is still offered, it
+# stopped by itself and the car is reading a file that is gone: take the
+# stick away and say so.
+live_gone() {
+    [ "$(cat "$MODE_STATE" 2>/dev/null)" = live ] && [ -d "$GADGET" ] || return 0
+    teardown
+    say "error: live sound stopped"
+}
+
+start() {
+    local mode
+    mode=$(wanted_mode)
+    STARTING=1
+    modprobe libcomposite 2>/dev/null || true
+    [ -n "$(udc)" ] || fail "no USB device port: set the switch on the left to Slave"
+    mkdir -p "$DIR" "$(dirname "$MODE_STATE")"
+    teardown
+    echo "$mode" > "$MODE_STATE"
+    case $mode in
+        live) start_live ;;
+        *) start_files ;;
+    esac
     say "ready"
 }
 
@@ -168,5 +277,8 @@ case "${1:-}" in
     start) start ;;
     stop) stop ;;
     build) build "$2" "$3" ;;
+    live-daemon) live_daemon ;;
+    live-capture) live_capture "${2:-320}" ;;
+    live-gone) live_gone ;;
     *) echo "usage: $0 start|stop|build IMAGE MUSIC_DIR" >&2; exit 2 ;;
 esac

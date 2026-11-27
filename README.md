@@ -202,7 +202,7 @@ the app. It all goes again when you remove the app.
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
 | [Libretro](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen or a TV on the HDMI port; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Two (up to four) players with USB or Bluetooth gamepads. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
-| [Car](apps/car/README.md) | `car` | Music in the car: the Cardputer as a USB stick of your music, Bluetooth audio with the car's buttons, or your phone's music through the Cardputer to the aux | mtools, dosfstools, fdisk |
+| [Car](apps/car/README.md) | `car` | Music in the car: over one USB cable that also charges (the Cardputer as a USB stick of your music, or of whatever it plays now), Bluetooth audio with the car's buttons, or your phone's music through the Cardputer to the aux | mtools, dosfstools, fdisk, lame |
 
 ### Networks and other computers
 
@@ -286,7 +286,7 @@ ones to know about for battery life.
 | Remote | Tailscale, by default for 15 minutes after you last used it | Settings > Tailscale |
 | Sync | Syncthing, by default only while charging | Settings > Sync |
 | Router | Routing for the laptop, until you turn it off | Turn it off in Router |
-| Car | USB stick mode, until you turn it off | Enter on the row again in Car |
+| Car | USB stick mode or USB live sound, until you turn it off | Enter on the row again in Car |
 
 ## Troubleshooting
 

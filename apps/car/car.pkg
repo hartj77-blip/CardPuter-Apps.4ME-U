@@ -1,11 +1,13 @@
-# Car (README.md): USB stick mode for a car stereo, Bluetooth audio with
-# the car's play and skip buttons, and a phone's music through the Cardputer.
+# Car (README.md): music for a car stereo over one USB cable (the files in
+# ~/Music, or whatever plays now), Bluetooth audio with the car's play and
+# skip buttons, and a phone's music through the Cardputer.
 NAME="Car"
-SUMMARY="USB stick mode for a car stereo, Bluetooth audio with the car's buttons, your phone's music to the aux"
-APP_VERSION="1.3.1"
-DEPENDS="mtools, dosfstools, fdisk"
-NEEDS="mtools"
-STOP_ON_REMOVE="zeroos-usb-stick.service"
+SUMMARY="Music for a car stereo over USB (your files, or what plays now), Bluetooth audio with the car's buttons, your phone's music to the aux"
+APP_VERSION="1.4.0"
+# lame and pw-record (pipewire-bin): USB live sound's encoder and its input.
+DEPENDS="mtools, dosfstools, fdisk, lame, pipewire-bin"
+NEEDS="mtools, lame"
+STOP_ON_REMOVE="zeroos-usb-stick.service zeroos-car-live.service"
 # Wi-Fi off while a phone's music plays and Wi-Fi isn't connected (README.md).
 ENABLE="zeroos-car-wifi.service"
 # BlueALSA (from the base image) takes a phone's music before PipeWire can,
@@ -14,6 +16,11 @@ DISABLE_DEPS="bluealsa-aplay.service bluealsa.service"
 payload() {
     install -D -m 0755 "$F/zeroos-usb-stick" "$D/usr/lib/zeroos/usb-stick"
     install -D -m 0644 "$F/zeroos-usb-stick.service" "$D/etc/systemd/system/zeroos-usb-stick.service"
+    # USB live sound: the program that serves the stick (live/, built into the build's bin/).
+    local live=${ZEROOS_BUILD:-}/bin/zeroos-car-live
+    [ -x "$live" ] || { echo "error: no $live" >&2; exit 1; }
+    install -D -m 0755 "$live" "$D/usr/lib/zeroos/car-live"
+    install -D -m 0644 "$F/zeroos-car-live.service" "$D/etc/systemd/system/zeroos-car-live.service"
     install -D -m 0755 "$F/zeroos-car-wifi" "$D/usr/lib/zeroos/car-wifi"
     install -D -m 0644 "$F/zeroos-car-wifi.service" "$D/etc/systemd/system/zeroos-car-wifi.service"
     # uinput: BlueZ turns the car's play/skip buttons into key presses with it.

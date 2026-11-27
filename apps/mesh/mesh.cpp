@@ -209,7 +209,7 @@ private:
             }
         }
         if (can_chat()) list_.add(LV_SYMBOL_ENVELOPE, "Chat", "", [this] { switch_page(false); });
-        list_.add(LV_SYMBOL_GPS, "GPS", "", [] { shell_open_app("gps"); });
+        list_.add(LV_SYMBOL_GPS, "GPS", "", [] { shell_open_app("maps", "gps"); });   // Maps has the GPS screen
         list_.finish();
     }
 

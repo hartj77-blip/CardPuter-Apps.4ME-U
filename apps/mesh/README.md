@@ -27,7 +27,7 @@ The info page has:
 | Allow phones / Block phones | Let phones on this network reach the web client and API, until the mesh goes off. Without it, only the Cardputer and your tailnet can |
 | QR code | Scan it with your phone, on the same Wi-Fi, to chat from Meshtastic's web client (after **Allow phones**) |
 | Open on monitor | The same web client in Dock mode's browser |
-| GPS | Opens the GPS app |
+| GPS | Opens Maps on its GPS screen (position and tracks) |
 
 The mesh stays on, and the expansion port stays powered, until you turn it off: that's what lets
 messages arrive while you do other things, and it costs battery.

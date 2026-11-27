@@ -9,10 +9,15 @@ Everything comes with the app, made from [OpenStreetMap](https://www.openstreetm
 while you use it. The routes are planned by [Navit](https://www.navit-project.org), running in the
 background; what you see is this app's own.
 
-For your position it needs the same thing as the [GPS app](../gps/README.md): a Cap LoRa-1262 on the
-expansion port, a Grove GPS unit, or a USB GPS dongle. **Install the GPS app too**: it sets up the
-receiver. Without one, Maps is still a map you can scroll around, and it can show you a route from
-the middle of the screen.
+For your position it needs a GPS module: a Cap LoRa-1262 on the expansion port (it has GPS), a
+Grove GPS unit, or a USB GPS dongle. Power the Cardputer off before you plug one in. The OS's
+[expansion guide](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/EXPANSION.md) has
+the details. Maps sets up the receiver itself (gpsd). Without one, Maps is still a map you can
+scroll around, and it can show you a route from the middle of the screen.
+
+Maps also has the GPS screen that used to be the separate GPS app: your position, satellites,
+saving the spot you're at, and recording a track (see [Position and tracks](#position-and-tracks)).
+Installing or updating Maps replaces the GPS app.
 
 ## Directions
 
@@ -39,6 +44,35 @@ when you open it again.
 The voice comes out wherever the sound goes: the speaker, headphones, or the car stereo through the
 [Car app](../car/README.md)'s Bluetooth.
 
+## Position and tracks
+
+**P** (or **Tab > Position and tracks**) opens the GPS screen. **Esc** goes back to the map.
+
+| Shown | |
+| --- | --- |
+| Top line | Starting, looking for satellites, 2D fix or 3D fix; REC with the distance and time while a track records |
+| Latitude, longitude | In degrees, to six places |
+| Altitude | Only with a 3D fix |
+| Speed, Heading | Heading once you're moving faster than about 2 km/h |
+| Accuracy | The receiver's own estimate |
+| Satellites | Used of seen |
+| UTC | The time from the satellites |
+
+| Key | Does |
+| --- | --- |
+| **Enter** (on the map: **Tab > S**) | Save this spot: a line in `~/Documents/waypoints.txt` with the time, position and altitude |
+| **R** (on the map too) | Start or stop recording a track, as GPX in `~/Documents/Tracks/` |
+
+**Tracks keep recording** after you leave Maps, with the screen off, until you press **R** again.
+The map shows REC in red at the top left while one records. A track that never got a fix is saved
+empty, and Maps says so. GPX opens in almost any map app, and **Sync** copies Documents to your PC.
+
+A first fix outdoors takes about 30 seconds; indoors, often never. The expansion port is powered
+only while Maps is open (or a track records, or Mesh is on), so each time you open Maps the
+receiver starts afresh.
+
+Mesh's **GPS** button opens Maps straight on this screen (`shell_open_app("maps", "gps")`).
+
 ## On screen
 
 | Where | Shows |
@@ -58,12 +92,14 @@ The map turns so that the way you're going is up, and shows more of the road ahe
 | Key | Does |
 | --- | --- |
 | **G** | Go to: find a town or a street and get directions there |
+| **P** | Position and tracks: the GPS screen |
+| **R** | Start or stop recording a track |
 | **X** | Stop the directions |
 | **-** and **=** | Zoom out and in. The zoom you choose while following is kept for next time |
 | Arrows (or **W A S D**) | Look around. The map stops following you |
 | **Enter** | Follow me again |
 | **N** | North up, or the way you're going up |
-| **Tab** | The menu: also **V** voice on or off, **T** day or night colours, **U** miles or kilometres, **I** about this map |
+| **Tab** | The menu: also **S** save this spot, **V** voice on or off, **T** day or night colours, **U** miles or kilometres, **I** about this map |
 | **Esc** | Home (in Go to: clear what you typed, then back to the map) |
 
 Miles are the default on a US map. The last place you were is remembered, so the map opens there
@@ -77,6 +113,8 @@ before the GPS has a fix.
 | `/usr/share/zeroos/maps/new-jersey.search` | Go to's list of towns and streets (about 7 MB) |
 | `/usr/share/zeroos/maps/new-jersey.navit` | The roads, for Navit to plan routes on (about 26 MB) |
 | `~/Maps/` | Maps you add yourself (the same three files, with the same name before the dot): they come first |
+| `~/Documents/waypoints.txt`, `~/Documents/Tracks/` | Spots you saved, and the tracks you recorded (GPX) |
+| `/etc/default/gpsd` | gpsd's settings, set by Maps for the expansion port's UART and USB dongles. The one that was there is kept and put back when Maps is removed |
 | `~/.config/zeroos/settings.conf` | The places you went to last (`maps.recent`), where directions were going (`maps.dest`), and the app's settings |
 
 Another app can open the map at a place: `shell_open_app("maps", "40.7357,-74.1724")`.
@@ -138,7 +176,22 @@ extracts, and a `.poly` outline for each, at [download.geofabrik.de](https://dow
 In the simulator a stand-in plans an L-shaped route instead, so the screens can be tried with no
 Navit. On a PC with Navit, `ZS_MAPS_NAVIT=1` uses the real one.
 
-The position comes from gpsd through the OS's hardware layer, as in the GPS app. Between fixes (a
+### The GPS
+
+The package installs [gpsd](https://gpsd.io) and points it at the UART, `/dev/serial0`, at
+115200 baud, and at USB GPS dongles (`files/gpsd.default`, which replaces gpsd's
+`/etc/default/gpsd` and is put back when you remove Maps). gpsd starts only when something
+connects to it (`gpsd.socket`), and only reads the receiver while someone is listening.
+
+Maps turns on the expansion port's 5 V when it opens and reads fixes through the OS's hardware
+layer (`hal().gps()`). Track recording is part of ZeroShell (`ui/tracker.h`), which is why it
+outlives the app.
+
+The Mesh radio doesn't get the GPS position: meshtasticd can't read gpsd, only a serial port, and
+two programs on one UART garble each other. Set a fixed position in Meshtastic's web client if
+you want your node on the map.
+
+Between fixes (a
 GPS reports once a second) the app carries the position forward at your speed, so the map moves
 smoothly. The road you're on is the nearest one that runs the way you're heading.
 
@@ -159,6 +212,8 @@ The simulated GPS walks through the town, so the simulator and CI's screenshots 
 
 ## To confirm on hardware
 
+- That the Cap LoRa-1262's GPS answers on `/dev/serial0` at 115200, and a Grove GPS unit at its own speed.
+- That updating from the GPS app to Maps keeps gpsd working (apt removes GPS, then Maps sets gpsd up again).
 - How long a screen takes to draw on the Cardputer, zoomed out over a city (the most work).
 - How long Navit takes to start and to plan a long route (Princeton to Hoboken) on the Cardputer.
 - That following a fix while driving is smooth, and the screen stays on.

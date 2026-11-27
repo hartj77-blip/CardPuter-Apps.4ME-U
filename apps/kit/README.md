@@ -9,6 +9,7 @@ here compiles it in (listing it in its `app.cmake`, or including the header).
 | `run.h`, `run.cpp` | Dev Tools, Files, Libretro, Net Tools, Notes | Run programs in the background; small file helpers |
 | `ui.h`, `ui.cpp` | Dev Tools, Files, Libretro, Net Tools, Notes | A text-input screen, a title row, running a command in the Terminal |
 | `look.h` | Every app with its own colours | The UI 3 Monochrome palette and helpers |
+| `tv.h`, `tv.cpp` | Jellyfin | A TV on the HDMI port without Dock mode: is one plugged in, claiming the port, a video on it |
 
 **A change here is a change to every app that uses it.** `tools/check-versions.sh` asks for the
 version of each app whose code names the changed file (`kit/run.` for `run.cpp` and `run.h`) to
@@ -62,6 +63,29 @@ content keeps its colours (camera picture, radio spectrum, LED colours, game bor
 arguments, a background runner that collects a program's output line by line without blocking
 the screen, `capture()` for short commands, and file helpers: `list_dirs()`, `list_files()`,
 `read_file()`, `write_file()`, `make_dirs()`.
+
+## tv.h
+
+For an app that uses a TV on the HDMI port itself, without Dock mode. List `../kit/tv.cpp` in the
+app's sources.
+
+- `tv_plugged()`: a monitor is on the HDMI port (sysfs; cheap, once a second is fine).
+- `tv_claim(app_id)` / `tv_release()`: while the app uses the port, a monitor plugged in is for
+  it. This writes `$XDG_RUNTIME_DIR/zeroos-hdmi-app`, which ZeroShell (newer than 0.5.1) reads
+  so it doesn't open Dock over the app. Release only removes the app's own claim.
+- `TvVideo`: plays a file or a stream on the TV. It runs mpv on the HDMI card alone (DRM, GPU
+  scaling, H.264 in hardware, 720p or the TV's mode up to 1080p) and works it through mpv's IPC
+  socket: `open()`, `poll()` each tick (it never waits), `state()` (loading, paused, position,
+  duration, finished, error), `pause()`, `seek()`, `show_progress()` (mpv's bar on the TV),
+  `close()`. mpv goes with ZeroShell if ZeroShell stops, so the TV is never left held. The
+  built-in screen is another card, so the app's own screen carries on as the remote.
+
+Sound comes out wherever the Cardputer's sound goes. Dock mode must not be running: its desktop
+holds the same card (`hal().display().dock_running`). Libretro draws to the TV itself, frame by
+frame (`apps/games/tv.h`), and doesn't use this yet.
+
+`tests/tv_test.cpp` (built as `kit_tv_test` with Jellyfin) checks it against a fake sysfs
+(`ZS_TV_SYSFS`) and a fake mpv.
 
 ## ui.h
 

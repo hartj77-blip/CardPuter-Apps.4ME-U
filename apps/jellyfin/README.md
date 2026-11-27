@@ -253,7 +253,7 @@ Bluetooth, whichever music would use.
 | Down / Up | Back / forward a minute |
 | R | From the start |
 | + / - | Volume |
-| M | Play it on the monitor instead (Dock mode must be running) |
+| M | Play it on the TV, or back on this screen ([On a TV](#on-a-tv)); in Dock mode, on the monitor's desktop |
 | Esc or S | Stop |
 
 Any key shows the title, time and progress for three seconds; they stay up
@@ -271,12 +271,49 @@ while paused or loading.
 - The screen stays on while a video plays (not while paused). Turning the
   Cardputer face down, or the screen turning off, pauses it.
 - Video belongs to the Jellyfin app, unlike music: leaving the app stops it.
-- **M** hands the video to the monitor's player in 720p, from the same place.
+- **M** moves the video to a TV on the HDMI port and back, from the same
+  place. In Dock mode it hands the video to the Dock's player instead.
+
+### On a TV
+
+Plug a TV or monitor into the HDMI port, play a film or an episode, and it
+plays on the TV. Dock mode isn't needed. The Cardputer stays the remote, with
+the same keys. Its screen says "Playing on the TV" and shows the title, the
+time and the volume; the TV shows mpv's progress bar when you pause or seek.
+
+- Plugging the TV in while a video plays moves the video to it. Unplugging
+  brings it back to the built-in screen. Either way it carries on from the same
+  place.
+- **Play on TV: On / Off** in the menu (Tab, on any screen but the video)
+  chooses whether a video goes to a plugged-in TV by itself. With it off, M
+  still sends one there.
+- If the TV can't be used (Dock mode has the port, mpv can't start on it), the
+  video plays on the built-in screen and a note says why. It doesn't try the
+  TV by itself again until it is plugged in again.
+- The Cardputer's screen may go off while the TV plays. Turning it face down
+  doesn't pause a video on the TV.
+- Sound stays on the Cardputer's speaker, headphones or Bluetooth, like the
+  rest of its sound. It doesn't go to the TV.
+- Leaving the app stops the video, as on the built-in screen.
+
+How it works: the app runs mpv on the HDMI output alone (kernel modesetting,
+scaled by the GPU, H.264 decoded in hardware), at 720p (or the TV's mode up
+to 1080p), and works it through mpv's IPC socket ([kit/tv.h](../kit/tv.h)).
+The built-in screen is a different output, so ZeroShell carries on drawing
+there. While a video is open the app says the HDMI port is its own
+(`$XDG_RUNTIME_DIR/zeroos-hdmi-app`), so ZeroShell doesn't open Dock when the
+TV is plugged in. That needs a ZeroOS newer than 0.5.1. On an older one,
+plugging in during a video opens Dock; with the TV plugged in first, any
+ZeroOS works. mpv's errors go to `$XDG_RUNTIME_DIR/zeroos-tv-video.log`.
+
+**To confirm on a device:** the picture on a real TV (720p and 1080p-only
+ones), that mpv's GPU output starts on the vc4 card while ZeroShell holds the
+LCD, how smooth 720p is, and plugging in and out during a video.
 
 ### What the server sends
 
 The server converts each video to fit the Cardputer: H.264 and AAC, at most
-427 x 240 and about 700 kbit/s (720p and 4 Mbit/s for the monitor), in short
+427 x 240 and about 700 kbit/s (720p and 4 Mbit/s for a TV or the monitor), in short
 HLS segments, so seeking works. A file that already fits is passed through.
 The server needs transcoding enabled for the user (on by default), and a
 server that has to convert a 4K film may need a moment before it starts.
@@ -285,7 +322,7 @@ On the Cardputer, mpv decodes the stream (libmpv, which comes with mpv) and
 draws each picture into ZeroShell's own screen. The sign-in token travels in
 the Authorization header of every request (lists, covers, music, video),
 never in an address: Jellyfin 12 refuses tokens in addresses unless "legacy
-authorization" is turned on. For the monitor, the header goes to the Dock's
+authorization" is turned on. For a TV or the monitor, the header goes to the
 player in a file only you can read, `~/.config/zeroos/jellyfin-mpv.conf`.
 
 Covers come as JPEG, scaled by the server to the card they are for.
@@ -333,6 +370,7 @@ libraries, Continue Watching, what is new in a library).
 | `api.cpp`, `api.h` | What is asked of the server and how its replies are read; the requests themselves (curl) |
 | `art.cpp`, `art.h` | A JPEG or PNG made into a card's pixels ([stb_image](https://github.com/nothings/stb)); the cover files |
 | `work.h` | The three background threads that requests and covers run on |
+| `../kit/tv.cpp`, `../kit/tv.h` | A video on a TV on the HDMI port, shared with other apps ([kit](../kit/README.md#tvh)) |
 
 ZeroOS still signs in, builds the addresses music and video stream from, and
 reports playback (`hal/jellyfin.h` in the OS); the lists, the search and the
@@ -345,6 +383,10 @@ Tests, all run in CI:
   replies that are cut short, not JSON, or carry ids and tags that could
   break an address.
 - `jellyfin_art_test`: decoding, cropping to a card, the cover files.
+- `kit_tv_test`: the TV helper. It picks the mode, builds mpv's arguments and
+  reads mpv's messages, and plays a whole video on a stand-in TV (a fake sysfs
+  and a fake mpv on its socket): starting from a place, pause, seeks, stopping,
+  the end, mpv failing, and mpv missing.
 - `tests/server-test.sh`: the app in the headless ZeroShell, with the
   device's own hardware layer, against `tests/fake_jellyfin.py`, a stand-in
   server. It signs in over real HTTP and checks what the app asked for and

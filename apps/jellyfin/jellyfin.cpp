@@ -18,7 +18,7 @@
 //   Search    Text: results arrive as you type, a row for each kind of thing
 //   Playing   Control: the track that is playing, with its cover
 //   Video     Control: Enter or Space pause, Left / Right -/+10 s, Up / Down
-//             +/-1 min, R from the start, M on the monitor, S or Esc stop
+//             +/-1 min, R from the start, M on the TV (or back), S or Esc stop
 // Fn + Q / W / E, the keyboard's media keys, work everywhere.
 //
 // Nothing waits on the network on the screen's thread: lists, searches and
@@ -28,6 +28,11 @@
 // Music goes through the shell's queue (ui/player.h), so it carries on to
 // the next track after you leave the app or the screen turns off. Video
 // belongs to the app: it stops when you leave Jellyfin.
+//
+// With a TV on the HDMI port, a video plays on the TV (kit/tv.h: mpv on the
+// HDMI output, no Dock needed) and the Cardputer is its remote. Plugging the
+// TV in or out moves it, from the same place. "Play on TV" in the menu turns
+// that off; M still moves one by hand. In Dock mode M hands it to the Dock.
 //
 // The sign-in (jellyfin.* in prefs) is the one the Media app used to keep,
 // so a device that was signed in there stays signed in.
@@ -48,6 +53,7 @@
 #include "apps/jellyfin/art.h"
 #include "apps/jellyfin/ui.h"
 #include "apps/jellyfin/work.h"
+#include "apps/kit/tv.h"
 #include "platform/keys.h"
 #include "ui/list_view.h"
 #include "ui/player.h"
@@ -70,7 +76,7 @@ constexpr int kVidH = kBodyH;
 // What we ask the server for: a picture about the size of the screen (it
 // scales down, never up) at a bitrate Wi-Fi on a Pi Zero 2 keeps up with.
 constexpr int kStreamW = 427, kStreamH = 240, kStreamKbps = 700;
-// And for the monitor in Dock mode: 720p, decoded in hardware there.
+// And for a TV or the monitor in Dock mode: 720p, decoded in hardware there.
 constexpr int kDockW = 1280, kDockH = 720, kDockKbps = 4000;
 constexpr uint32_t kReportEveryMs = 30000;
 constexpr uint32_t kOsdMs = 3000;      // the info bar stays up this long after a key
@@ -201,6 +207,7 @@ public:
 
     void build(lv_obj_t* root) override {
         root_ = root;
+        sim_ = hal().system().simulated;
         jf_.server = prefs::get_str("jellyfin.server", "");
         jf_.user = prefs::get_str("jellyfin.user", "");
         jf_.user_id = prefs::get_str("jellyfin.user_id", "");
@@ -688,7 +695,8 @@ private:
             a.push_back({"Pause", 0, "Enter", nullptr});
             a.push_back({"Seek 10 s", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
             a.push_back({"Stop", 's', "S", [this] { close_video(true); }});
-            a.push_back({"On the monitor", 'm', "M", [this] { video_to_monitor(); }});
+            a.push_back({vid_tv_ ? "On this screen" : hal().display().dock_running ? "On the monitor" : "On the TV", 'm',
+                         "M", [this] { video_other_screen(); }});
             a.push_back({"Pause", 0, "Space", nullptr});
             a.push_back({"Seek 1 min", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr});
             a.push_back({"From the start", 'r', "R", [this] { video_restart(); }});
@@ -705,6 +713,11 @@ private:
         const bool playing = !hal().playback().path.empty();
         auto common = [&] {
             a.push_back({"Now playing", 'y', nullptr, [this] { open_playing(); }, playing});
+            a.push_back({tv_wanted() ? "Play on TV: On" : "Play on TV: Off", 'e', nullptr, [this] {
+                prefs::set_int("jellyfin.tv", tv_wanted() ? 0 : 1);
+                shell_toast(tv_wanted() ? "Videos play on a TV when one is plugged in" : "Videos play on this screen");
+                set_actions();
+            }});
             a.push_back({"Stop music", 't', nullptr, [] { player_stop(); }, playing});
             if (top()) a.push_back({"Home", 'h', nullptr, [this] { go_home(); }});
             a.push_back({"Refresh", 'r', nullptr, [this] { refresh(); }});
@@ -2172,36 +2185,135 @@ private:
         return fmt("%08x%08x%08x%08x", unsigned(rd()), unsigned(rd()), unsigned(rd()), unsigned(rd()));
     }
 
-    // Play items[i] (a movie or episode) on the screen. The rest of the list
-    // stays with it, so an episode can go on to the next one.
-    void open_video(const std::vector<Item>& items, int i) {
+    // Where a video goes: the TV when one is plugged in and Play on TV is
+    // on (Auto), or as asked. A TV that can't be used falls back to here.
+    enum class Where { Auto, Screen, Tv };
+
+    bool tv_wanted() const { return prefs::get_int("jellyfin.tv", 1) != 0; }
+    // A TV to put a video on now: plugged in, and Dock not holding the port.
+    bool tv_free() const { return !sim_ && kit::tv_plugged() && !hal().display().dock_running; }
+
+    // Play items[i] (a movie or episode) on the screen or the TV. The rest of
+    // the list stays with it, so an episode can go on to the next one.
+    void open_video(const std::vector<Item>& items, int i, Where where = Where::Auto) {
         const Item it = items[size_t(i)];
         close_video(true);
         player_stop();   // music and video share the speaker
         std::string session = new_session_id();
-        std::string url = jf::video_url(jf_, it.id, session, kStreamW, kStreamH, kStreamKbps);
-        if (url.empty()) {
-            shell_toast("Can't play " + it.name);
-            return;
-        }
-        vid_pixels_.assign(size_t(kVidW) * kVidH, 0);
-        std::string error;
         int start = it.resume_s > 0 ? it.resume_s : 0;
-        if (!hal().video_open(url, auth(), start, kVidW, kVidH, error)) {
-            shell_toast(error.empty() ? "Can't play " + it.name : error);
-            vid_pixels_.clear();
-            return;
+        bool tv = where == Where::Tv || (where == Where::Auto && tv_wanted() && !tv_failed_ && tv_free());
+        std::string error;
+        if (tv && !open_on_tv(it, session, start, error)) {
+            tv = false;
+            tv_failed_ = true;   // not again by itself until it's plugged in again
+            shell_toast(error + ": playing here");
         }
+        if (!tv) {
+            std::string url = jf::video_url(jf_, it.id, session, kStreamW, kStreamH, kStreamKbps);
+            if (url.empty()) {
+                shell_toast("Can't play " + it.name);
+                return;
+            }
+            vid_pixels_.assign(size_t(kVidW) * kVidH, 0);
+            error.clear();
+            if (!hal().video_open(url, auth(), start, kVidW, kVidH, error)) {
+                shell_toast(error.empty() ? "Can't play " + it.name : error);
+                vid_pixels_.clear();
+                return;
+            }
+        }
+        // While a video is open a TV plugged in is for it, not for Dock.
+        if (tv_wanted() && !sim_ && !hal().display().dock_running) kit::tv_claim("jellyfin");
         vid_items_ = items;
         vid_at_ = i;
         vid_item_ = it;
         vid_session_ = session;
         vid_reported_at_ = lv_tick_get();
         vid_started_ = false;
+        tv_check_at_ = lv_tick_get();
         build_video_view();
         set_actions();
         show_osd();
-        if (start > 0) shell_toast("Resuming at " + mmss(start * 1000));
+        if (tv) shell_toast(start > 0 ? "On the TV, from " + mmss(start * 1000) : "Playing on the TV");
+        else if (start > 0) shell_toast("Resuming at " + mmss(start * 1000));
+    }
+
+    // mpv on the HDMI port, at 720p, with the sign-in header in a file only
+    // we can read (the one Dock's player reads too).
+    bool open_on_tv(const Item& it, const std::string& session, int start, std::string& error) {
+        std::string url = jf::video_url(jf_, it.id, session, kDockW, kDockH, kDockKbps);
+        const char* home = std::getenv("HOME");
+        if (url.empty() || !home || !*home || !jf::write_dock_options(jf_, start)) {
+            error = "Can't play " + it.name + " on the TV";
+            return false;
+        }
+        kit::TvVideoOptions o;
+        o.url = url;
+        o.include = std::string(home) + "/.config/zeroos/jellyfin-mpv.conf";
+        o.start_s = start;
+        if (!tv_.open(o, error)) return false;
+        vid_tv_ = true;
+        return true;
+    }
+
+    // Take the video that is playing to the TV or back to this screen, from
+    // where it is now (a new stream: the TV's is bigger).
+    void move_video(Where where, const std::string& note) {
+        if (!vid_ || vid_at_ < 0 || vid_at_ >= int(vid_items_.size())) return;
+        VideoState st = vstate();
+        std::vector<Item> items = vid_items_;
+        items[size_t(vid_at_)] = vid_item_;
+        items[size_t(vid_at_)].resume_s = st.open ? st.pos_ms / 1000 : vid_pos_s_;
+        const int at = vid_at_;
+        close_video(true);
+        open_video(items, at, where);
+        if (!note.empty()) shell_toast(note);
+    }
+
+    // M: to the TV, back from it, or to Dock's player when Dock is running.
+    void video_other_screen() {
+        if (vid_tv_) move_video(Where::Screen, "Playing on this screen");
+        else if (hal().display().dock_running) video_to_monitor();
+        else if (!tv_free()) shell_toast("Plug a TV into the HDMI port first");
+        else move_video(Where::Tv, "");
+    }
+
+    // Once a second: a TV plugged in takes the video (with Play on TV on);
+    // unplugged, it comes back here.
+    void watch_tv() {
+        uint32_t now = lv_tick_get();
+        if (sim_ || now - tv_check_at_ < 1000) return;
+        tv_check_at_ = now;
+        bool plugged = kit::tv_plugged();
+        if (!plugged) tv_failed_ = false;   // try again on the next plug-in
+        if (vid_tv_ && !plugged) move_video(Where::Screen, "TV unplugged: playing here");
+        else if (!vid_tv_ && plugged && tv_wanted() && !tv_failed_ && !hal().display().dock_running)
+            move_video(Where::Tv, "");
+    }
+
+    // The video, wherever it plays.
+    VideoState vstate() {
+        if (!vid_tv_) return hal().video();
+        const kit::TvVideoState& t = tv_.state();
+        VideoState s;
+        s.open = t.open;
+        s.paused = t.paused;
+        s.loading = t.loading;
+        s.finished = t.finished;
+        s.error = t.error;
+        s.pos_ms = t.pos_ms;
+        s.dur_ms = t.dur_ms;
+        return s;
+    }
+    void vpause(bool paused) {
+        if (!vid_tv_) return hal().video_pause(paused);
+        tv_.pause(paused);
+        tv_.show_progress();
+    }
+    void vseek(int seconds, bool absolute) {
+        if (!vid_tv_) return hal().video_seek(seconds, absolute);
+        tv_.seek(seconds, absolute);
+        tv_.show_progress();
     }
 
     void build_video_view() {
@@ -2215,9 +2327,17 @@ private:
         vid_dsc_.header.stride = kVidW * 2;
         vid_dsc_.data = reinterpret_cast<const uint8_t*>(vid_pixels_.data());
         vid_dsc_.data_size = uint32_t(vid_pixels_.size() * 2);
-        vid_img_ = lv_image_create(vid_);
-        lv_image_set_src(vid_img_, &vid_dsc_);
-        lv_obj_set_pos(vid_img_, 0, 0);
+        if (!vid_tv_) {
+            vid_img_ = lv_image_create(vid_);
+            lv_image_set_src(vid_img_, &vid_dsc_);
+            lv_obj_set_pos(vid_img_, 0, 0);
+        } else {
+            // The picture is on the TV; this screen is its remote.
+            lv_obj_t* note = label(vid_, LV_SYMBOL_VIDEO "  Playing on the TV", &zs_font_14, kJfText);
+            lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 18);
+            lv_obj_t* hint = label(vid_, "M: back to this screen", &zs_font_12, kJfDim);
+            lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 38);
+        }
 
         // Loading: Jellyfin's spinner colour.
         vid_wait_ = label(vid_, "Loading...", &zs_font_14, kJfBlue);
@@ -2243,6 +2363,7 @@ private:
         lv_label_set_text(vid_title_, full_name(vid_item_).c_str());
 
         if (group) lv_group_focus_obj(nullptr);
+        if (vid_tv_) return;   // the TV draws its own pictures
         // Pictures come faster than the shell's 10 Hz tick.
         vid_timer_ = lv_timer_create([](lv_timer_t* t) {
             static_cast<JellyfinApp*>(lv_timer_get_user_data(t))->video_pump();
@@ -2250,7 +2371,7 @@ private:
     }
 
     void video_pump() {
-        if (!vid_) return;
+        if (!vid_ || vid_tv_) return;
         if (power().screen_off()) return;   // nobody is looking; the tick pauses it
         if (hal().video_frame(vid_pixels_.data())) {
             lv_obj_invalidate(vid_img_);
@@ -2262,13 +2383,26 @@ private:
     }
 
     void video_tick() {
-        VideoState st = hal().video();
+        if (vid_tv_) tv_.poll();
+        VideoState st = vstate();
         uint32_t now = lv_tick_get();
+        if (!st.open && vid_tv_ && !vid_started_ && !st.error.empty()) {
+            // The TV never showed it (the port busy, no picture): here instead.
+            tv_failed_ = true;
+            move_video(Where::Screen, st.error + ": playing here");
+            return;
+        }
         if (!st.open) {
             video_ended(st);
             return;
         }
-        if (power().screen_off()) {
+        if (vid_tv_) {
+            // Watched on the TV: this screen may sleep, the video goes on.
+            if (!vid_started_ && !st.loading) {
+                vid_started_ = true;
+                hal().jellyfin_report(jf_, JfReport::Start, vid_item_.id, vid_session_, vid_item_.resume_s, false);
+            }
+        } else if (power().screen_off()) {
             // Face down or timed out: stop watching, keep the place.
             if (!st.paused) hal().video_pause(true);
         } else if (!st.paused) {
@@ -2287,7 +2421,7 @@ private:
         lv_obj_center(vid_wait_);
         vis(vid_wait_, *wait != 0);
 
-        bool osd = st.paused || st.loading || now - vid_osd_at_ < kOsdMs;
+        bool osd = vid_tv_ || st.paused || st.loading || now - vid_osd_at_ < kOsdMs;
         vis(vid_osd_, osd);
         if (osd) {
             int permille = st.dur_ms > 0 ? int(1000LL * st.pos_ms / st.dur_ms) : 0;
@@ -2296,6 +2430,7 @@ private:
                                           fmt("   " LV_SYMBOL_VOLUME_MID " %d%%", hal().volume()))
                                              .c_str());
         }
+        watch_tv();
     }
 
     void video_ended(const VideoState& st) {
@@ -2335,24 +2470,25 @@ private:
     void show_osd() { vid_osd_at_ = lv_tick_get(); }
 
     void video_toggle_pause() {
-        VideoState st = hal().video();
-        hal().video_pause(!st.paused);
+        VideoState st = vstate();
+        vpause(!st.paused);
         hal().jellyfin_report(jf_, JfReport::Progress, vid_item_.id, vid_session_, st.pos_ms / 1000, !st.paused);
     }
 
     bool video_key(uint32_t key) {
         auto& h = hal();
         show_osd();
+        auto seek = [this](int s) { vseek(s, false); };
         switch (key) {
             case ' ':
             case LV_KEY_ENTER:
             case kKeyPlayPause: video_toggle_pause(); return true;
-            case LV_KEY_LEFT: h.video_seek(-10, false); return true;
-            case LV_KEY_RIGHT: h.video_seek(+10, false); return true;
-            case LV_KEY_UP: h.video_seek(+60, false); return true;
-            case LV_KEY_DOWN: h.video_seek(-60, false); return true;
-            case kKeyPrevTrack: h.video_seek(-10, false); return true;
-            case kKeyNextTrack: h.video_seek(+30, false); return true;
+            case LV_KEY_LEFT: seek(-10); return true;
+            case LV_KEY_RIGHT: seek(+10); return true;
+            case LV_KEY_UP: seek(+60); return true;
+            case LV_KEY_DOWN: seek(-60); return true;
+            case kKeyPrevTrack: seek(-10); return true;
+            case kKeyNextTrack: seek(+30); return true;
             case 'r': case 'R': video_restart(); return true;
             case '+': case '=':
                 h.set_volume(std::min(100, h.volume() + 5));
@@ -2361,7 +2497,7 @@ private:
                 h.set_volume(std::max(0, h.volume() - 5));
                 return true;
             case 's': case 'S': close_video(true); return true;
-            case 'm': case 'M': video_to_monitor(); return true;
+            case 'm': case 'M': video_other_screen(); return true;
             case LV_KEY_ESC: return false;   // on_back() closes it
         }
         // The shell's own keys (volume, brightness, Tab for the menu, 0 for
@@ -2372,7 +2508,7 @@ private:
 
     void video_restart() {
         show_osd();
-        hal().video_seek(0, true);
+        vseek(0, true);
     }
 
     // Dock mode: hand the video to the monitor's player, from where we are.
@@ -2382,7 +2518,7 @@ private:
             return;
         }
         Item it = vid_item_;
-        int at = hal().video().pos_ms / 1000;
+        int at = vstate().pos_ms / 1000;
         std::string url = jf::video_url(jf_, it.id, new_session_id(), kDockW, kDockH, kDockKbps);
         close_video(true);
         if (!jf::write_dock_options(jf_, at) || !hal().dock_open("video", url)) {
@@ -2400,9 +2536,12 @@ private:
             vid_timer_ = nullptr;
         }
         if (!vid_) return;
-        VideoState st = hal().video();
+        VideoState st = vstate();
         if (st.open) vid_pos_s_ = st.pos_ms / 1000;
-        hal().video_close();
+        if (vid_tv_) tv_.close();
+        else hal().video_close();
+        vid_tv_ = false;
+        kit::tv_release();
         hal().jellyfin_report(jf_, JfReport::Stop, vid_item_.id, vid_session_, vid_pos_s_, false);
         if (ui) {
             lv_obj_delete(vid_);
@@ -2506,6 +2645,12 @@ private:
     uint32_t vid_reported_at_ = 0, vid_osd_at_ = 0;
     int vid_pos_s_ = 0;
     bool vid_started_ = false;
+    // On a TV (kit/tv.h) instead of this screen.
+    kit::TvVideo tv_;
+    bool vid_tv_ = false;
+    bool tv_failed_ = false;   // the TV couldn't be used: not again until it's plugged in again
+    uint32_t tv_check_at_ = 0;
+    bool sim_ = false;         // the simulator: the PC's monitor isn't ours
 };
 }  // namespace
 

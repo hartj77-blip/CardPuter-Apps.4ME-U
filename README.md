@@ -6,7 +6,7 @@ for the M5Stack Cardputer Zero.
 ZeroOS itself ships with just three apps: **Apps**, **Settings** (which includes Wi-Fi and
 Bluetooth) and **Update**. That's
 enough to get online, keep the OS up to date and install things. Everything else is in this
-repository, one folder per app: 29 packages, from a clock to a software-defined radio. You install
+repository, one folder per app: 28 packages, from a clock to a software-defined radio. You install
 them from the **Apps** app on the device, and each one is versioned and released on its own, so
 updating one app never touches another.
 
@@ -221,8 +221,7 @@ the app. It all goes again when you remove the app.
 | App | Id | What it does | Needs | Brings |
 | --- | --- | --- | --- | --- |
 | [IR Remote](apps/ir/README.md) | `ir` | A universal remote with about 4,500 remotes for AV and home: TVs, projectors, displays, screens, receivers, players, cable boxes, video conferencing, switchers, lighting and more, a remote per kind, Universal or per brand (pick TVs, then Sony: it finds the code once, then every button just works) and remotes you teach it | nothing (the IR LED and receiver are built in) | v4l-utils, ir-keytable, the code database |
-| [Maps](apps/maps/README.md) | `maps` | An offline map of New Jersey with spoken turn-by-turn directions: find a town or a street, and it follows your position with the next turn, your speed, the road's speed limit and when you'll get there. Made from OpenStreetMap data; Navit plans the routes | a GPS module, as for GPS (install GPS too) | Navit, Xvfb, espeak-ng, the map, search and routing data (about 95 MB) |
-| [GPS](apps/gps/README.md) | `gps` | Position, speed, saved spots and GPX track recording | the Cap LoRa-1262 (it has GPS), a Grove GPS unit, or a USB GPS | gpsd |
+| [Maps](apps/maps/README.md) | `maps` | An offline map of New Jersey with spoken turn-by-turn directions: find a town or a street, and it follows your position with the next turn, your speed, the road's speed limit and when you'll get there. Also your position, satellites, saved spots and GPX track recording (what was the GPS app). Made from OpenStreetMap data; Navit plans the routes | the Cap LoRa-1262 (it has GPS), a Grove GPS unit, or a USB GPS | gpsd, Navit, Xvfb, espeak-ng, the map, search and routing data (about 95 MB) |
 | [Mesh](apps/mesh/README.md) | `mesh` | Meshtastic text messages over LoRa, with no phone signal or internet | the Cap LoRa-1262 | meshtasticd (from Meshtastic's repository) |
 | [Grove](apps/grove/README.md) | `grove` | Light a NeoPixel (WS2812 / SK6812) LED strip on the Grove port, with effects | an LED strip on the Grove port | its own LED service |
 | [RF Tools](apps/rf/README.md) | `rf` | Nine tools for a USB software-defined radio: Spectrum, Scanner, Sensors (433 MHz weather stations), Aircraft (ADS-B), APRS, FT8, Logbook, SDR Server and Station | an RTL-SDR dongle (RTL-SDR Blog V4 first) | rtl-sdr, rtl-433, multimon-ng, Hamlib, sox |
@@ -246,8 +245,8 @@ Terminal, SSH, or another computer.
 | Folder or file | What's in it | Written by |
 | --- | --- | --- |
 | `~/Notes/` | Your notes (`notes.txt` and any more you make) | Notes |
-| `~/Documents/waypoints.txt` | Spots you saved, one per line | GPS |
-| `~/Documents/Tracks/` | Recorded tracks, as GPX | GPS |
+| `~/Documents/waypoints.txt` | Spots you saved, one per line | Maps |
+| `~/Documents/Tracks/` | Recorded tracks, as GPX | Maps |
 | `~/Maps/` | Maps you add (a `.zmap`, `.search` and `.navit` file each), used before the one Maps comes with | you; Maps reads it |
 | `~/Documents/logbook.adi` | Your radio contacts, as ADIF | RF Tools (Logbook, FT8) |
 | `~/Recordings/` | Voice notes (16 kHz WAV), and packet captures (`.pcap`) | Recorder, Net Tools (Capture) |
@@ -282,7 +281,7 @@ ones to know about for battery life.
 | --- | --- | --- |
 | Terminal, Dev Tools | Your tmux session, and anything running in it | `exit` in each window, or `tmux kill-server` |
 | Media, Jellyfin, Recorder | The track or note that's playing | Stop in the app, or the media keys |
-| GPS | A track you're recording (and the expansion port's power, for the GPS) | **R** in GPS |
+| Maps | A track you're recording (and the expansion port's power, for the GPS) | **R** in Maps |
 | Mesh | The radio (`meshtasticd`) and the expansion port's power | **Turn off mesh** in Mesh |
 | Grove | The LED strip stays lit | Open Grove, press **Space** |
 | Remote | Tailscale, by default for 15 minutes after you last used it | Settings > Tailscale |
@@ -456,7 +455,7 @@ An app's optional `prepare.sh` runs before packing to fetch or build what `paylo
 IR Remote builds its code database from Flipper-IRDB, Remote fetches Tailscale's signing key,
 Mesh fetches Meshtastic's key and checks it against a pinned fingerprint.
 
-A settings file that belongs to another package (GPS replaces gpsd's `/etc/default/gpsd`) goes in
+A settings file that belongs to another package (Maps replaces gpsd's `/etc/default/gpsd`) goes in
 the package under `/usr/share/zeroos/app-overrides/<id>/`. Installing copies it into place and
 keeps the original as `<file>.zeroos-old`; removing the app puts the original back.
 
@@ -723,7 +722,7 @@ Each app is self-contained in its folder, so you can work on one without touchin
 
 **Rename an app:** rename the folder, the `.cpp` and `.pkg` files and the id in `app.cmake`, then
 add `REPLACES="<old id>"` to the new `.pkg`. Update all on a device then installs the new app in
-place of the old one (AI was once called `zclaw`).
+place of the old one (AI was once called `zclaw`). The same folds one app into another: Maps has `REPLACES="gps"`, since the GPS app became a screen in it. The build leaves the replaced app out, even if the pinned OS still lists one by that id.
 
 ## Write a new app
 
@@ -737,7 +736,7 @@ place of the old one (AI was once called `zclaw`).
    | --- | --- |
    | 10 to 90 | Terminal 10, Remote 20, Desktop 25, Sync 30, Files 40, Notes 50, Recorder 55, AI 60, Browser 65, Media 70, Jellyfin 72, Grove 75, Camera 80, Car 90 |
    | 100 | the OS's own apps |
-   | 110 to 190 | Tether 110, Router 115, IR Remote 120, GPS 130, Maps 135, Mesh 140, Compass 150, Battery 160, Clock 170, Dock 180, System 190 |
+   | 110 to 190 | Tether 110, Router 115, IR Remote 120, Maps 135, Mesh 140, Compass 150, Battery 160, Clock 170, Dock 180, System 190 |
    | 200 to 220 | the OS's own apps, Net Tools 220 |
    | 300 and up | Dev Tools 300 to 330, Libretro 400, RF Tools 500 |
 
@@ -938,7 +937,7 @@ under its own licence.
 | [Meshtastic](https://meshtastic.org) `meshtasticd` (GPL-3.0), from [Meshtastic's openSUSE repository](https://download.opensuse.org/repositories/network:/Meshtastic:/beta/) | Mesh |
 | [Tailscale](https://github.com/tailscale/tailscale) (BSD-3), from [Tailscale's repository](https://pkgs.tailscale.com/stable/); [mosh](https://mosh.org) | Remote, Router |
 | [Syncthing](https://github.com/syncthing/syncthing) (MPL-2.0) | Sync |
-| [gpsd](https://gpsd.io) | GPS |
+| [gpsd](https://gpsd.io) | Maps |
 | [LAME](https://lame.sourceforge.io) (LGPL-2.0+) | Car's USB live sound |
 | [Navit](https://www.navit-project.org) (GPL-2.0, its maptool too, when the package is built), [Xvfb](https://www.x.org), [eSpeak NG](https://github.com/espeak-ng/espeak-ng) (GPL-3.0) | Maps: Navit plans the routes, Xvfb gives it a screen in memory, eSpeak NG speaks the turns |
 | [mpv](https://github.com/mpv-player/mpv) and libmpv | Media, Jellyfin |

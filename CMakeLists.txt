@@ -109,6 +109,18 @@ foreach(_f ${_app_files})
 endforeach()
 get_property(_ids GLOBAL PROPERTY ZS_APP_IDS)
 list(REMOVE_DUPLICATES _ids)
+# An app here that takes over another (REPLACES= in its .pkg: a renamed app,
+# or one folded into another, that the pinned OS may still list) leaves that
+# one out, as tools/build.sh does when it packs.
+file(GLOB _pkgs CONFIGURE_DEPENDS apps/*/*.pkg)
+foreach(_p ${_pkgs})
+  file(STRINGS ${_p} _r REGEX "^REPLACES=")
+  if(_r)
+    string(REGEX REPLACE "^REPLACES=\"([^\"]*)\".*" "\\1" _r "${_r}")
+    separate_arguments(_r)
+    list(REMOVE_ITEM _ids ${_r})
+  endif()
+endforeach()
 set_property(GLOBAL PROPERTY ZS_APP_IDS ${_ids})
 
 # The shell: the OS's src/ without any app (zs_apps_build adds the apps).

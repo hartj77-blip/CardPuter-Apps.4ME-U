@@ -1,6 +1,6 @@
 // Maps: an offline moving map (README.md). The map is a .zmap file
 // (zmap.h) made from OpenStreetMap data; the position comes from the GPS
-// module through gpsd, as in the GPS app. A Control screen (docs/UX.md in
+// module through gpsd (which the package sets up). A Control screen (docs/UX.md in
 // the OS); the soft-key bar shows its keys:
 //   Enter   follow my position again (after panning)
 //   G       go to: find a place or street and get directions there
@@ -10,9 +10,13 @@
 //   N       north up / heading up
 //   T       day / night colours        U  miles / kilometres
 //   I       about this map
+//   P       the GPS screen: position, satellites, saving the spot you're
+//           at, recording a track (what was the GPS app, which Maps replaces)
+//   R       record a track / stop       S (menu)  save this spot
 // Directions come from Navit, run by nav.cpp; the search from the map's
 // .search file (search.h). Opened with a word "lat,lon"
-// (shell_open_app("maps", "40.7357,-74.1724")) it shows that place.
+// (shell_open_app("maps", "40.7357,-74.1724")) it shows that place; with
+// "gps" it opens on the GPS screen (Mesh's GPS button).
 #include <dirent.h>
 
 #include <algorithm>
@@ -21,6 +25,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -59,8 +64,12 @@ public:
         opened_ = std::time(nullptr);
         hal().set_ext_power(true);
         load_maps();
+        if (!map_ && shell_app_arg() == "gps") {   // the GPS screen still works with no map
+            open_gps();
+            return;
+        }
         if (!map_) {
-            shell_set_actions({});
+            shell_set_actions({{"Position and tracks", 'p', "P", [this] { open_gps(); }}});
             lv_obj_t* t = label(root, "No map installed", &zs_font_16, kText);
             lv_obj_align(t, LV_ALIGN_CENTER, 0, -22);
             lv_obj_t* d = label(root, problem_.empty() ? "Reinstall Maps from Apps, or put a\n.zmap file in the Maps folder."
@@ -155,7 +164,8 @@ public:
         set_actions();
         update_overlays();
         redraw();
-        shell_toast(map_->name() + "  \xC2\xA9 OpenStreetMap contributors");
+        if (arg == "gps") open_gps();
+        else shell_toast(map_->name() + "  \xC2\xA9 OpenStreetMap contributors");
     }
 
     ~MapsApp() override {
@@ -172,6 +182,7 @@ public:
     }
 
     void tick() override {
+        if (gps_panel_ && ++gps_n_ % 5 == 0) update_gps();
         if (!map_) return;
         uint32_t now = lv_tick_get();
         read_gps(now);
@@ -182,7 +193,7 @@ public:
         }
         if (navigating_) update_nav();
         if (++n_ % 10 == 0) update_overlays();
-        if (power().screen_off() || searching_) return;   // nobody is looking at the map
+        if (power().screen_off() || searching_ || gps_panel_) return;   // nobody is looking at the map
         // Redraw when the picture would change by a pixel or so, but never
         // spend more than about a third of the time drawing.
         double moved = zmap::metres_between(cx_, cy_, drawn_cx_, drawn_cy_) / kZoom[zoom_];
@@ -193,7 +204,12 @@ public:
     }
 
     bool on_key(uint32_t key) override {
-        if (!map_) return false;
+        if (gps_panel_) return gps_key(key);
+        if (!map_) {
+            if (key != 'p' && key != 'P') return false;
+            open_gps();
+            return true;
+        }
         if (searching_) return search_key(key);
         switch (key) {
             case LV_KEY_ENTER: centre(); return true;
@@ -212,11 +228,18 @@ public:
             case 't': case 'T': toggle_night(); return true;
             case 'u': case 'U': toggle_units(); return true;
             case 'i': case 'I': about(); return true;
+            case 'p': case 'P': open_gps(); return true;
+            case 'r': case 'R': toggle_track(); return true;
             default: return false;
         }
     }
 
     bool on_back() override {
+        if (gps_panel_) {
+            if (!map_) return false;   // nothing to go back to: home
+            close_gps();
+            return true;
+        }
         if (!searching_) return false;
         if (!query_.empty()) {   // a box with text: Esc clears it first
             query_.clear();
@@ -430,7 +453,11 @@ private:
         if (!fix_.device) status = waited < 6 ? "Starting GPS..." : "No GPS module found";
         else if (fix_.mode < 2) status = fmt("Looking for satellites (%d)", fix_.sats_seen);
         else if (outside_) status = "You're outside this map";
+        const TrackState& track = track_state();
+        if (status.empty() && track.recording) status = LV_SYMBOL_STOP " REC  " + short_distance(track.meters);
+        if (track.recording != rec_shown_ && !gps_panel_ && !searching_) set_actions();
         set_text(status_, status);
+        lv_obj_set_style_text_color(status_, c(have_pos_ && track.recording && !outside_ ? kBad : kText), 0);
         bool on_map = have_pos_ && !outside_;
         zmap::RoadHit road;
         if (on_map) {
@@ -477,11 +504,22 @@ private:
             shell_set_actions({{"Go", 0, "Enter", nullptr}, {"Back", 0, "Esc", nullptr}});
             return;
         }
+        bool rec = track_state().recording;
+        rec_shown_ = rec;
+        if (gps_panel_) {
+            shell_set_actions({{"Save spot", 's', "Enter", [this] { mark_spot(); }},
+                               {rec ? "Stop" : "Record", 'r', "R", [this] { toggle_track(); }},
+                               {map_ ? "Map" : "Home", 0, "Esc", nullptr}});
+            return;
+        }
         std::vector<Action> a = {{"Centre", 'c', "Enter", [this] { centre(); }},
                                  {"Go to", 'g', "G", [this] { open_search(); }}};
         if (navigating_) a.push_back({"Stop", 'x', "X", [this] { ask_stop(); }});
         else a.push_back({"Zoom", 0, "- =", nullptr});
         a.push_back({north_up_ ? "Heading up" : "North up", 'n', navigating_ ? nullptr : "N", [this] { toggle_north(); }});
+        a.push_back({"Position and tracks", 'p', nullptr, [this] { open_gps(); }});
+        a.push_back({rec ? "Stop track" : "Record track", 'r', nullptr, [this] { toggle_track(); }});
+        a.push_back({"Save this spot", 's', nullptr, [this] { mark_spot(); }});
         a.push_back({voice_ ? "Voice off" : "Voice on", 'v', nullptr, [this] { toggle_voice(); }});
         a.push_back({night_ ? "Day colours" : "Night colours", 't', nullptr, [this] { toggle_night(); }});
         a.push_back({imperial_ ? "Kilometres" : "Miles", 'u', nullptr, [this] { toggle_units(); }});
@@ -924,6 +962,153 @@ private:
         set_actions();
     }
 
+    // ---- Position and tracks (was the GPS app) ----------------------------
+
+    static const char* compass_point(double deg) {
+        static const char* k[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+        return k[int(std::fmod(deg + 22.5 + 360.0, 360.0) / 45.0) % 8];
+    }
+
+    void open_gps() {
+        if (gps_panel_) return;
+        gps_panel_ = lv_obj_create(root_);
+        lv_obj_remove_style_all(gps_panel_);
+        lv_obj_set_size(gps_panel_, kW, kH);
+        lv_obj_set_style_bg_color(gps_panel_, c(kBg), 0);
+        lv_obj_set_style_bg_opa(gps_panel_, LV_OPA_COVER, 0);
+        gps_status_ = label(gps_panel_, "", &zs_font_12, kMuted);
+        lv_obj_set_pos(gps_status_, 8, 4);
+        gps_lat_ = label(gps_panel_, "", &zs_font_16, kText);
+        lv_obj_set_pos(gps_lat_, 8, 20);
+        gps_lon_ = label(gps_panel_, "", &zs_font_16, kText);
+        lv_obj_set_pos(gps_lon_, 8, 38);
+        lv_obj_t* panel = lv_obj_create(gps_panel_);
+        style_panel(panel);
+        lv_obj_set_pos(panel, 6, 58);
+        lv_obj_set_size(panel, kScreenW - 12, kBodyH - 60);
+        lv_obj_set_style_pad_ver(panel, 6, 0);
+        lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN_WRAP);
+        lv_obj_set_style_pad_row(panel, 2, 0);
+        lv_obj_set_style_pad_column(panel, 14, 0);
+        auto row = [&](const char* k) {
+            lv_obj_t* r = lv_obj_create(panel);
+            lv_obj_remove_style_all(r);
+            lv_obj_set_size(r, 140, 18);
+            label(r, k, &zs_font_12, kMuted);
+            lv_obj_t* v = label(r, "-", &zs_font_12, kText);
+            lv_obj_align(v, LV_ALIGN_RIGHT_MID, 0, 0);
+            return v;
+        };
+        gps_alt_ = row("Altitude");
+        gps_speed_ = row("Speed");
+        gps_head_ = row("Heading");
+        gps_acc_ = row("Accuracy");
+        gps_sats_ = row("Satellites");
+        gps_time_ = row("UTC");
+        gps_hint_ = label(gps_panel_, "", &zs_font_12, kMuted);
+        lv_obj_align(gps_hint_, LV_ALIGN_TOP_RIGHT, -8, 4);
+        set_actions();
+        update_gps();
+    }
+
+    void close_gps() {
+        if (gps_panel_) lv_obj_delete(gps_panel_);
+        gps_panel_ = nullptr;
+        set_actions();
+        dirty_ = true;
+    }
+
+    // A Control screen: Enter saves the spot, R records; the rest is the shell's.
+    bool gps_key(uint32_t key) {
+        if (key == LV_KEY_ENTER) {
+            mark_spot();
+            return true;
+        }
+        if (key == 'r' || key == 'R') {
+            toggle_track();
+            return true;
+        }
+        return false;
+    }
+
+    void update_gps() {
+        if (!map_) fix_ = hal().gps();   // with a map, tick() reads it
+        const TrackState& t = track_state();
+        if (t.recording != rec_shown_) set_actions();
+        if (t.recording) {
+            std::string dur = t.seconds < 3600 ? fmt("%ld:%02ld", t.seconds / 60, t.seconds % 60)
+                                               : fmt("%ld:%02ld:%02ld", t.seconds / 3600, t.seconds / 60 % 60, t.seconds % 60);
+            lv_label_set_text(gps_hint_, (LV_SYMBOL_STOP " REC  " + short_distance(t.meters) + "  " + dur).c_str());
+        } else {
+            lv_label_set_text(gps_hint_, "");
+        }
+        lv_obj_set_style_text_color(gps_hint_, c(t.recording ? kBad : kMuted), 0);
+        long waited = long(std::time(nullptr) - opened_);
+        if (!fix_.device) {
+            lv_label_set_text(gps_status_, waited < 6 ? "Starting GPS..." : "No GPS found");
+            lv_label_set_text(gps_lat_, waited < 6 ? "" : "Plug in a Cap LoRa-1262, a Grove GPS");
+            lv_label_set_text(gps_lon_, waited < 6 ? "" : "unit or a USB GPS (power off first)");
+            lv_obj_set_style_text_font(gps_lat_, &zs_font_12, 0);
+            lv_obj_set_style_text_font(gps_lon_, &zs_font_12, 0);
+            return;
+        }
+        lv_obj_set_style_text_font(gps_lat_, &zs_font_16, 0);
+        lv_obj_set_style_text_font(gps_lon_, &zs_font_16, 0);
+        const char* st = fix_.mode >= 3 ? LV_SYMBOL_GPS " 3D fix" : fix_.mode == 2 ? LV_SYMBOL_GPS " 2D fix"
+                                                                                    : "Looking for satellites...";
+        lv_label_set_text(gps_status_, st);
+        lv_obj_set_style_text_color(gps_status_, c(fix_.mode >= 2 ? kGood : kMuted), 0);
+        if (fix_.mode >= 2) {
+            lv_label_set_text(gps_lat_, fmt("%.6f %s", std::fabs(fix_.lat), fix_.lat >= 0 ? "N" : "S").c_str());
+            lv_label_set_text(gps_lon_, fmt("%.6f %s", std::fabs(fix_.lon), fix_.lon >= 0 ? "E" : "W").c_str());
+            lv_label_set_text(gps_alt_, fix_.mode >= 3 ? (imperial_ ? fmt("%.0f ft", fix_.alt_m * 3.28084) : fmt("%.0f m", fix_.alt_m)).c_str() : "-");
+            lv_label_set_text(gps_speed_, (imperial_ ? fmt("%.1f mph", fix_.speed_mps * 2.23694) : fmt("%.1f km/h", fix_.speed_mps * 3.6)).c_str());
+            lv_label_set_text(gps_head_, fix_.speed_mps > 0.5 ? fmt("%.0f %s", fix_.track_deg, compass_point(fix_.track_deg)).c_str() : "-");
+            lv_label_set_text(gps_acc_, fix_.error_m > 0 ? (imperial_ ? fmt("%.0f ft", fix_.error_m * 3.28084) : fmt("%.0f m", fix_.error_m)).c_str() : "-");
+        } else {
+            lv_label_set_text(gps_lat_, "--.------");
+            lv_label_set_text(gps_lon_, "--.------");
+        }
+        lv_label_set_text(gps_sats_, fmt("%d of %d", fix_.sats_used, fix_.sats_seen).c_str());
+        lv_label_set_text(gps_time_, fix_.time.size() >= 19 ? fix_.time.substr(11, 8).c_str() : "-");
+    }
+
+    // Tracks go on recording with Maps closed and the screen off (ZeroShell's ui/tracker.h).
+    void toggle_track() {
+        if (track_state().recording) {
+            track_stop();
+            const TrackState& t = track_state();
+            shell_toast(t.points ? "Saved " + t.name + " (" + short_distance(t.meters) + ")"
+                                 : "Stopped. No fix, so the track is empty.");
+        } else if (track_start()) {
+            shell_toast("Recording to Documents/Tracks");
+        } else {
+            shell_toast("Couldn't save to ~/Documents");
+        }
+        set_actions();
+        if (gps_panel_) update_gps();
+        update_overlays();
+    }
+
+    // A line in ~/Documents/waypoints.txt: time, position and altitude.
+    void mark_spot() {
+        if (fix_.mode < 2) {
+            shell_toast("No fix yet");
+            return;
+        }
+        std::ofstream f(home_dir() + "/Documents/waypoints.txt", std::ios::app);
+        if (!f) {
+            shell_toast("Couldn't save to ~/Documents");
+            return;
+        }
+        char line[160];
+        std::snprintf(line, sizeof line, "%s  %.6f, %.6f  %.0f m\n",
+                      fix_.time.empty() ? "?" : fix_.time.substr(0, 19).c_str(), fix_.lat, fix_.lon, fix_.alt_m);
+        f << line;
+        shell_toast("Saved to waypoints.txt");
+    }
+
     void about() {
         shell_toast(map_->name() + ", data of " + map_->date() + ". \xC2\xA9 OpenStreetMap contributors");
     }
@@ -957,6 +1142,12 @@ private:
     bool navigating_ = false, voice_ = true, fitted_ = false;
     std::string dest_name_;
     lv_obj_t *banner_dist_ = nullptr, *banner_text_ = nullptr, *eta_ = nullptr;
+    // Position and tracks
+    lv_obj_t *gps_panel_ = nullptr, *gps_status_ = nullptr, *gps_lat_ = nullptr, *gps_lon_ = nullptr, *gps_hint_ = nullptr;
+    lv_obj_t *gps_alt_ = nullptr, *gps_speed_ = nullptr, *gps_head_ = nullptr, *gps_acc_ = nullptr, *gps_sats_ = nullptr,
+             *gps_time_ = nullptr;
+    int gps_n_ = 0;
+    bool rec_shown_ = false;   // what the R action's label says
 
     // The view
     double cx_ = 0, cy_ = 0, up_ = 0;

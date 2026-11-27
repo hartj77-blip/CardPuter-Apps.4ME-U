@@ -60,9 +60,9 @@ echo off | socat - UNIX-CONNECT:/run/zeroos-grove-ledd.sock
 
 The LED strip and a Grove GPS use the same two pins, so only one can be plugged in at a time.
 While the strip is lit, the Grove pins aren't a UART. Two seconds after the strip is turned off,
-the service gives the pins back to the UART, so the GPS app works again.
+the service gives the pins back to the UART, so the GPS in Maps works again.
 
-The GPS and Mesh apps turn the expansion port's 5 V off when you leave them. If you open one of
+Maps and Mesh turn the expansion port's 5 V off when you leave them. If you open one of
 them while the strip is lit, open Grove afterwards and press Space twice to turn the strip back on.
 
 ## How it works

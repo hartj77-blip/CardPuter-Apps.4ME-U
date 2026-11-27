@@ -13,7 +13,7 @@
 The USB ways need **one cable**: it carries the music and charges the
 Cardputer, with nothing in the aux socket, so there is no hum from the car's
 wiring ([One cable](#one-cable-music-and-power)). Other apps carry on
-meanwhile: open GPS and the music plays on.
+meanwhile: open Maps and the music plays on.
 
 None of this is CarPlay or Android Auto: those only accept a phone certified
 by Apple or Google, and the Cardputer can't stand in for one.
@@ -233,7 +233,7 @@ on the USB cable too there is only one connection, and nothing to hum.
   [iPod mode](#ipod-mode) for the same without the delay, on a stereo that
   takes it.
 - **Other apps carry on.** The modes run outside the Car app: press Esc and
-  open GPS or Maps (or anything else), and the music plays on, also with
+  open Maps (or anything else), and the music plays on, also with
   the screen off. Maps' spoken directions come out of the car as well. The GPS on a Cap LoRa-1262 or the Grove port works in Slave; a USB
   GPS dongle doesn't, because the USB-A port is off.
 

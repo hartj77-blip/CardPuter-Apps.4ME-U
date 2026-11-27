@@ -1,8 +1,8 @@
 # IR Remote (README.md): a universal remote from Flipper-IRDB, and your own
 # remotes learned button by button. The code database comes with the app.
 NAME="IR Remote"
-SUMMARY="A universal remote (about 2,000 remotes from Flipper-IRDB) and remotes you teach it"
-APP_VERSION="1.1.2"
+SUMMARY="A universal remote for AV and home (about 4,500 remotes from Flipper-IRDB) and remotes you teach it"
+APP_VERSION="1.2.0"
 DEPENDS="v4l-utils, ir-keytable"
 payload() {
     # Built by prepare.sh with irdb/build_irdb.py.

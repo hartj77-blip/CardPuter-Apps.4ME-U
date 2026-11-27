@@ -2,4 +2,4 @@
 # Pages are fetched with curl, which is part of ZeroOS: nothing else to install.
 NAME="Browser"
 SUMMARY="Browse the web on the small screen: pages, pictures, forms, search and bookmarks"
-APP_VERSION="0.3.2"
+APP_VERSION="0.3.3"

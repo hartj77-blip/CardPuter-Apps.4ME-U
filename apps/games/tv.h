@@ -1,9 +1,9 @@
-// Games on a TV or monitor: the HDMI port, driven directly with kernel
+// Libretro on a TV or monitor: the HDMI port, driven directly with kernel
 // modesetting (DRM/KMS dumb buffers), no GPU and no desktop needed.
 //
 // The Cardputer Zero has two DRM cards: the built-in LCD (mipi-dbi, which
 // ZeroShell draws to) and vc4 with the HDMI connector. While a game is on the
-// TV, Games holds vc4 (it becomes DRM master by being the only one that has
+// TV, Libretro holds vc4 (it becomes DRM master by being the only one that has
 // it open; Dock mode's labwc must not be running) and page-flips between two
 // RGB565 buffers at the monitor's 720p mode (or its preferred mode up to
 // 1080p). The game's picture is scaled up by a whole number where that fills

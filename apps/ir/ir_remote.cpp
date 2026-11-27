@@ -3,11 +3,12 @@
 //   My remotes   ~/IR/*.ir: saved from the database, learned from your own
 //                remotes (L relearns a button, N adds one, D deletes), or
 //                .ir files copied from a Flipper Zero
-//   Universal    every Power (Vol +, Mute, ...) code for TVs, projectors,
-//                audio, ACs, fans and lights, most common first: Enter sends
-//                them one after another; press any key when the device
-//                reacts, then O opens that brand's remotes
-//   Browse       2,000 remotes by kind, brand and model; type to search
+//   Universal    every Power (Input, Vol +, Mute, ...) code for TVs,
+//                projectors, displays, screens, audio, players, set-top
+//                boxes, conferencing, ACs, fans and lights, most common
+//                first: Enter sends them one after another; press any key
+//                when the device reacts, then O opens that brand's remotes
+//   Browse       4,500 remotes by kind, brand and model; type to search
 //
 // The lists are List screens (docs/UX.md in the OS): typing filters them and
 // their actions are in the Tab menu. A remote's keypad and the universal
@@ -42,6 +43,19 @@ public:
         db_ = ir::db_root();
         index_ = ir::load_index(db_);
         universals_ = ir::universal_names(db_);
+        // The AV kinds first, in the order a room is set up; anything else after, as the OS sorts it.
+        static const char* order[] = {"TVs", "Projectors", "Displays", "Screens", "Audio", "Players",
+                                      "Set_top_boxes", "Conferencing", "ACs", "Fans", "Lights"};
+        auto rank = [](const std::string& n) {
+            int i = 0;
+            for (const char* o : order) {
+                if (n == o) return i;
+                ++i;
+            }
+            return i;
+        };
+        std::stable_sort(universals_.begin(), universals_.end(),
+                         [&](const std::string& a, const std::string& b) { return rank(a) < rank(b); });
         show();
     }
 

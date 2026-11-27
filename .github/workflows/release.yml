@@ -21,9 +21,8 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: release
-  cancel-in-progress: false
+# No workflow-wide queue: runs build side by side, and only publishing is one
+# at a time (the publish job's own concurrency, below).
 
 jobs:
   levels:
@@ -110,13 +109,38 @@ jobs:
     # Environments > release) makes every publish, the timed ones too, wait
     # for an OK before it reaches devices.
     environment: release
+    # A newer run's publish replaces an older one that is still waiting for
+    # its OK, so an approval nobody gave never holds up the releases after it
+    # (every run builds main as it was, so the newer one has all of it).
+    concurrency:
+      group: release-publish
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           pattern: level-*
           path: levels
+      - name: Skip if something newer is already out
+        id: fresh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # An older run that finishes after a newer one has published would
+          # otherwise put the older apps back as the latest release.
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .target_commitish 2>/dev/null || true)
+          status=same
+          # Only a commit can be compared; a branch name (older releases) is skipped.
+          if [[ "$latest" =~ ^[0-9a-f]{40}$ ]]; then
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...$latest" --jq .status 2>/dev/null || echo unknown)
+          fi
+          echo "newest release is at ${latest:-nothing}; this run is at $GITHUB_SHA: $status"
+          if [ "$status" = ahead ]; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "::notice::A newer release is already published; nothing to do."
+          fi
       - name: Put the release together
+        if: steps.fresh.outputs.skip != '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -130,6 +154,7 @@ jobs:
           PREVIOUS=$PWD/previous tools/assemble.sh dist "${{ needs.levels.outputs.built_for }}" "${dirs[@]}"
           cat dist/zeroos-apps.index
       - name: Sign
+        if: steps.fresh.outputs.skip != '1'
         env:
           ZEROOS_SIGNING_KEY: ${{ secrets.ZEROOS_SIGNING_KEY }}
         run: |
@@ -140,6 +165,7 @@ jobs:
             rm -f release-key.pem
           tools/sign-release.sh release-key.pem dist/zeroos-apps.index
       - name: Publish
+        if: steps.fresh.outputs.skip != '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

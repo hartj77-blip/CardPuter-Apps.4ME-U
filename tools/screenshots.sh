@@ -34,7 +34,7 @@ export ZEROOS_AI_FAKE="Four."
 if [ -x "$(dirname "$BIN")/bin/zmap-build" ]; then
     mkdir -p "$DEMO/Maps"
     "$(dirname "$BIN")/bin/zmap-build" --name Zeroville --poly "$ROOT/apps/maps/tests/town.poly" --imperial \
-        "$ROOT/apps/maps/tests/town.osm.pbf" "$DEMO/Maps/town.zmap" 2>/dev/null
+        --search "$DEMO/Maps/town.search" "$ROOT/apps/maps/tests/town.osm.pbf" "$DEMO/Maps/town.zmap" 2>/dev/null
 fi
 (cd "$OUT" && HOME="$DEMO" TZ=UTC "$BIN" --script "$steps,home")
 python3 "$ROOT/base/shell/tools/ppm2png.py" "$OUT"

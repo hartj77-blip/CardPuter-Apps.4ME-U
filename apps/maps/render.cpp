@@ -15,6 +15,7 @@ const Theme kDay = {
     {0xc4c0b8, 0xb5b1a8, 0xa9a59c, 0xc0a94a, 0xc49a3c, 0xc47f2a, 0xb85a22},
     0x202020, 0xffffff, 0x3c4450, 0xffffff, 0x1f4fb0,
     0x1a73e8, 0xffffff,
+    0x2f80ed, 0x1b4f9c,
 };
 const Theme kNight = {
     0x0b0c0e, 0x1c1f26, 0x0d2438, 0x16301e, 0x1d3a26, 0x183238, 0x3b3626, 0x2a2a38, 0x0d2438,
@@ -23,6 +24,7 @@ const Theme kNight = {
     {0x101216, 0x101216, 0x101216, 0x101216, 0x2a2410, 0x2e1e0a, 0x341a08},
     0xe8eaed, 0x000000, 0x30343c, 0xffffff, 0x2a5fd0,
     0x4da3ff, 0xffffff,
+    0x3d8bff, 0x0c2a5c,
 };
 
 inline uint16_t blend(uint16_t d, uint16_t s, uint32_t a) {   // a: 0..32
@@ -463,6 +465,90 @@ void Renderer::compass(const View& v, const Theme& t, uint16_t* pixels, int x, i
     float nx = float(-std::sin(v.up * kPi / 180)), ny = float(-std::cos(v.up * kPi / 180));   // north, on screen
     segment(fx, fy, fx - nx * 6, fy - ny * 6, 1.2f, rgb565(t.text));
     segment(fx, fy, fx + nx * 6, fy + ny * 6, 1.4f, rgb565(0xe03020));
+}
+
+void Renderer::route(const View& v, const Theme& t, uint16_t* pixels, const std::vector<double>& xy, size_t from) {
+    px_ = pixels, w_ = v.w, h_ = v.h;
+    size_t n = xy.size() / 2;
+    if (n < 2 || from + 1 >= n) return;
+    float width = float(std::clamp(9.0 / std::sqrt(std::max(v.mpp, 1.0)) + 2.5, 3.0, 7.0));
+    std::vector<float> sp;
+    sp.reserve((n - from) * 2);
+    for (size_t i = from; i < n; i++) {
+        double sx, sy;
+        to_screen(v, xy[2 * i], xy[2 * i + 1], sx, sy);
+        sp.push_back(float(sx));
+        sp.push_back(float(sy));
+    }
+    float m = width + 2;
+    for (int pass = 0; pass < 2; pass++) {
+        float r = pass == 0 ? width / 2 + 1.2f : width / 2;
+        uint16_t colour = rgb565(pass == 0 ? t.route_edge : t.route);
+        for (size_t i = 0; i + 3 < sp.size(); i += 2) {
+            float ax = sp[i], ay = sp[i + 1], bx = sp[i + 2], by = sp[i + 3];
+            if ((ax < -m && bx < -m) || (ay < -m && by < -m) || (ax > float(w_) + m && bx > float(w_) + m) ||
+                (ay > float(h_) + m && by > float(h_) + m))
+                continue;
+            segment(ax, ay, bx, by, r, colour);
+        }
+    }
+}
+
+void Renderer::box(uint16_t* pixels, int w, int h, int x0, int y0, int x1, int y1, uint16_t colour) {
+    x0 = std::max(x0, 0), y0 = std::max(y0, 0), x1 = std::min(x1, w), y1 = std::min(y1, h);
+    for (int y = y0; y < y1; y++) std::fill(pixels + size_t(y) * size_t(w) + size_t(x0), pixels + size_t(y) * size_t(w) + size_t(x1), colour);
+}
+
+void Renderer::turn_icon(uint16_t* pixels, int w, int h, int kind, float cx, float cy, float size, uint16_t colour) {
+    px_ = pixels, w_ = w, h_ = h;
+    float s = size / 2, r = std::max(1.5f, size * 0.09f);
+    auto P = [&](float x, float y) { return std::pair<float, float>(cx + x * s, cy + y * s); };
+    auto stroke = [&](std::initializer_list<std::pair<float, float>> pts) {
+        std::vector<std::pair<float, float>> v;
+        for (auto& p : pts) v.push_back(P(p.first, p.second));
+        for (size_t i = 0; i + 1 < v.size(); i++) segment(v[i].first, v[i].second, v[i + 1].first, v[i + 1].second, r, colour);
+        // An arrow head on the last piece.
+        auto [ax, ay] = v[v.size() - 2];
+        auto [bx, by] = v.back();
+        float dx = bx - ax, dy = by - ay, len = std::hypot(dx, dy);
+        if (len <= 0) return;
+        dx /= len, dy /= len;
+        float hl = s * 0.55f, hw = s * 0.45f;
+        float tip[6] = {bx + dx * hl * 0.6f, by + dy * hl * 0.6f, bx - dx * hl * 0.5f - dy * hw, by - dy * hl * 0.5f + dx * hw,
+                        bx - dx * hl * 0.5f + dy * hw, by - dy * hl * 0.5f - dx * hw};
+        uint32_t three = 3;
+        poly(tip, &three, 1, colour);
+    };
+    switch (kind) {
+        case 1: stroke({{0.3f, 1}, {0.3f, 0}, {-0.45f, 0}}); break;                    // left
+        case 2: stroke({{-0.3f, 1}, {-0.3f, 0}, {0.45f, 0}}); break;                   // right
+        case 3: case 9: stroke({{0.2f, 1}, {0.2f, 0.2f}, {-0.35f, -0.4f}}); break;     // slight left, exit left
+        case 4: case 10: stroke({{-0.2f, 1}, {-0.2f, 0.2f}, {0.35f, -0.4f}}); break;   // slight right, exit right
+        case 5: stroke({{0.35f, 1}, {0.35f, -0.5f}, {-0.35f, 0.3f}}); break;           // sharp left
+        case 6: stroke({{-0.35f, 1}, {-0.35f, -0.5f}, {0.35f, 0.3f}}); break;          // sharp right
+        case 7: stroke({{0.4f, 1}, {0.4f, -0.4f}, {0.2f, -0.7f}, {-0.2f, -0.7f}, {-0.4f, -0.4f}, {-0.4f, 0.3f}}); break;   // U-turn
+        case 8: {   // roundabout: a ring, in from below, out to the upper right
+            for (int i = 0; i < 24; i++) {
+                float a0 = float(i) / 24 * 6.2832f, a1 = float(i + 1) / 24 * 6.2832f;
+                auto p0 = P(0.38f * std::cos(a0), -0.15f + 0.38f * std::sin(a0));
+                auto p1 = P(0.38f * std::cos(a1), -0.15f + 0.38f * std::sin(a1));
+                segment(p0.first, p0.second, p1.first, p1.second, r * 0.8f, colour);
+            }
+            auto a = P(0, 1), b = P(0, 0.23f);
+            segment(a.first, a.second, b.first, b.second, r, colour);
+            stroke({{0.27f, -0.42f}, {0.6f, -0.75f}});
+            break;
+        }
+        case 11: {   // arrive: a pin
+            auto c0 = P(0, -0.25f);
+            segment(c0.first, c0.second, c0.first, c0.second, s * 0.5f, colour);
+            float tri[6] = {cx - s * 0.42f, cy - s * 0.0f, cx + s * 0.42f, cy - s * 0.0f, cx, cy + s * 0.95f};
+            uint32_t three = 3;
+            poly(tri, &three, 1, colour);
+            break;
+        }
+        default: stroke({{0, 1}, {0, -0.55f}}); break;                                // straight on
+    }
 }
 
 RoadHit nearest_road(const Map& map, double x, double y, double heading, double max_m) {

@@ -20,6 +20,7 @@ struct Theme {
     uint32_t road[7], casing[7];   // kService .. kMotorway
     uint32_t text, halo, shield, shield_text, motorway_shield;
     uint32_t marker, marker_edge;
+    uint32_t route, route_edge;
 };
 const Theme& day_theme();
 const Theme& night_theme();
@@ -65,6 +66,12 @@ public:
     // The arrow that shows where you are, pointing `screen_deg` clockwise
     // from the top of the screen; a dot if `moving` is false.
     void marker(const View& v, const Theme& t, uint16_t* pixels, double x, double y, double screen_deg, bool moving);
+    // A route: a thick line through world points (x, y, x, y...).
+    void route(const View& v, const Theme& t, uint16_t* pixels, const std::vector<double>& xy, size_t from_point);
+    // A turn arrow (nav_parse.h's Turn) centred at (x, y), `size` pixels across.
+    void turn_icon(uint16_t* pixels, int w, int h, int kind, float x, float y, float size, uint16_t colour);
+    // A filled box, for panels drawn into the map.
+    void box(uint16_t* pixels, int w, int h, int x0, int y0, int x1, int y1, uint16_t colour);
     // A small compass at (x, y): the red end points north.
     void compass(const View& v, const Theme& t, uint16_t* pixels, int x, int y);
     // Where a world point lands on screen.

@@ -10,6 +10,10 @@
 //              around the data. Outside the outline the app shows "no map"
 //   --imperial the app shows miles and mph by default on this map
 //   --date     the data's date (default: the file's own timestamp)
+//   --search F also write the search index (streets and places) to F
+//   --roads F  also write the roads a car can use, with their turn
+//              restrictions, as OpenStreetMap XML to F: what Navit's maptool
+//              makes Maps' routing map from (prepare.sh)
 //
 // It runs on a PC or in CI, not on the Cardputer: it holds every node of
 // the extract in memory (about 0.5 GB for New Jersey).
@@ -19,6 +23,7 @@
 // writes them at four levels of detail, each simplified for its scale and
 // cut into tiles.
 #include <algorithm>
+#include <cctype>
 #include <cinttypes>
 #include <cmath>
 #include <cstdio>
@@ -369,6 +374,51 @@ bool level_has(int zoom, uint8_t kind) {
     }
 }
 
+// ---- Routing data and search ---------------------------------------------
+
+// Roads a car may drive on (Navit decides the rest from the tags).
+bool car_road(const pbf::Tags& t) {
+    static const char* const kRoads[] = {"motorway", "trunk", "primary", "secondary", "tertiary", "motorway_link",
+                                         "trunk_link", "primary_link", "secondary_link", "tertiary_link",
+                                         "unclassified", "residential", "living_street", "service", "road", nullptr};
+    std::string_view hw = pbf::tag(t, "highway");
+    if (hw.empty() || pbf::tag(t, "area") == "yes") return false;
+    std::string_view service = pbf::tag(t, "service");   // as on the map: no driveways or car parks
+    if (service == "driveway" || service == "parking_aisle" || service == "drive-through") return false;
+    for (const char* const* k = kRoads; *k; k++)
+        if (hw == *k) return true;
+    return false;
+}
+
+const char* const kRoadKeys[] = {"highway", "name", "ref", "oneway", "junction", "maxspeed", "access", "motor_vehicle",
+                                 "motorcar", "vehicle", "toll", "service", "lanes", "bridge", "tunnel", "layer",
+                                 "destination", "destination:ref", nullptr};
+
+std::string xml_escape(std::string_view v) {
+    std::string o;
+    for (char c : v) {
+        switch (c) {
+            case '&': o += "&amp;"; break;
+            case '<': o += "&lt;"; break;
+            case '>': o += "&gt;"; break;
+            case '"': o += "&quot;"; break;
+            default: o += uint8_t(c) < 0x20 ? ' ' : c;
+        }
+    }
+    return o;
+}
+
+std::string xml_tags(const pbf::Tags& t, const char* const* keys) {
+    std::string o;
+    for (const auto& kv : t)
+        for (const char* const* k = keys; *k; k++)
+            if (kv.first == *k) {
+                o += "  <tag k=\"" + xml_escape(kv.first) + "\" v=\"" + xml_escape(kv.second) + "\"/>\n";
+                break;
+            }
+    return o;
+}
+
 // ---- The builder ---------------------------------------------------------
 
 struct Strings {
@@ -417,6 +467,17 @@ struct Builder {
     std::vector<Multi> multis;
     std::unordered_set<int64_t> boundary_ways;
     std::vector<Feat> feats;              // everything, in world coordinates
+    // For --roads: car roads with the tags routing needs, and turn restrictions.
+    bool want_roads = false;
+    struct Road {
+        size_t way;
+        std::string tags;                 // as XML <tag/> lines
+    };
+    std::vector<Road> roads;
+    struct Restriction {
+        std::string members, tags;        // as XML lines
+    };
+    std::vector<Restriction> restrictions;
     Strings strings;
     Outline outline;
     bool have_outline = false;
@@ -444,6 +505,8 @@ struct Builder {
     }
 
     void read(const std::string& path);
+    void write_roads(const std::string& path) const;
+    void write_search(const std::string& path) const;
     void make_features();
     void make_sea(std::vector<Line>& land_sample);
     void write(const std::string& path, const std::string& name, const std::string& date, bool imperial);
@@ -491,6 +554,7 @@ void Builder::read(const std::string& path) {
         way_refs.insert(way_refs.end(), refs.begin(), refs.end());
         if (tags.empty()) return;
         if (pbf::tag(tags, "natural") == "coastline") coast_ways.push_back(w);
+        if (want_roads && car_road(tags)) roads.push_back({w, xml_tags(tags, kRoadKeys)});
         uint8_t k = line_kind(tags);
         if (k) {
             WayFeat f{w, k, 0, 0, 0, false};
@@ -516,6 +580,15 @@ void Builder::read(const std::string& path) {
             for (const pbf::Member& mb : members)
                 if (mb.type == 1) (mb.role == "inner" ? m.inner : m.outer).push_back(mb.id);
             multis.push_back(std::move(m));
+        } else if (want_roads && type == "restriction") {
+            Restriction r;
+            static const char* kTypes[] = {"node", "way", "relation"};
+            for (const pbf::Member& mb : members)
+                r.members += "  <member type=\"" + std::string(kTypes[mb.type % 3]) + "\" ref=\"" + std::to_string(mb.id) +
+                             "\" role=\"" + xml_escape(mb.role) + "\"/>\n";
+            static const char* const kKeys[] = {"type", "restriction", "except", nullptr};
+            r.tags = xml_tags(tags, kKeys);
+            restrictions.push_back(std::move(r));
         } else if (type == "boundary" && pbf::tag(tags, "boundary") == "administrative" &&
                    pbf::tag(tags, "admin_level") == "4") {
             for (const pbf::Member& mb : members)
@@ -850,6 +923,145 @@ void Builder::make_sea(std::vector<Line>& land_sample) {
     if (!sea.parts.empty()) feats.push_back(std::move(sea));
 }
 
+// OpenStreetMap XML of the car roads that reach into the region, their
+// nodes, and the turn restrictions on them, for Navit's maptool.
+void Builder::write_roads(const std::string& path) const {
+    std::string tmp = path + ".tmp";
+    FILE* f = std::fopen(tmp.c_str(), "w");
+    if (!f) die("can't write " + tmp);
+    std::vector<char> keep(roads.size(), 0);
+    std::vector<int64_t> nodes;
+    for (size_t i = 0; i < roads.size(); i++) {
+        size_t w = roads[i].way;
+        bool inside = !have_outline;
+        for (uint64_t k = way_start[w]; k < way_start[w + 1] && !inside; k++) {
+            Pt p;
+            inside = node(way_refs[k], p) && outline.contains(p);
+        }
+        if (!inside) continue;
+        keep[i] = 1;
+        nodes.insert(nodes.end(), way_refs.begin() + long(way_start[w]), way_refs.begin() + long(way_start[w + 1]));
+    }
+    std::sort(nodes.begin(), nodes.end());
+    nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+    std::fprintf(f, "<?xml version='1.0' encoding='UTF-8'?>\n<osm version=\"0.6\" generator=\"zmap-build\">\n");
+    size_t n_nodes = 0, n_ways = 0;
+    for (int64_t id : nodes) {
+        Pt p;
+        if (!node(id, p)) continue;
+        std::fprintf(f, "<node id=\"%" PRId64 "\" lat=\"%.7f\" lon=\"%.7f\"/>\n", id, y_to_lat(p.y), x_to_lon(p.x));
+        n_nodes++;
+    }
+    for (size_t i = 0; i < roads.size(); i++) {
+        if (!keep[i]) continue;
+        size_t w = roads[i].way;
+        std::fprintf(f, "<way id=\"%" PRId64 "\">\n", way_id[w]);
+        for (uint64_t k = way_start[w]; k < way_start[w + 1]; k++)
+            if (std::binary_search(nodes.begin(), nodes.end(), way_refs[k])) {
+                Pt p;
+                if (node(way_refs[k], p)) std::fprintf(f, "  <nd ref=\"%" PRId64 "\"/>\n", way_refs[k]);
+            }
+        std::fputs(roads[i].tags.c_str(), f);
+        std::fputs("</way>\n", f);
+        n_ways++;
+    }
+    int64_t rid = 0;
+    for (const Restriction& r : restrictions) {
+        std::fprintf(f, "<relation id=\"%" PRId64 "\">\n%s%s</relation>\n", ++rid, r.members.c_str(), r.tags.c_str());
+    }
+    std::fputs("</osm>\n", f);
+    if (std::fclose(f) != 0 || std::rename(tmp.c_str(), path.c_str()) != 0) die("can't write " + path);
+    std::fprintf(stderr, "wrote %s: %zu nodes, %zu roads, %zu turn restrictions\n", path.c_str(), n_nodes, n_ways,
+                 restrictions.size());
+}
+
+// The search index: one line a place, and one a named road in each town
+// it runs through, sorted by name:
+//   kind<TAB>name<TAB>town<TAB>lat<TAB>lon
+// kind is c city, t town, v village, s suburb or hamlet, n neighbourhood,
+// r road. "town" is the nearest city, town, village or suburb (for a
+// place, the nearest bigger one), or empty.
+void Builder::write_search(const std::string& path) const {
+    struct Place {
+        Pt p;
+        uint8_t kind;
+        const char* name;
+    };
+    std::vector<Place> places;
+    for (const Feat& f : feats)
+        if (is_place(f.kind) && !f.parts.empty() && !f.parts[0].empty() && f.name &&
+            (!have_outline || outline.contains(f.parts[0][0])))
+            places.push_back({f.parts[0][0], f.kind, strings.data.c_str() + f.name});
+    // A grid of the towns, for "the nearest town".
+    double cell = 10000 * units_per_metre(mid_lat);
+    std::unordered_map<int64_t, std::vector<size_t>> grid;
+    auto key = [&](int64_t cx, int64_t cy) { return cx * 1000003 + cy; };
+    for (size_t i = 0; i < places.size(); i++)
+        if (places[i].kind >= kSuburb)
+            grid[key(int64_t(places[i].p.x / cell), int64_t(places[i].p.y / cell))].push_back(i);
+    auto town_of = [&](const Pt& p, uint8_t above) -> const char* {
+        int64_t cx = int64_t(p.x / cell), cy = int64_t(p.y / cell);
+        double best = 1e300;
+        const char* name = "";
+        for (int64_t dx = -1; dx <= 1; dx++)
+            for (int64_t dy = -1; dy <= 1; dy++) {
+                auto it = grid.find(key(cx + dx, cy + dy));
+                if (it == grid.end()) continue;
+                for (size_t i : it->second) {
+                    if (places[i].kind <= above) continue;
+                    double d = std::hypot(double(places[i].p.x) - p.x, double(places[i].p.y) - p.y);
+                    // A suburb counts only when it is much nearer than the town.
+                    if (places[i].kind == kSuburb) d *= 2;
+                    if (d < best) best = d, name = places[i].name;
+                }
+            }
+        return name;
+    };
+    struct Entry {
+        std::string sort, line;
+    };
+    std::vector<Entry> out;
+    auto add = [&](char kind, const char* name, const char* town, const Pt& p) {
+        if (!*name) return;
+        std::string n = name, t = town;
+        for (std::string* s : {&n, &t})
+            for (char& c : *s)
+                if (c == '\t' || c == '\n') c = ' ';
+        char pos[48];
+        std::snprintf(pos, sizeof pos, "%.6f\t%.6f", y_to_lat(p.y), x_to_lon(p.x));
+        std::string low = n;
+        for (char& c : low) c = char(std::tolower(uint8_t(c)));
+        out.push_back({low + '\x01' + t, std::string(1, kind) + '\t' + n + '\t' + t + '\t' + pos});
+    };
+    static const char kKindChar[] = {'n', 's', 'v', 't', 'c'};
+    for (const Place& pl : places)
+        add(kKindChar[pl.kind - kNeighbourhood], pl.name, town_of(pl.p, pl.kind), pl.p);
+    // Roads: one entry for each name in each town, at the middle of its longest piece.
+    std::unordered_map<std::string, std::pair<size_t, Pt>> streets;
+    for (const Feat& f : feats) {
+        if (!is_road(f.kind) || !f.name || f.parts.empty() || f.parts[0].size() < 2) continue;
+        const Line& l = f.parts[0];
+        const Pt& mid = l[l.size() / 2];
+        if (have_outline && !outline.contains(mid)) continue;
+        const char* name = strings.data.c_str() + f.name;
+        std::string k = std::string(name) + '\t' + town_of(mid, 0);
+        auto it = streets.find(k);
+        if (it == streets.end() || it->second.first < l.size()) streets[k] = {l.size(), mid};
+    }
+    for (const auto& kv : streets) {
+        size_t tab = kv.first.find('\t');
+        add('r', kv.first.substr(0, tab).c_str(), kv.first.c_str() + tab + 1, kv.second.second);
+    }
+    std::sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) { return a.sort < b.sort; });
+    std::string tmp = path + ".tmp";
+    FILE* f = std::fopen(tmp.c_str(), "w");
+    if (!f) die("can't write " + tmp);
+    std::fputs("#zeroos-maps-search 1\n", f);
+    for (const Entry& e : out) std::fprintf(f, "%s\n", e.line.c_str());
+    if (std::fclose(f) != 0 || std::rename(tmp.c_str(), path.c_str()) != 0) die("can't write " + path);
+    std::fprintf(stderr, "wrote %s: %zu places and streets\n", path.c_str(), out.size());
+}
+
 // ---- Writing -------------------------------------------------------------
 
 struct TileFeat {
@@ -1083,7 +1295,7 @@ void read_poly(const std::string& path, Outline& o) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string name, poly, date, in, out;
+    std::string name, poly, date, in, out, search, roads_out;
     bool imperial = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -1095,16 +1307,20 @@ int main(int argc, char** argv) {
         else if (a == "--poly") poly = value();
         else if (a == "--date") date = value();
         else if (a == "--imperial") imperial = true;
+        else if (a == "--search") search = value();
+        else if (a == "--roads") roads_out = value();
         else if (a.rfind("--", 0) == 0) die("unknown option " + a);
         else if (in.empty()) in = a;
         else if (out.empty()) out = a;
         else die("too many arguments");
     }
     if (in.empty() || out.empty() || name.empty()) {
-        std::fprintf(stderr, "usage: zmap-build --name NAME [--poly FILE.poly] [--imperial] [--date YYYY-MM-DD] IN.osm.pbf OUT.zmap\n");
+        std::fprintf(stderr, "usage: zmap-build --name NAME [--poly FILE.poly] [--imperial] [--date YYYY-MM-DD]\n"
+                             "                  [--search OUT.tsv] [--roads OUT.osm] IN.osm.pbf OUT.zmap\n");
         return 2;
     }
     Builder b;
+    b.want_roads = !roads_out.empty();
     try {
         b.read(in);
     } catch (const std::exception& e) {
@@ -1122,6 +1338,8 @@ int main(int argc, char** argv) {
     b.outline.finish();
     b.mid_lat = y_to_lat((double(b.outline.min_y) + b.outline.max_y) / 2);
     b.make_features();
+    if (!roads_out.empty()) b.write_roads(roads_out);
+    if (!search.empty()) b.write_search(search);
     std::vector<Line> roads;
     for (size_t i = 0; i < b.feats.size(); i += 97)
         if (is_road(b.feats[i].kind)) roads.push_back(b.feats[i].parts[0]);

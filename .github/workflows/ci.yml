@@ -30,8 +30,8 @@ jobs:
         run: git -C base fetch --depth 1 origin main && git -C base checkout FETCH_HEAD
       - name: Install dependencies
         # libvncserver-dev and freerdp3-dev: Desktop's viewer (apps/desktop/app.cmake). librtlsdr-dev: RF Tools' zrfd.
-        # zlib1g-dev: Maps' map builder (apps/maps/app.cmake).
-        run: sudo apt-get update && sudo apt-get install -y cmake g++ libsdl2-dev python3-pil pkgconf zlib1g-dev libvncserver-dev freerdp3-dev librtlsdr-dev
+        # zlib1g-dev: Maps' map builder (apps/maps/app.cmake). navit, maptool, xvfb, dbus: Maps' test of a real route.
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libsdl2-dev python3-pil pkgconf zlib1g-dev libvncserver-dev freerdp3-dev librtlsdr-dev navit maptool xvfb dbus-daemon dbus-bin
       - name: Every changed app has a new version
         if: github.event_name == 'pull_request' && matrix.os == 'pinned'
         run: tools/check-versions.sh "origin/${{ github.base_ref }}"
@@ -66,7 +66,7 @@ jobs:
       - name: Install tools
         run: |
           apt-get update -qq
-          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file zlib1g-dev >/dev/null
+          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file zlib1g-dev maptool >/dev/null
           apt-get install -y -qq --no-install-recommends pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev >/dev/null
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

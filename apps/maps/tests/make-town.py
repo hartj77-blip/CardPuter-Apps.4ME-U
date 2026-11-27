@@ -20,6 +20,7 @@ M_LAT = 111320.0
 M_LON = M_LAT * math.cos(math.radians(LAT0))
 
 nodes, ways, relations = [], [], []
+roads = []   # (points, tags): joined where they cross, then written as ways
 
 
 def node(x, y, tags=None):
@@ -28,11 +29,66 @@ def node(x, y, tags=None):
 
 
 def way(points, tags=None, closed=False):
+    tags = tags or {}
+    if "highway" in tags:   # roads share a node where they cross, as in OpenStreetMap
+        roads.append((list(points), tags))
+        return None
     ids = [node(x, y) for x, y in points]
     if closed:
         ids.append(ids[0])
-    ways.append((len(ways) + 1, ids, tags or {}))
+    ways.append((len(ways) + 1, ids, tags))
     return len(ways)
+
+
+def cross(a, b, c, d):
+    """Where segment ab crosses cd, or None."""
+    r = (b[0] - a[0], b[1] - a[1])
+    q = (d[0] - c[0], d[1] - c[1])
+    den = r[0] * q[1] - r[1] * q[0]
+    if abs(den) < 1e-9:
+        return None
+    t = ((c[0] - a[0]) * q[1] - (c[1] - a[1]) * q[0]) / den
+    u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den
+    if 0 <= t <= 1 and 0 <= u <= 1:
+        return (round(a[0] + t * r[0], 2), round(a[1] + t * r[1], 2))
+    return None
+
+
+def write_roads():
+    """Put a shared point into both roads wherever two cross, then make the ways."""
+    motorway = lambda t: t["highway"] == "motorway"
+
+    def join_once():
+        for i, (pi, ti) in enumerate(roads):
+            for j in range(i + 1, len(roads)):
+                pj, tj = roads[j]
+                if motorway(ti) != motorway(tj):
+                    continue   # the motorway goes over the town's roads
+                for k in range(len(pi) - 1):
+                    for m in range(len(pj) - 1):
+                        x = cross(pi[k], pi[k + 1], pj[m], pj[m + 1])
+                        if not x:
+                            continue
+                        added = False
+                        for pts, at in ((pi, k), (pj, m)):
+                            if x not in pts:
+                                pts.insert(at + 1, x)
+                                added = True
+                        if added:
+                            return True   # the lists changed under the loops: look again
+        return False
+
+    while join_once():
+        pass
+    at = {}
+    for pts, tags in roads:
+        ids = []
+        for x, y in pts:
+            key = (round(x, 2), round(y, 2))
+            if key not in at:
+                at[key] = node(x, y)
+            ids.append(at[key])
+        ways.append((len(ways) + 1, ids, tags))
 
 
 def along(bearing, a, b, step=150):
@@ -74,6 +130,7 @@ ways.append((len(ways) + 1, ids1, {"natural": "coastline"}))
 ways.append((len(ways) + 1, ids2, {"natural": "coastline"}))
 way([(100, -640), (220, -640), (220, -570), (100, -570)], {"natural": "coastline"}, closed=True)   # an island
 
+write_roads()
 node(60, 200, {"place": "town", "name": "Zeroville"})
 node(-380, -260, {"place": "suburb", "name": "Old Quay"})
 

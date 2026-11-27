@@ -266,7 +266,13 @@ live_daemon() {
 # speaker, the headphone jack and Bluetooth, so everything plays into it
 # while it runs and goes back where it was when it stops. With nothing
 # playing it writes nothing.
+#
+# Beside it a second recorder, joined to nothing and doing nothing: ZeroOS
+# (0.9.1 on) stops the sound system after a minute in which no program has
+# a stream open, and an output like ours isn't one. This is.
 capture() {
+    pw-record -P '{ node.name=zeroos_car_keep }' --target 0 --rate 8000 --channels 1 - > /dev/null &
+    trap "kill $! 2>/dev/null" EXIT
     pw-record -P '{ media.class=Audio/Sink node.name=zeroos_car node.description="Car (USB)" priority.session=2500 }' \
         --rate 44100 --channels 2 --format s16 --latency 50ms -
 }

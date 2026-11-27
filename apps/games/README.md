@@ -1,31 +1,31 @@
-# Games
+# Libretro
 
-**Games** plays your games for classic consoles on the built-in screen, or on a TV or monitor on
-the HDMI port. It runs the emulators as **libretro cores**: the same emulator cores RetroArch uses,
-loaded by an app built for the Cardputer's 320 x 170 screen and keyboard. Two players (up to four)
-can play with gamepads. Install it from the **Apps** app.
+**Libretro** plays your games for classic consoles on the built-in screen, or on a TV or monitor on
+the HDMI port. It runs the emulators as **[libretro](https://www.libretro.com) cores**: the same
+emulator cores RetroArch uses, loaded by an app built for the Cardputer's 320 x 170 screen and
+keyboard. Two players (up to four) can play with gamepads. Install it from the **Apps** app.
 
 Only play games you own. ZeroOS comes with no games and no console BIOS files.
 
 ## Why not RetroArch itself?
 
 RetroArch draws with OpenGL, and the built-in screen is a small SPI panel with no GPU behind it.
-RetroArch also expects a gamepad and a big screen for its menus. So Games is a small frontend of
+RetroArch also expects a gamepad and a big screen for its menus. So Libretro is a small frontend of
 its own that runs the same libretro cores, scales each picture to fit the panel, and uses the
-keyboard. A core you download for Games is a normal libretro core, and the save files are the
+keyboard. A core you download for Libretro is a normal libretro core, and the save files are the
 usual `.srm` battery saves.
 
-Games plays on a TV itself (see [On a TV](#on-a-tv)). In Dock mode ([Dock](../dock/README.md))
-you can also run RetroArch (`sudo apt install retroarch`), with the cores Games installed.
+Libretro plays on a TV itself (see [On a TV](#on-a-tv)). In Dock mode ([Dock](../dock/README.md))
+you can also run RetroArch (`sudo apt install retroarch`), with the cores Libretro installed.
 
 ## Consoles
 
 | Console | Folder in `~/Games` | Files | Core |
 | --- | --- | --- | --- |
-| NES / Famicom | `nes` | `.nes .fds .unf` | Nestopia (comes with Games), FCEUmm |
-| Game Boy | `gb` | `.gb` | Gambatte (comes with Games), mGBA |
+| NES / Famicom | `nes` | `.nes .fds .unf` | Nestopia (comes with Libretro), FCEUmm |
+| Game Boy | `gb` | `.gb` | Gambatte (comes with Libretro), mGBA |
 | Game Boy Color | `gbc` | `.gbc` | Gambatte, mGBA |
-| Game Boy Advance | `gba` | `.gba` | mGBA (comes with Games) |
+| Game Boy Advance | `gba` | `.gba` | mGBA (comes with Libretro) |
 | Super Nintendo | `snes` | `.sfc .smc` | Snes9x 2010 |
 | Mega Drive / Genesis | `md` | `.md .gen .smd .bin` | Genesis Plus GX, PicoDrive |
 | Master System / Game Gear | `sms` | `.sms .gg .sg` | Genesis Plus GX, PicoDrive |
@@ -50,21 +50,21 @@ Games opens with a folder for each console in `~/Games`. Copy your files in with
 
 ## Cores
 
-NES, Game Boy, Game Boy Color and Game Boy Advance work as soon as Games is installed: their
+NES, Game Boy, Game Boy Color and Game Boy Advance work as soon as Libretro is installed: their
 cores come from Debian with it. For the other consoles, open **Cores** from the menu (**Tab**,
 then **C**, or **Ctrl + C**) and press **Enter** on one to download it from libretro's nightly
 builds (buildbot.libretro.com, about 1 to 3 MB each). Downloaded cores go in `~/Games/cores`;
-**Remove** in the menu (**D**), or **Del**, removes one after asking. Removing the Games app keeps
+**Remove** in the menu (**D**), or **Del**, removes one after asking. Removing the Libretro app keeps
 your games, saves and downloaded cores.
 
-**How safe is a downloaded core?** A core is a program that Games runs with your user's rights,
+**How safe is a downloaded core?** A core is a program that Libretro runs with your user's rights,
 so the download is kept narrow: https only, from the fixed address `buildbot.libretro.com`,
 following no redirects; unpacked aside and moved into place only when it is a whole Linux
 library; into `~/Games/cores`, which only you can write to. What it can't do is check the core
 against a known fingerprint: libretro's nightly builds change every day and come with no
 published checksums or signatures. So you trust libretro's build server (and its https
 certificate) for each core you download, as RetroArch users do. Cores from Debian (the ones
-Games installs, or `sudo apt install libretro-...`) are checked by apt's signatures and are
+Libretro installs, or `sudo apt install libretro-...`) are checked by apt's signatures and are
 the safer choice where one exists.
 
 The library, a console's games and the cores are lists: type to find a row, or press its number
@@ -90,7 +90,7 @@ before the system one.
 While a game plays it has every key, and there is no bar along the bottom: Esc opens its menu.
 Holding Esc goes home, as everywhere in ZeroOS, and keeps the game's moment to carry on from.
 
-On a full-size keyboard, X and Z are A and B too. Hold several keys at once: Games reads the
+On a full-size keyboard, X and Z are A and B too. Hold several keys at once: Libretro reads the
 keyboard directly, so you can run and jump.
 
 **Gamepads** work as well: USB, or Bluetooth. Pair a Bluetooth one once in the Terminal: turn on
@@ -100,10 +100,10 @@ layout, the d-pad or left stick moves, Home/Guide opens the menu, and holding th
 fast forwards. A gamepad that connects
 mid-game is picked up within a couple of seconds.
 
-**No keyboard needed.** Once Games is open, a gamepad does everything: in the lists of consoles
+**No keyboard needed.** Once Libretro is open, a gamepad does everything: in the lists of consoles
 and games the d-pad moves (hold it to keep going), A (or Start) opens or starts, and B goes back;
-B on the first list leaves Games. In a game, Home opens the menu, where the d-pad, A and B work the
-same way (B goes back to the game). Only pairing a gamepad and opening Games from the home screen
+B on the first list leaves Libretro. In a game, Home opens the menu, where the d-pad, A and B work the
+same way (B goes back to the game). Only pairing a gamepad and opening Libretro from the home screen
 still need the Cardputer's keys.
 
 **Two players (or more).** Pair two gamepads the same way, and each one is a player of its own:
@@ -113,9 +113,9 @@ one gamepad can play together: choose **Swap players 1 and 2** and the gamepad b
 That menu row also fixes the wrong gamepad being player 1. A Bluetooth gamepad that drops out and
 comes back gets its player back, if nobody has taken it meanwhile.
 
-Games tells every core it has four players, and plugs a joypad into ports 1 and 2. Players 3 and 4
+Libretro tells every core it has four players, and plugs a joypad into ports 1 and 2. Players 3 and 4
 need a core that sets up a multitap itself (some SNES and PC Engine cores have it as a core
-option, which Games leaves at the core's default), so most games are one or two players.
+option, which Libretro leaves at the core's default), so most games are one or two players.
 
 **Saves.** Games with a battery save (most RPGs) are saved as they are played and when you quit,
 in `~/Games/saves/<game>.srm`. **Save state** stores the exact moment in
@@ -155,12 +155,12 @@ black bars beside it. Border and Picture only change the built-in screen.
 | | |
 | --- | --- |
 | Sound | Stays on the Cardputer's speaker or headphones, not the TV |
-| Dock mode | Has the HDMI port while it runs: leave Dock mode first, or Games says so |
+| Dock mode | Has the HDMI port while it runs: leave Dock mode first, or Libretro says so |
 | Plugging in mid-game | Needs a ZeroOS newer than 0.5.1. Older ones open the Dock app when a monitor is plugged in, which closes the game (it carries on from there next time). With a TV plugged in before you start, any ZeroOS works |
 
-How it works: Games draws to the HDMI output with kernel modesetting (DRM dumb buffers, no GPU and
+How it works: Libretro draws to the HDMI output with kernel modesetting (DRM dumb buffers, no GPU and
 no desktop), from the emulator thread, page-flipping between two buffers. The built-in LCD is a
-separate DRM card, so ZeroShell keeps drawing there. While Games is open it writes its process id
+separate DRM card, so ZeroShell keeps drawing there. While Libretro is open it writes its process id
 to `$XDG_RUNTIME_DIR/zeroos-hdmi-app`, which tells ZeroShell not to open Dock over the game.
 
 **To confirm on a device:** the picture on a real TV (720p and 1080p-only monitors), how much CPU
@@ -201,3 +201,21 @@ works, and see-through parts are drawn black. Pick a bezel made for the console'
 shape: a 4:3 TV bezel around a Game Boy picture leaves black gaps beside it.
 
 Border, picture, carry-on and TV settings are kept in `~/Games/settings` for every game.
+
+## Credits
+
+This app is named after what it runs. It is ZeroOS's own frontend for
+[libretro](https://www.libretro.com), and it is not made or endorsed by the libretro team.
+
+| Part | Where it comes from | Licence |
+| --- | --- | --- |
+| The libretro API | The constants and structs in `libretro_api.h` are libretro's own, from [`libretro.h`](https://github.com/libretro/libretro-common/blob/master/include/libretro.h) ([API docs](https://docs.libretro.com/development/cores/developing-cores/)) | MIT |
+| [Nestopia UE](https://github.com/libretro/nestopia) | NES core that comes with the app, Debian's `libretro-nestopia` | GPL-2.0 |
+| [Gambatte](https://github.com/libretro/gambatte-libretro) | Game Boy / Color core that comes with the app, Debian's `libretro-gambatte` | GPL-2.0 |
+| [mGBA](https://mgba.io) | Game Boy Advance core that comes with the app, Debian's `libretro-mgba` | MPL-2.0 |
+| Downloaded cores | [libretro's nightly builds](https://buildbot.libretro.com/nightly/linux/) | Each core's own licence, listed in its [core info file](https://github.com/libretro/libretro-core-info) |
+| Borders | Suggested from libretro's [overlay-borders](https://github.com/libretro/overlay-borders), not shipped | That repository's |
+| [stb_image.h](https://github.com/nothings/stb) | Reading PNG border pictures, vendored ([third_party](third_party/README.md)) | Public domain or MIT |
+
+The app loads each core from its own file at run time (`dlopen`) and contains none of their code. RetroArch is
+libretro's own frontend; see [Why not RetroArch itself?](#why-not-retroarch-itself).

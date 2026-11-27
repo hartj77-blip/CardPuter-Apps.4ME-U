@@ -99,8 +99,9 @@ std::string home_page(const Bookmarks& bookmarks) {
     static const Doc using_it[] = {{"Keys", "KEYS"}, {"Apps", "APPS"}, {"Updates", "UPDATE"},
                                    {"Battery and performance", "PERFORMANCE"}};
     static const Doc apps[] = {{"AI", "AI"},         {"Camera", "CAMERA"},     {"Car", "CAR"},
-                               {"Dev Tools", "DEV"}, {"Dock", "DOCK"},         {"Games", "GAMES"},
-                               {"GPS and LoRa", "EXPANSION"}, {"IR Remote", "IR"}, {"Media and Jellyfin", "JELLYFIN"},
+                               {"Dev Tools", "DEV"}, {"Dock", "DOCK"},
+                               {"GPS and LoRa", "EXPANSION"}, {"IR Remote", "IR"}, {"Libretro", "GAMES"},
+                               {"Media and Jellyfin", "JELLYFIN"},
                                {"Remote", "REMOTE"}, {"Sync", "SYNC"},         {"Tether", "TETHER"}};
     static const Doc dev[] = {{"Architecture", "ARCHITECTURE"}, {"Interface spec", "UX"},
                               {"Hardware notes", "HARDWARE"}, {"Hardware test checklist", "HARDWARE-TEST"},

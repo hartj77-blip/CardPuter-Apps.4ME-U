@@ -18,6 +18,7 @@ esac
 STUB
 cat > "$T/bin/busctl" <<STUB
 #!/bin/sh
+echo busctl >> "$T/asked"
 case "\$*" in
   *tree*) [ -s "$T/status" ] && printf '/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF\n/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF/player0\n' ;;
   *get-property*) echo "s \"\$(cat "$T/status")\"" ;;
@@ -28,7 +29,11 @@ cat > "$T/bin/bluetoothctl" <<'STUB'
 printf 'Device AA:BB:CC:DD:EE:FF\n\tIcon: phone\n'
 STUB
 chmod +x "$T/bin/"*
-export PATH="$T/bin:$PATH" ZEROOS_CAR_WIFI_STATE="$T/state" ZEROOS_CAR_WIFI_GRACE=3
+# Bluetooth switched on, as /sys shows it.
+mkdir -p "$T/rfkill/rfkill0" "$T/rfkill/rfkill1"
+echo wlan > "$T/rfkill/rfkill0/type"; echo 0 > "$T/rfkill/rfkill0/soft"
+echo bluetooth > "$T/rfkill/rfkill1/type"; echo 0 > "$T/rfkill/rfkill1/soft"
+export PATH="$T/bin:$PATH" ZEROOS_CAR_WIFI_STATE="$T/state" ZEROOS_CAR_WIFI_GRACE=3 ZEROOS_CAR_WIFI_RFKILL="$T/rfkill"
 W="$HERE/../files/zeroos-car-wifi"
 fails=0
 check() { if [ "$(cat "$T/radio")" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (Wi-Fi $(cat "$T/radio"), wanted $2)"; fails=$((fails + 1)); fi; }
@@ -73,5 +78,23 @@ printf 'Device AA:BB:CC:DD:EE:FF\n\tIcon: audio-card\n\tUUID: Audio Sink (000011
 STUB
 once
 check "a car's own player playing: not a phone, left on" enabled
+
+# Bluetooth off: nothing is playing, and BlueZ isn't asked (a question over
+# D-Bus would start bluetoothd again, which ZeroOS stops while Bluetooth is off).
+cat > "$T/bin/bluetoothctl" <<'STUB'
+#!/bin/sh
+printf 'Device AA:BB:CC:DD:EE:FF\n\tIcon: phone\n'
+STUB
+set_ enabled disconnected playing; once
+check "playing: off" disabled
+echo 1 > "$T/rfkill/rfkill1/soft"; : > "$T/asked"
+once; once; once
+check "Bluetooth switched off: the phone is gone, Wi-Fi on again" enabled
+[ ! -s "$T/asked" ] && echo "ok   Bluetooth off: BlueZ isn't asked" || { echo "FAIL asked BlueZ with Bluetooth off"; fails=$((fails + 1)); }
+set_ enabled disconnected playing; : > "$T/asked"; once
+check "Bluetooth off, a stale player: left on" enabled
+[ ! -s "$T/asked" ] && echo "ok   ...and still not asked" || { echo "FAIL asked BlueZ with Bluetooth off"; fails=$((fails + 1)); }
+echo 0 > "$T/rfkill/rfkill1/soft"; once
+check "Bluetooth back on, playing: off" disabled
 
 [ "$fails" = 0 ] && echo "car-wifi-test: all passed" || exit 1

@@ -198,7 +198,7 @@ the app. It all goes again when you remove the app.
 | App | Id | What it does | Brings |
 | --- | --- | --- | --- |
 | [Media](apps/media/README.md) | `media` | A music player in the style of the classic desktop MP3 players, over a file explorer, with pixel-art skins (a 1970s hi-fi, liquid chrome) and classic Winamp skins (`.wsz`): music on the SD card, USB drives and mounted server shares (SMB, NFS), and http(s) addresses | mpv |
-| [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: cover art, home screen rows (Continue Watching, Next Up, what is new), poster grids, a search that finds as you type, a now-playing bar | mpv, libmpv |
+| [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: cover art, home screen rows (Continue Watching, Next Up, what is new), poster grids, a search that finds as you type, a now-playing bar. Videos play on a TV on the HDMI port, with the Cardputer as the remote | mpv, libmpv |
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
 | [Libretro](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen or a TV on the HDMI port; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Two (up to four) players with USB or Bluetooth gamepads. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
@@ -220,7 +220,7 @@ the app. It all goes again when you remove the app.
 
 | App | Id | What it does | Needs | Brings |
 | --- | --- | --- | --- | --- |
-| [IR Remote](apps/ir/README.md) | `ir` | A universal remote with about 4,500 remotes for AV and home: TVs, projectors, displays, screens, receivers, players, cable boxes, video conferencing, switchers, lighting and more, brand remotes (pick Sony, TVs: it finds the code once, then every button just works) and remotes you teach it | nothing (the IR LED and receiver are built in) | v4l-utils, ir-keytable, the code database |
+| [IR Remote](apps/ir/README.md) | `ir` | A universal remote with about 4,500 remotes for AV and home: TVs, projectors, displays, screens, receivers, players, cable boxes, video conferencing, switchers, lighting and more, a remote per kind, Universal or per brand (pick TVs, then Sony: it finds the code once, then every button just works) and remotes you teach it | nothing (the IR LED and receiver are built in) | v4l-utils, ir-keytable, the code database |
 | [Maps](apps/maps/README.md) | `maps` | An offline map of New Jersey with spoken turn-by-turn directions: find a town or a street, and it follows your position with the next turn, your speed, the road's speed limit and when you'll get there. Made from OpenStreetMap data; Navit plans the routes | a GPS module, as for GPS (install GPS too) | Navit, Xvfb, espeak-ng, the map, search and routing data (about 95 MB) |
 | [GPS](apps/gps/README.md) | `gps` | Position, speed, saved spots and GPX track recording | the Cap LoRa-1262 (it has GPS), a Grove GPS unit, or a USB GPS | gpsd |
 | [Mesh](apps/mesh/README.md) | `mesh` | Meshtastic text messages over LoRa, with no phone signal or internet | the Cap LoRa-1262 | meshtasticd (from Meshtastic's repository) |
@@ -267,7 +267,8 @@ Terminal, SSH, or another computer.
 | `~/.config/zeroos/ai.conf` | AI's settings and API keys (mode 600) | AI |
 | `~/.config/zeroos/desktop-hosts` | Computers you saved in Desktop | Desktop |
 | `~/.config/zeroos/rf-memories.tsv` | Saved frequencies | RF Tools |
-| `~/.config/zeroos/settings.conf` | Small settings: Jellyfin server, sign-in token and recent searches, Grove's last effect, your callsign, Router's mode | several apps, through ZeroOS |
+| `~/.config/zeroos/jellyfin-mpv.conf` | The sign-in header and start point for a video on a TV or Dock's monitor (mode 600) | Jellyfin |
+| `~/.config/zeroos/settings.conf` | Small settings: Jellyfin server, sign-in token, recent searches and Play on TV, Grove's last effect, your callsign, Router's mode | several apps, through ZeroOS |
 
 Removing an app never deletes these. Sync shares **Notes**, **Documents** and **Recordings** with
 your other devices, so if Sync is on, packet captures and your logbook travel too.

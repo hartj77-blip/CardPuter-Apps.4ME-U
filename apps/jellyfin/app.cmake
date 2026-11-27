@@ -13,7 +13,7 @@ target_compile_options(jellyfin_core PRIVATE -Wall -Wextra)
 set_target_properties(jellyfin_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 zs_app(jellyfin "Jellyfin" LV_SYMBOL_VIDEO 0x00a4dc make_jellyfin_app ORDER 72
-       SOURCES jellyfin.cpp ui.cpp LIBS jellyfin_core)
+       SOURCES jellyfin.cpp ui.cpp ../kit/tv.cpp LIBS jellyfin_core)
 
 # The server's replies and the addresses asked for (no network, no screen).
 zs_app_test(jellyfin_api_test SOURCES tests/api_test.cpp)
@@ -29,3 +29,6 @@ zs_app_test(jellyfin_work_test SOURCES tests/work_test.cpp)
 if(TARGET jellyfin_work_test)
   target_link_libraries(jellyfin_work_test PRIVATE pthread)
 endif()
+# The TV (kit/tv.h): picking its mode, mpv's arguments and what it says, and
+# a video on a stand-in TV (a fake sysfs and a fake mpv on its socket).
+zs_app_test(kit_tv_test SOURCES ../kit/tests/tv_test.cpp ../kit/tv.cpp)

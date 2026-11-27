@@ -21,7 +21,6 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/fuse.h>
-#include <linux/uinput.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/ioctl.h>
@@ -42,9 +41,12 @@
 #include <thread>
 #include <vector>
 
+#include "car_keys.h"
 #include "live_stick.h"
 
 using namespace car_live;
+using car_keys::open_keys;
+using car_keys::press;
 
 namespace {
 
@@ -177,33 +179,6 @@ void pump(Stream& stream, int kbps, char** encoder) {
     }
     if (fd >= 0) close(fd);
     stop_encoder(pid);
-}
-
-// --- The car's buttons, as a keyboard with four keys -------------------
-
-int open_keys() {
-    int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
-    if (fd < 0) return -1;
-    ioctl(fd, UI_SET_EVBIT, EV_KEY);
-    for (int k : {KEY_PLAYCD, KEY_PAUSECD, KEY_NEXTSONG, KEY_PREVIOUSSONG}) ioctl(fd, UI_SET_KEYBIT, k);
-    uinput_setup setup{};
-    setup.id.bustype = BUS_VIRTUAL;
-    snprintf(setup.name, sizeof setup.name, "ZeroOS car USB buttons");
-    if (ioctl(fd, UI_DEV_SETUP, &setup) != 0 || ioctl(fd, UI_DEV_CREATE) != 0) {
-        close(fd);
-        return -1;
-    }
-    return fd;
-}
-
-void press(int fd, int key) {
-    if (fd < 0) return;
-    input_event ev[4]{};
-    ev[0].type = EV_KEY; ev[0].code = uint16_t(key); ev[0].value = 1;
-    ev[1].type = EV_SYN; ev[1].code = SYN_REPORT;
-    ev[2].type = EV_KEY; ev[2].code = uint16_t(key); ev[2].value = 0;
-    ev[3].type = EV_SYN; ev[3].code = SYN_REPORT;
-    if (write(fd, ev, sizeof ev) < 0) fprintf(stderr, "zeroos-car-live: can't press a key: %s\n", strerror(errno));
 }
 
 // --- FUSE: a folder with one read-only file ------------------------------
@@ -452,9 +427,6 @@ int main(int argc, char** argv) {
     pump_thread.join();
     umount2(dir.c_str(), MNT_DETACH);
     close(fuse);
-    if (key_fd >= 0) {
-        ioctl(key_fd, UI_DEV_DESTROY);
-        close(key_fd);
-    }
+    car_keys::close_keys(key_fd);
     return 0;
 }

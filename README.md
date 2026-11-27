@@ -202,7 +202,7 @@ the app. It all goes again when you remove the app.
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
 | [Libretro](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen or a TV on the HDMI port; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Two (up to four) players with USB or Bluetooth gamepads. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
-| [Car](apps/car/README.md) | `car` | Music in the car: over one USB cable that also charges (the Cardputer as a USB stick of your music, or of whatever it plays now), Bluetooth audio with the car's buttons, or your phone's music through the Cardputer to the aux | mtools, dosfstools, fdisk, lame |
+| [Car](apps/car/README.md) | `car` | Music in the car: over one USB cable that also charges (the Cardputer as a USB stick of your music, as a stick of whatever it plays now, or as an iPod), Bluetooth audio with the car's buttons, or your phone's music through the Cardputer to the aux | mtools, dosfstools, fdisk, lame |
 
 ### Networks and other computers
 
@@ -286,7 +286,7 @@ ones to know about for battery life.
 | Remote | Tailscale, by default for 15 minutes after you last used it | Settings > Tailscale |
 | Sync | Syncthing, by default only while charging | Settings > Sync |
 | Router | Routing for the laptop, until you turn it off | Turn it off in Router |
-| Car | USB stick mode or USB live sound, until you turn it off | Enter on the row again in Car |
+| Car | USB stick mode, USB live sound or iPod mode, until you turn it off | Enter on the row again in Car |
 
 ## Troubleshooting
 
@@ -557,6 +557,13 @@ need isn't in Debian, with that repository's signing key in their package:
 Removing the app removes the repository and its key. While it's installed, apt trusts that
 repository for the packages it holds.
 
+**Built from other people's source.** Car's iPod mode is two outside projects,
+[ipod-gadget](https://github.com/oandrew/ipod-gadget) (a kernel driver) and
+[ipod](https://github.com/oandrew/ipod) (a Go program), fetched at one commit each and built when
+the package is made (`apps/car/prepare.sh`). The kernel's headers for the build come from Raspberry
+Pi's archive, checked against SHA-256s pinned there; the Go program's own dependencies are fixed by
+its `go.sum`.
+
 **Downloads from elsewhere.** Camera downloads M5Stack's CameraApp package from its GitHub
 release, checked against a SHA-256 pinned in `camera.pkg`. Libretro downloads extra emulator cores
 from libretro's nightly builds (`buildbot.libretro.com`) when you ask it to, over HTTPS, with no
@@ -570,7 +577,8 @@ with Libretro are Debian's.
 | Net Tools | File capabilities on `arp-scan` (`cap_net_raw`) and `tcpdump` (`cap_net_raw,cap_net_admin`), which become `root:netdev 0750`, so members of `netdev` can scan and capture. Nothing runs as root. Removing the app puts both back to `root:root 0755` | Discover and Capture need raw sockets. Version 2.0 used a sudo rule instead, which amounted to passwordless root (`sudo tcpdump -z` runs any program); 2.1 removes it, so upgrade |
 | Router | A polkit rule letting your user start and stop `zeroos-router@ethernet` and `zeroos-router@usb` | Router turns routing on and off without asking for a password |
 | RF Tools | A udev rule giving your user the RTL-SDR dongle, and a modprobe rule keeping the kernel's DVB-T driver off it | So the radio daemon runs as you, not as root |
-| Car | Loads the `uinput` and `libcomposite` kernel modules at boot, and adds WirePlumber settings (Bluetooth audio without a login; no hands-free role for phones) | The car's buttons become key presses; the Cardputer can act as a USB stick; Bluetooth audio works from a service, and a phone's calls stay on the phone |
+| Car | Loads the `uinput` and `libcomposite` kernel modules at boot, and adds WirePlumber settings (Bluetooth audio without a login; no hands-free role for phones; PipeWire kept off iPod mode's sound card) | The car's buttons become key presses; the Cardputer can act as a USB stick; Bluetooth audio works from a service, and a phone's calls stay on the phone |
+| Car | While a USB mode is on, programs that run as root: one that serves the made-up stick (USB live sound), or the iPod-protocol client (iPod mode). iPod mode also loads a kernel driver that isn't part of the kernel: [ipod-gadget](https://github.com/oandrew/ipod-gadget), built from source at one named commit when the package is made. It is loaded only while iPod mode is on and taken out when you turn it off | They hold the USB device port, which only root can. A kernel driver can do anything, and this one talks to whatever is on the other end of the cable: use iPod mode with a car you trust, as you would any USB device |
 
 **Your data.** AI's API keys are in `~/.config/zeroos/ai.conf` with mode 600, and are handed to
 curl through a private temporary file so they never appear in the process list. The Jellyfin app uses your
@@ -687,6 +695,7 @@ machine or container (a Raspberry Pi 4 or 5 on Raspberry Pi OS trixie works):
 
 ```sh
 sudo apt install cmake g++ dpkg-dev curl gpg python3 pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev
+sudo apt install git make patch golang-go        # Car: iPod mode's kernel driver and client
 cmake -S . -B build/device -DZS_BACKEND=device
 cmake --build build/device -j
 tools/build.sh build/device build/apps           # every package, and the index, in build/apps
@@ -904,6 +913,7 @@ and it will be added. The OS underneath has [its own credits](https://github.com
 | [ft8_lib](https://github.com/kgoba/ft8_lib) by Kārlis Goba, with [KISS FFT](https://github.com/mborgerding/kissfft) by Mark Borgerding | RF Tools' FT8 | MIT and BSD-3, see [apps/rf/files/THIRD_PARTY.md](apps/rf/files/THIRD_PARTY.md) |
 | [libretro](https://github.com/libretro/libretro-common) API ([docs](https://docs.libretro.com)) | How Libretro talks to emulator cores (`apps/games/libretro_api.h`); credits in [its README](apps/games/README.md#credits) | MIT |
 | [libvncclient](https://github.com/LibVNC/libvncserver), [FreeRDP 3](https://github.com/FreeRDP/FreeRDP) | Desktop's VNC and RDP | GPL-2.0+, Apache-2.0 |
+| [ipod-gadget](https://github.com/oandrew/ipod-gadget) and [ipod](https://github.com/oandrew/ipod) by Andrew Onyshchuk | Car's iPod mode: the kernel driver that makes the USB port look like an iPod, and the program that speaks the iPod's protocol. Built when the package is made (`apps/car/prepare.sh`) and shipped in it | MIT, see [apps/car/files/THIRD_PARTY.md](apps/car/files/THIRD_PARTY.md) for these and the Go code linked in |
 
 ### Data and designs
 
@@ -925,6 +935,7 @@ under its own licence.
 | [Tailscale](https://github.com/tailscale/tailscale) (BSD-3), from [Tailscale's repository](https://pkgs.tailscale.com/stable/); [mosh](https://mosh.org) | Remote, Router |
 | [Syncthing](https://github.com/syncthing/syncthing) (MPL-2.0) | Sync |
 | [gpsd](https://gpsd.io) | GPS |
+| [LAME](https://lame.sourceforge.io) (LGPL-2.0+) | Car's USB live sound |
 | [mpv](https://github.com/mpv-player/mpv) and libmpv | Media, Jellyfin |
 | [libretro](https://www.libretro.com) cores: Nestopia, Gambatte and mGBA from Debian; more downloaded when you ask, from [libretro's buildbot](https://buildbot.libretro.com) | Libretro. Each core has its own licence; a few, such as Snes9x and Genesis Plus GX, are for non-commercial use only |
 | [rtl-sdr](https://osmocom.org/projects/rtl-sdr/wiki), [rtl_433](https://github.com/merbanan/rtl_433), [multimon-ng](https://github.com/EliasOenal/multimon-ng), [Hamlib](https://github.com/Hamlib/Hamlib), [SoX](https://sourceforge.net/projects/sox/) | RF Tools |

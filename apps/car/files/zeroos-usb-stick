@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Car app's three USB modes (README.md), one at a time, on the USB
+# The Car app's USB modes (README.md), one at a time, on the USB
 # device port. Run as root by zeroos-usb-stick.service; the Car app names
 # the mode in ~/.config/zeroos/car-usb before it starts the service.
 #
@@ -8,6 +8,8 @@
 #           plays from a stick) can play it and its own buttons work.
 #   live    USB live sound: a stick whose songs are whatever the Cardputer
 #           is playing now (zeroos-car-live serves it; this sets it up).
+#   ipod    iPod mode: the port looks like an iPod, and a stereo that takes
+#           one plays what the Cardputer is playing, without the delay.
 #
 #   zeroos-usb-stick start    set up the mode the Car app asked for
 #   zeroos-usb-stick stop     take it away again
@@ -15,6 +17,9 @@
 #   zeroos-usb-stick live-daemon     what zeroos-car-live.service runs
 #   zeroos-usb-stick live-capture KBPS   the sound, as MP3, on stdout (as the UI user)
 #   zeroos-usb-stick live-gone       zeroos-car-live.service has stopped
+#   zeroos-usb-stick ipod-daemon     what zeroos-car-ipod.service runs
+#   zeroos-usb-stick ipod-capture    the sound, as samples, on stdout (as the UI user)
+#   zeroos-usb-stick ipod-gone       zeroos-car-ipod.service has stopped
 #
 # The board's Host/Slave switch (left side) must be on Slave; the right-hand
 # USB-C port is then the device port. Progress is written to $STATE for
@@ -37,7 +42,14 @@ LIVE_DIR=${ZEROOS_CAR_LIVE_DIR:-/run/zeroos/car-live}
 LIVE_BIN=${ZEROOS_CAR_LIVE_BIN:-/usr/lib/zeroos/car-live}
 LIVE_CONF=${ZEROOS_CAR_LIVE_CONF:-/etc/zeroos/car-live.conf}
 LIVE_UNIT=zeroos-car-live.service
-GADGET=/sys/kernel/config/usb_gadget/zeroos-stick
+IPOD_DIR=${ZEROOS_CAR_IPOD_DIR:-/usr/lib/zeroos/car-ipod}
+IPOD_CONF=${ZEROOS_CAR_IPOD_CONF:-/etc/zeroos/car-ipod.conf}
+IPOD_UNIT=zeroos-car-ipod.service
+IPOD_MODULES="g_ipod_gadget g_ipod_hid g_ipod_audio"   # in the order they come out
+KEYS_BIN=${ZEROOS_CAR_KEYS_BIN:-/usr/lib/zeroos/car-keys}
+STOPPING=/run/zeroos/usb-stick.stopping
+GADGET=${ZEROOS_CAR_GADGET:-/sys/kernel/config/usb_gadget/zeroos-stick}
+UDC_DIR=${ZEROOS_CAR_UDC_DIR:-/sys/class/udc}
 START=2048                      # first sector of the FAT partition (1 MiB)
 EXTS='mp3|m4a|aac|wma|wav|flac|ogg|opus'
 SELF=${ZEROOS_USB_STICK:-$(readlink -f "$0")}   # this script, run again as ~/Music's owner
@@ -61,6 +73,7 @@ fail() {
 wanted_mode() {
     case $(head -c 16 "$MODE_FILE" 2>/dev/null | tr -cd 'a-z') in
         live) echo live ;;
+        ipod) echo ipod ;;
         *) echo files ;;
     esac
 }
@@ -152,7 +165,7 @@ build_as_owner() {
     rm -rf -- "$work"
 }
 
-udc() { ls /sys/class/udc 2>/dev/null | head -1; }
+udc() { ls "$UDC_DIR" 2>/dev/null | head -1; }
 
 # Everything a mode set up, whichever it was. The state file stays.
 teardown() {
@@ -165,6 +178,16 @@ teardown() {
     # After the gadget, which had its file open. Not waited for: at
     # shutdown systemd is stopping it already.
     systemctl stop --no-block "$LIVE_UNIT" 2>/dev/null || true
+    # iPod mode the other way round: its client holds the driver's device
+    # open, so the client goes first (ipod-gone then leaves this to us) and
+    # is waited for, and then the driver comes out.
+    if ipod_loaded || systemctl -q is-active "$IPOD_UNIT" 2>/dev/null; then
+        mkdir -p "$(dirname "$STOPPING")"
+        : > "$STOPPING"
+        timeout 20 systemctl stop "$IPOD_UNIT" 2>/dev/null || true
+        ipod_unload
+        rm -f "$STOPPING"
+    fi
 }
 
 stop() {
@@ -180,6 +203,8 @@ offer() {
     echo 0x0104 > idProduct
     echo 0x0200 > bcdUSB
     mkdir -p strings/0x409 configs/c.1/strings/0x409 functions/mass_storage.0
+    # The kernel makes lun.0 with the function; only a stand-in (the tests) doesn't.
+    [ -d functions/mass_storage.0/lun.0 ] || mkdir functions/mass_storage.0/lun.0
     echo "ZeroOS" > strings/0x409/manufacturer
     echo "$2" > strings/0x409/product
     tr -d '\n-' < /etc/machine-id | cut -c1-16 > strings/0x409/serialnumber
@@ -236,14 +261,20 @@ live_daemon() {
         runuser -u "$UI_USER" -- env XDG_RUNTIME_DIR="/run/user/$(id -u "$UI_USER")" "$SELF" live-capture "$kbps"
 }
 
-# The sound, as MP3 on stdout. pw-record appears to the sound system as an
-# output called "Car (USB)", ahead of the speaker, the headphone jack and
-# Bluetooth, so everything plays into it while it runs and goes back where
-# it was when it stops. lame: constant bit rate, each frame on its own (no
-# bit reservoir) and written at once, no tag.
-live_capture() {
+# The sound, as samples on stdout (44.1 kHz, stereo, 16 bits). pw-record
+# appears to the sound system as an output called "Car (USB)", ahead of the
+# speaker, the headphone jack and Bluetooth, so everything plays into it
+# while it runs and goes back where it was when it stops. With nothing
+# playing it writes nothing.
+capture() {
     pw-record -P '{ media.class=Audio/Sink node.name=zeroos_car node.description="Car (USB)" priority.session=2500 }' \
-        --rate 44100 --channels 2 --format s16 --latency 50ms - |
+        --rate 44100 --channels 2 --format s16 --latency 50ms -
+}
+
+# The sound, as MP3 on stdout. lame: constant bit rate, each frame on its
+# own (no bit reservoir) and written at once, no tag.
+live_capture() {
+    capture |
         lame --quiet -r -s 44.1 --bitwidth 16 --signed --little-endian -m j --cbr -b "$1" -q 7 \
              --nores -t --noreplaygain --flush - -
 }
@@ -257,6 +288,79 @@ live_gone() {
     say "error: live sound stopped"
 }
 
+# --- iPod mode ----------------------------------------------------------------
+
+ipod_loaded() {
+    local m
+    for m in $IPOD_MODULES; do [ -d "/sys/module/$m" ] && return 0; done
+    return 1
+}
+
+ipod_unload() {
+    local m
+    for m in $IPOD_MODULES; do
+        [ -d "/sys/module/$m" ] && timeout 10 rmmod "$m" 2>/dev/null
+    done
+    return 0
+}
+
+# What /etc/zeroos/car-ipod.conf asks of the driver, for stereos that don't
+# take it as it is (README.md): SWAP_CONFIGS=1, ONLY_IPOD=1, PRODUCT_ID=0x1261.
+ipod_options() {
+    local id
+    grep -qx 'SWAP_CONFIGS=1' "$IPOD_CONF" 2>/dev/null && printf 'swap_configs=1 '
+    grep -qx 'ONLY_IPOD=1' "$IPOD_CONF" 2>/dev/null && printf 'only_ipod=1 '
+    id=$(sed -n 's/^PRODUCT_ID=\(0x[0-9a-fA-F]\{4\}\)$/\1/p' "$IPOD_CONF" 2>/dev/null | tail -1)
+    [ -n "$id" ] && printf 'product_id=%s ' "$id"
+    return 0
+}
+
+start_ipod() {
+    local kernel dir m i=0
+    kernel=${ZEROOS_CAR_KERNEL:-$(uname -r)}
+    dir=$IPOD_DIR/$kernel
+    [ -f "$dir/g_ipod_gadget.ko" ] || fail "iPod mode isn't built for this kernel ($kernel)"
+    command -v aplay >/dev/null && command -v pw-record >/dev/null || fail "aplay or pw-record isn't installed"
+    # What the driver is built on: the sound system's and USB's own parts.
+    modprobe -a snd-pcm usb_f_mass_storage 2>/dev/null || true
+    for m in g_ipod_audio g_ipod_hid; do
+        insmod "$dir/$m.ko" 2>/dev/null || [ -d "/sys/module/$m" ] || fail "the iPod driver didn't load"
+    done
+    # shellcheck disable=SC2046   # the options are words
+    insmod "$dir/g_ipod_gadget.ko" $(ipod_options) || fail "the iPod driver didn't load"
+    # Its device appears once it has the USB device port.
+    until [ -c /dev/iap0 ]; do
+        i=$(( i + 1 ))
+        [ "$i" -gt 30 ] && fail "the USB device port is busy"
+        sleep 0.1
+    done
+    systemctl start "$IPOD_UNIT" || fail "iPod mode didn't start"
+}
+
+# zeroos-car-ipod.service: the client that answers the car as an iPod would,
+# its "button ..." lines pressed as keys, and beside them the sound.
+ipod_daemon() {
+    (
+        # The driver's sound card takes 44.1 kHz stereo and nothing else,
+        # and only one player. Started again if it stops (the car left).
+        while :; do
+            runuser -u "$UI_USER" -- env XDG_RUNTIME_DIR="/run/user/$(id -u "$UI_USER")" "$SELF" ipod-capture |
+                aplay -q -D hw:CARD=iPodUSB,DEV=0 -t raw -f S16_LE -r 44100 -c 2 -B 100000 2>/dev/null
+            sleep 2
+        done
+    ) &
+    "$IPOD_DIR/ipod" serve /dev/iap0 | "$KEYS_BIN"
+}
+
+# zeroos-car-ipod.service has stopped. If nobody asked it to, the client
+# gave up: take the driver out and say so.
+ipod_gone() {
+    [ -e "$STOPPING" ] && return 0
+    [ "$(cat "$MODE_STATE" 2>/dev/null)" = ipod ] && ipod_loaded || return 0
+    ipod_unload
+    say "error: iPod mode stopped"
+}
+
 start() {
     local mode
     mode=$(wanted_mode)
@@ -268,6 +372,7 @@ start() {
     echo "$mode" > "$MODE_STATE"
     case $mode in
         live) start_live ;;
+        ipod) start_ipod ;;
         *) start_files ;;
     esac
     say "ready"
@@ -280,5 +385,8 @@ case "${1:-}" in
     live-daemon) live_daemon ;;
     live-capture) live_capture "${2:-320}" ;;
     live-gone) live_gone ;;
+    ipod-daemon) ipod_daemon ;;
+    ipod-capture) capture ;;
+    ipod-gone) ipod_gone ;;
     *) echo "usage: $0 start|stop|build IMAGE MUSIC_DIR" >&2; exit 2 ;;
 esac

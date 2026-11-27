@@ -1,0 +1,84 @@
+diff --git a/cmd/ipod/main.go b/cmd/ipod/main.go
+index e9bcb63..2b48735 100644
+--- a/cmd/ipod/main.go
++++ b/cmd/ipod/main.go
+@@ -18,7 +18,7 @@ import (
+ 	dispremote "github.com/oandrew/ipod/lingo-dispremote"
+ 	extremote "github.com/oandrew/ipod/lingo-extremote"
+ 	general "github.com/oandrew/ipod/lingo-general"
+-	_ "github.com/oandrew/ipod/lingo-simpleremote"
++	simpleremote "github.com/oandrew/ipod/lingo-simpleremote"
+ 	"github.com/oandrew/ipod/trace"
+ )
+ 
+@@ -385,6 +385,52 @@ func processFrames(frameTransport ipod.FrameReadWriter) {
+ 
+ var devGeneral = &DevGeneral{}
+ 
++// emitButton reports an accessory button press as one "button <name>" line
++// on stdout. os.Stdout is unbuffered, so every line is a single write(2).
++func emitButton(name string) {
++	fmt.Fprintf(os.Stdout, "button %s\n", name)
++}
++
++// last ContextButtonStatus bitmask; the accessory repeats the status while
++// a button is held and sends 0 on release, so only 0->1 edges are reported.
++var prevContextButtons simpleremote.ContextButtonMask
++
++var contextButtonNames = []struct {
++	bit  simpleremote.ContextButtonBit
++	name string
++}{
++	{simpleremote.ContextButtonPlayPause, "playpause"},
++	{simpleremote.ContextButtonPlayResume, "play"},
++	{simpleremote.ContextButtonPause, "pause"},
++	{simpleremote.ContextButtonNextTrack, "next"},
++	{simpleremote.ContextButtonPreviousTrack, "previous"},
++}
++
++func handleContextButtons(state simpleremote.ContextButtonMask) {
++	pressed := state &^ prevContextButtons
++	prevContextButtons = state
++	for _, b := range contextButtonNames {
++		if uint32(pressed)&uint32(b.bit) != 0 {
++			emitButton(b.name)
++		}
++	}
++}
++
++func handlePlayControl(c extremote.PlayControlCmd) {
++	switch c {
++	case extremote.PlayControlToggle:
++		emitButton("playpause")
++	case extremote.PlayControlPlay:
++		emitButton("play")
++	case extremote.PlayControlPause:
++		emitButton("pause")
++	case extremote.PlayControlNextTrack, extremote.PlayControlNext:
++		emitButton("next")
++	case extremote.PlayControlPrevTrack, extremote.PlayControlPrev:
++		emitButton("previous")
++	}
++}
++
+ func handlePacket(cmdWriter ipod.CommandWriter, cmd *ipod.Command) {
+ 	switch cmd.ID.LingoID() {
+ 	case ipod.LingoGeneralID:
+@@ -396,11 +442,17 @@ func handlePacket(cmdWriter ipod.CommandWriter, cmd *ipod.Command) {
+ 		general.HandleGeneral(cmd, cmdWriter, devGeneral)
+ 
+ 	case ipod.LingoSimpleRemoteID:
++		if st, ok := cmd.Payload.(*simpleremote.ContextButtonStatus); ok {
++			handleContextButtons(st.State)
++		}
+ 		//todo
+ 		log.Warn("Lingo SimpleRemote is not supported yet")
+ 	case ipod.LingoDisplayRemoteID:
+ 		dispremote.HandleDispRemote(cmd, cmdWriter, nil)
+ 	case ipod.LingoExtRemoteID:
++		if pc, ok := cmd.Payload.(*extremote.PlayControl); ok {
++			handlePlayControl(pc.Cmd)
++		}
+ 		extremote.HandleExtRemote(cmd, cmdWriter, nil)
+ 	case ipod.LingoDigitalAudioID:
+ 		audio.HandleAudio(cmd, cmdWriter, nil)

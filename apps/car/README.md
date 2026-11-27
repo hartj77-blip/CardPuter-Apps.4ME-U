@@ -7,9 +7,10 @@
 | An aux input (3.5 mm) | [Music from your phone](#music-from-your-phone) | Anything your phone plays: Spotify, Apple Music, the Jellyfin app, podcasts | On the Cardputer | Enter and the menu in Car, Fn + Q/W/E, or the phone |
 | A USB socket | [USB stick mode](#usb-stick-mode) | Music files in `~/Music` on the Cardputer | On the car's screen | The car's own buttons |
 | A USB socket | [USB live sound](#usb-live-sound) | Whatever plays on the Cardputer now: your phone's music passed on, Media, Jellyfin. A few seconds late | On the Cardputer | The car's skip and pause buttons |
+| A USB socket that takes an iPod | [iPod mode](#ipod-mode) | The same, without the delay. Not every stereo accepts it | On the Cardputer | The car's play, pause and skip buttons |
 | Bluetooth music | [Bluetooth](#bluetooth-to-a-car-speaker-or-headphones) | Anything Media or Jellyfin plays on the Cardputer, or your phone's music passed on | No | The car's buttons |
 
-The two USB ways need **one cable**: it carries the music and charges the
+The USB ways need **one cable**: it carries the music and charges the
 Cardputer, with nothing in the aux socket, so there is no hum from the car's
 wiring ([One cable](#one-cable-music-and-power)). Other apps carry on
 meanwhile: open GPS and the music plays on.
@@ -26,12 +27,13 @@ by Apple or Google, and the Cardputer can't stand in for one.
 5. [One cable: music and power](#one-cable-music-and-power)
 6. [USB stick mode](#usb-stick-mode)
 7. [USB live sound](#usb-live-sound)
-8. [Bluetooth to a car, speaker or headphones](#bluetooth-to-a-car-speaker-or-headphones)
-9. [Power in the car](#power-in-the-car)
-10. [Troubleshooting](#troubleshooting)
-11. [How it works](#how-it-works)
-12. [What has been checked on a device](#what-has-been-checked-on-a-device)
-13. [Limits](#limits)
+8. [iPod mode](#ipod-mode)
+9. [Bluetooth to a car, speaker or headphones](#bluetooth-to-a-car-speaker-or-headphones)
+10. [Power in the car](#power-in-the-car)
+11. [Troubleshooting](#troubleshooting)
+12. [How it works](#how-it-works)
+13. [What has been checked on a device](#what-has-been-checked-on-a-device)
+14. [Limits](#limits)
 
 ## Quick start
 
@@ -61,6 +63,10 @@ by Apple or Google, and the Cardputer can't stand in for one.
 3. Play something on the Cardputer, or on a phone paired with **Add a
    phone**. It comes out of the car about three to five seconds later.
 
+**USB iPod** (the same, without the delay, if the stereo takes an iPod):
+as USB live, but Enter on **USB iPod**, and pick iPod (or USB) on the
+stereo. If the stereo won't have it, use USB live.
+
 ## The screen
 
 With your phone connected and playing:
@@ -75,7 +81,7 @@ With your phone connected and playing:
  | 1 [] John's iPhone        >  |  | John's iPhone           |
  | 2 <> USB stick          Off  |  | Enter  play, pause      |
  | 3 <> USB live           Off  |  | Ctrl+N  next            |
- | 4 *  CAR MULTIMEDIA          |  | Ctrl+B  back            |
+ | 4 <> USB iPod           Off  |  | Ctrl+B  back            |
  +------------------------------+  +-------------------------+
  Enter Pause                                             Tab Menu
 ```
@@ -87,7 +93,7 @@ With your phone connected and playing:
     how far in it is and how long it is;
   - under it the artist, the phone's name, and an arrow with where the
     music goes if that isn't the headphone jack: **USB** while USB live
-    sound is on, or the Bluetooth car or speaker;
+    sound or iPod mode is on, or the Bluetooth car or speaker;
   - a thin green line along the bottom for how far in the song is. The
     clock and the line keep running between the phone's updates (every 2
     seconds). Phones that don't say how long a song is get no clock or
@@ -97,9 +103,9 @@ With your phone connected and playing:
 - **The list:**
   - the connected phone comes first, with a play or pause mark on the right
     (short, so its name has the room);
-  - **USB stick** and **USB live**, each with Off, On, or In use (and USB
-    stick a percentage while it copies). One is on at a time: turning one
-    on turns the other off;
+  - **USB stick**, **USB live** and **USB iPod**, each with Off, On, or In
+    use (and USB stick a percentage while it copies). One is on at a time:
+    turning one on turns the others off;
   - paired cars, speakers, headphones and phones (phones with a phone icon;
     connected ones say On in green), and devices the last scan found (new);
   - **Add a phone**, **Scan for devices** and **Let the car find me**.
@@ -113,7 +119,7 @@ Without a phone the card is hidden and the list starts at the top.
 | Key | What it does |
 | --- | --- |
 | Up, Down | Move through the list |
-| Enter | On the phone: play or pause. On USB stick or USB live: on or off. On a device: connect, disconnect, or pair a new one. On the last three rows: what they say |
+| Enter | On the phone: play or pause. On USB stick, USB live or USB iPod: on or off. On a device: connect, disconnect, or pair a new one. On the last three rows: what they say |
 | Tab | The menu for the row in focus |
 | Tab > N, or Ctrl + N | Next song on the phone |
 | Tab > B, or Ctrl + B | Previous song (or the start of this one; the phone decides) |
@@ -222,9 +228,11 @@ on the USB cable too there is only one connection, and nothing to hum.
   port, the other USB-C port and Ethernet are off; that is how the board is
   wired. Set it back to **Host** to use them again.
 - **Pick what plays:** [USB stick mode](#usb-stick-mode) for the files in
-  `~/Music`, with the car as the player, or [USB live sound](#usb-live-sound)
-  for anything the Cardputer plays, a few seconds late.
-- **Other apps carry on.** Both modes run outside the Car app: press Esc and
+  `~/Music`, with the car as the player; [USB live sound](#usb-live-sound)
+  for anything the Cardputer plays, a few seconds late; or
+  [iPod mode](#ipod-mode) for the same without the delay, on a stereo that
+  takes it.
+- **Other apps carry on.** The modes run outside the Car app: press Esc and
   open GPS (or anything else), and the music plays on, also with the screen
   off. The GPS on a Cap LoRa-1262 or the Grove port works in Slave; a USB
   GPS dongle doesn't, because the USB-A port is off.
@@ -319,6 +327,63 @@ makes the delay longer on most cars, because they read ahead by size, not by
 time. `DELAY_MS` is how far behind the sound the car starts (500 to 10000):
 shorter is less delay, but a car that reads in big gulps may then stutter.
 
+## iPod mode
+
+Many stereos made before CarPlay took over have a USB socket that plays an
+iPod: the iPod sends its sound down the cable as it plays, and the stereo's
+buttons drive it. In iPod mode the Cardputer answers as an iPod would, so
+whatever it plays reaches the car over the one cable **without the delay**
+of USB live sound.
+
+1. Set the switch on the left side to **Slave**.
+2. Open **Car** and press Enter on **USB iPod**. It says **On**.
+3. Plug the right-hand USB-C port into the car's USB socket and pick iPod
+   (or USB) on the stereo. The row says **In use** when the car has taken
+   the cable up.
+4. Play music on the Cardputer, or on a phone paired with
+   [Add a phone](#music-from-your-phone). As with USB live sound,
+   everything the Cardputer plays goes to the car while the mode is on.
+
+Enter on the row again turns it off.
+
+**Not every stereo accepts it.** The Cardputer isn't an iPod and can't
+prove it is one. Stereos that only check that an iPod answers play it;
+stereos that ask the iPod to prove itself, and some that are simply
+particular, say "unsupported" or show nothing. The project this mode is
+built on keeps [reports of which stereos work](https://github.com/oandrew/ipod-gadget/issues).
+If yours doesn't, [USB live sound](#usb-live-sound) is the way that works
+on anything that plays a stick.
+
+What to expect:
+
+- **The car's buttons work:** play, pause, next and previous reach whatever
+  is playing, like a Bluetooth car's buttons.
+- **The car's screen** shows no song names; the stereo may show a blank
+  song or "iPod". The song is on the Cardputer.
+- **Volume:** the Cardputer's volume keys set how loud the sound is sent.
+  Leave it at 100% and use the car's knob.
+- **It needs the kernel ZeroOS shipped with** (6.18.39): the driver in the
+  package is built for that one. ZeroOS keeps its kernel, so this only
+  matters if you changed it; the row then says **Failed**, "iPod mode isn't
+  built for this kernel".
+
+For a stereo that sees the cable but doesn't start, there are three things
+to try, as lines in `/etc/zeroos/car-ipod.conf` (turn the mode off and on
+after a change):
+
+```
+SWAP_CONFIGS=1
+ONLY_IPOD=1
+PRODUCT_ID=0x1261
+```
+
+A real iPod offers the car two faces, a plain storage one first and the
+iPod one second. `SWAP_CONFIGS=1` puts the iPod one first, for a stereo that
+only looks at the first; `ONLY_IPOD=1` leaves the storage one out.
+`PRODUCT_ID` says which iPod or iPhone to be (four hex digits; the driver's
+[list](https://github.com/oandrew/ipod-gadget/blob/master/doc/apple-usb.ids)
+has them), for a stereo that only knows some.
+
 ## Bluetooth to a car, speaker or headphones
 
 For a car with Bluetooth music, or a speaker or headphones: the Cardputer is
@@ -380,7 +445,10 @@ power**, which shows the current going in or out.
 | USB live: it stutters | Make the delay longer: `DELAY_MS=5000` in the same file. |
 | USB live: songs skip or pause by themselves | The car is reading the stick in a way the Cardputer takes for a button. `journalctl -u zeroos-car-live` shows what it thought the car said ("the car says next"); please report it with the car's make. |
 | USB live: **Failed** | The panel on the right says why. "no USB device port": the switch isn't on Slave. Otherwise `journalctl -u zeroos-car-live -u zeroos-usb-stick` has the details. |
-| No sound from the Cardputer's speaker | USB live sound is on: everything goes to the car. Turn it off in Car. |
+| No sound from the Cardputer's speaker | USB live sound or iPod mode is on: everything goes to the car. Turn it off in Car. |
+| USB iPod: the car says "unsupported", or nothing happens | Try the three settings in [iPod mode](#ipod-mode), one at a time. If none helps, this stereo wants a real iPod: use USB live. `journalctl -u zeroos-car-ipod` shows what the car asked and where it stopped; it helps a report. |
+| USB iPod: **In use**, the car shows an iPod, but no sound | Check something is playing and the volume isn't at 0. Then turn the mode off and on with the cable in. |
+| USB iPod: **Failed** | The panel says why. "isn't built for this kernel": the kernel was changed from the one ZeroOS shipped. "no USB device port": the switch isn't on Slave. |
 
 To see what the Cardputer's sound system is doing, in the Terminal:
 `wpctl status` lists the phone under **Sources** when it is connected for
@@ -395,9 +463,10 @@ music, and a stream while music plays.
 | `60-zeroos-car.conf` (WirePlumber) | Bluetooth audio without a login: ZeroShell runs as a service, and WirePlumber otherwise only starts Bluetooth audio for an active login (`monitor.bluez.seat-monitoring`). The Bluetooth roles without `hfp_hf`, so a phone isn't offered a hands-free kit and calls stay on it. And the bigger buffer: while a phone's music plays, PipeWire runs in 2048-sample steps instead of 512 (`node.force-quantum` on `bluez_input.*` nodes). Car restarts WirePlumber once when it opens after an install or update, so the settings apply without a restart. |
 | BlueALSA off | The base system also runs BlueALSA (`bluealsa`, `bluealsa-aplay`). It took a phone's music before PipeWire could and then couldn't play it (`bluealsa-aplay` runs as root and can't reach the user's PipeWire: "Host is down"). Installing Car turns both services off; ZeroOS 0.8.1 and newer do too. |
 | `zeroos-car-wifi.service` | Runs `/usr/lib/zeroos/car-wifi` as root: every 5 seconds, while Bluetooth is on, it asks BlueZ whether a phone's player is playing (`busctl`) and NetworkManager whether Wi-Fi is connected (`nmcli`), and turns Wi-Fi off or on again as described above. With Bluetooth off it only reads the switch from `/sys` and starts no program: ZeroOS stops bluetoothd while Bluetooth is off, and a question would start it again. What it turned off is noted in `/var/lib/zeroos/car`, so it is put back after a restart and when the service stops. Tested by `tests/car-wifi-test.sh`. |
-| `zeroos-usb-stick.service` | Runs `/usr/lib/zeroos/usb-stick` as root, for whichever USB mode the Car app named in `~/.config/zeroos/car-usb` (`files` or `live`; the app writes it, then starts the service). For USB stick mode it builds the image with `sfdisk`, `mkfs.vfat` and mtools; for USB live sound it starts `zeroos-car-live.service`. Either way it then sets up a read-only USB mass-storage gadget (configfs) on the `dwc2` controller. Progress goes to `/run/zeroos/usb-stick.state`, the mode that is on to `/run/zeroos/usb-stick.mode`. |
+| `zeroos-usb-stick.service` | Runs `/usr/lib/zeroos/usb-stick` as root, for whichever USB mode the Car app named in `~/.config/zeroos/car-usb` (`files`, `live` or `ipod`; the app writes it, then starts the service). For USB stick mode it builds the image with `sfdisk`, `mkfs.vfat` and mtools; for USB live sound it starts `zeroos-car-live.service`. For those two it then sets up a read-only USB mass-storage gadget (configfs) on the `dwc2` controller. Progress goes to `/run/zeroos/usb-stick.state`, the mode that is on to `/run/zeroos/usb-stick.mode`. Tested, with stand-ins for the kernel's side, by `tests/car-usb-test.sh`. |
 | `zeroos-car-live.service` (USB live sound) | Runs `/usr/lib/zeroos/car-live` (`live/main.cpp`) as root. It serves one file, `/run/zeroos/car-live/stick.img`, through FUSE, and that file is what the gadget offers the car. Nothing of the stick is stored: the partition table, the FAT32 volume and the three 512 MiB songs are worked out as the car reads them (`live/live_stick.h`), and a read of any part of any song is answered with the MP3 stream from three seconds back, on a whole frame, then as fast as the sound is made. The file is opened without the kernel's cache, so every read the car makes arrives once, as it happens. |
 | The sound for it | `pw-record` runs as the UI user with `media.class=Audio/Sink`, so PipeWire shows it as an output, "Car (USB)", with a higher priority than the speaker, the jack or Bluetooth: WirePlumber makes it the default while it runs, and everything goes back when it stops. Its samples go through `lame` (constant bit rate, no bit reservoir, flushed frame by frame) into the program. With nothing playing PipeWire sends nothing, and the program fills in silent frames, only ever between whole frames, so the car's song never runs dry or clicks. |
+| iPod mode | `zeroos-usb-stick.service` loads three kernel modules from `/usr/lib/zeroos/car-ipod/<kernel>/`, built from [ipod-gadget](https://github.com/oandrew/ipod-gadget): they give the USB port an iPod's two interfaces, a sound interface (which appears here as a sound card, `iPodUSB`, taking 44.1 kHz stereo) and one that carries the iPod's protocol (which appears as `/dev/iap0`). It then starts `zeroos-car-ipod.service`, which runs three things: the [ipod](https://github.com/oandrew/ipod) client, which answers the car on `/dev/iap0` and lets the sound start; `zeroos-car-keys` (`live/keys.cpp`), which presses the buttons the client reports (our one change to it, `ipod/buttons.patch`) on the same made-up keyboard as USB live sound; and the sound, `pw-record` as the "Car (USB)" output again, piped into `aplay` on the driver's sound card. A WirePlumber rule keeps PipeWire itself off that card, which takes one player. Turning the mode off stops the client first, then takes the modules out. `apps/car/prepare.sh` builds the modules and the client when the package is made; `tests/car-keys-test.sh` checks the buttons. |
 | The car's buttons over USB | A stick has no buttons, but how the car reads tells: a song read from its start after another was playing is next or previous (the three songs are in a ring, so which way is known; two quick presses pass through a song), the same song from its start is previous, and no reads for five seconds is pause. A jump only counts once the car has read on for a few seconds, so a car that looks at the other songs' names and comes back presses nothing. The program presses play, pause, next and previous on a keyboard it makes with `uinput`, which ZeroShell reads like a Bluetooth car's buttons. `tests/live_stick_test.cpp` checks the stick and the buttons; `tests/car-live-test.sh` runs the program and reads its stick with fsck, mtools and a stand-in car. |
 | Bluetooth out | `bluetoothctl` pairs, trusts and connects; PipeWire's Bluetooth module (`libspa-0.2-bluetooth`) carries the sound; `pipewire-alsa` routes sox's playback of local files through PipeWire as well. |
 | Car buttons | BlueZ presents a connected device's buttons as a Linux input device (via `uinput`). ZeroShell reads any input device that has media keys but no letters, so a USB multimedia remote works too. |
@@ -422,6 +491,11 @@ Not yet:
   the FUSE file as a stick, that a car plays a 512 MiB MP3 that is still
   being made, how far behind it really runs, and whether a real car's reads
   are taken for the right buttons;
+- **iPod mode, at all.** The driver builds for ZeroOS's kernel and its
+  symbols match that kernel's; the client builds, and recorded button
+  messages replayed through it come out as the right keys. Nothing has been
+  loaded on a Cardputer or plugged into a car: that the modules load, that
+  the sound card takes the sound, and which stereos accept it;
 - that one cable charges the battery while it carries the music (M5 says
   the port charges in either switch position);
 - an Android phone; that the phone keeps its calls (and whether it plays its
@@ -441,8 +515,8 @@ Not yet:
   sound, only with USB stick mode.
 - USB live sound is a few seconds late, and stereos that don't play MP3
   from a stick can't use it.
-- No iPod emulation, so a stereo that only knows "iPod" on its USB socket
-  won't see the Cardputer.
+- iPod mode can't prove it is an iPod, so stereos that check refuse it; and
+  it is not CarPlay.
 - Song names with letters outside Western European ones (Japanese, Greek,
   emoji...) show as gaps: the Cardputer's font doesn't have them.
 - Pairing and scanning freeze the screen while they run (up to 40 seconds for

@@ -5,6 +5,8 @@
 //   USB live sound   a USB stick whose songs are whatever plays here now
 //                    (a phone's music, Media, Jellyfin), a few seconds
 //                    behind; the car's skip and pause reach the player.
+//   iPod mode        the same sound without the delay, to a stereo that
+//                    takes an iPod on its USB socket.
 //   Bluetooth        the Cardputer plays (Jellyfin too) and the car, a
 //                    speaker or headphones is the loudspeaker; the car's
 //                    play and skip buttons drive the play queue.
@@ -44,12 +46,19 @@ namespace phone = car_phone;
 // The USB modes. zeroos-usb-stick.service (files/zeroos-usb-stick) sets up
 // the one named in ~/.config/zeroos/car-usb and says which is on in
 // /run/zeroos/usb-stick.mode.
-enum class UsbMode { Files, Live };
-const char* usb_word(UsbMode m) { return m == UsbMode::Live ? "live" : "files"; }
-const char* usb_name(UsbMode m) { return m == UsbMode::Live ? "USB live sound" : "USB stick mode"; }
+enum class UsbMode { Files, Live, Ipod };
+constexpr UsbMode kUsbModes[] = {UsbMode::Files, UsbMode::Live, UsbMode::Ipod};
+const char* usb_word(UsbMode m) { return m == UsbMode::Live ? "live" : m == UsbMode::Ipod ? "ipod" : "files"; }
+const char* usb_name(UsbMode m) {
+    return m == UsbMode::Live ? "USB live sound" : m == UsbMode::Ipod ? "iPod mode" : "USB stick mode";
+}
 // Its row: short, so "In use" fits beside it.
-const char* usb_row(UsbMode m) { return m == UsbMode::Live ? "USB live" : "USB stick"; }
-UsbMode usb_from(const std::string& word) { return word.rfind("live", 0) == 0 ? UsbMode::Live : UsbMode::Files; }
+const char* usb_row(UsbMode m) { return m == UsbMode::Live ? "USB live" : m == UsbMode::Ipod ? "USB iPod" : "USB stick"; }
+UsbMode usb_from(const std::string& word) {
+    for (UsbMode m : kUsbModes)
+        if (word == usb_word(m)) return m;
+    return UsbMode::Files;
+}
 
 std::string first_word(const std::string& path) {
     std::ifstream f(path);
@@ -255,7 +264,7 @@ private:
     // sound is on, a Bluetooth car or speaker that is connected too, else
     // the headphone jack (or the speaker).
     std::string sound_goes_to() const {
-        if (usb_on(UsbMode::Live)) return "USB";
+        if (usb_on(UsbMode::Live) || usb_on(UsbMode::Ipod)) return "USB";
         for (auto& d : devices_)
             if (d.connected && d.address != phone_addr_) {
                 auto it = phone_.find(d.address);
@@ -346,7 +355,7 @@ private:
         // The connected phone first: it's what you came for.
         for (auto& d : devices_)
             if (d.connected && d.address == phone_addr_) add_device(d);
-        for (UsbMode m : {UsbMode::Files, UsbMode::Live}) add(LV_SYMBOL_USB, usb_row(m), usb_value(m), {Row::Usb, {}, m});
+        for (UsbMode m : kUsbModes) add(LV_SYMBOL_USB, usb_row(m), usb_value(m), {Row::Usb, {}, m});
         for (auto& d : devices_)
             if (!(d.connected && d.address == phone_addr_)) add_device(d);
         add(LV_SYMBOL_PLUS, "Add a phone", "", {Row::AddPhone, {}});
@@ -476,31 +485,37 @@ private:
         uint32_t color = kText;
         switch (r.kind) {
             case Row::Usb: {
-                bool live = r.usb == UsbMode::Live;
+                // What the panel says in each state, for each mode.
+                bool live = r.usb == UsbMode::Live, ipod = r.usb == UsbMode::Ipod;
                 switch (usb_state(r.usb)) {
                     case UsbStickStatus::Off:
-                        head = live ? "USB live sound" : "USB stick mode";
-                        help = live ? "The car plays what plays here, a few seconds late.\nSwitch on the left: Slave. "
-                                      "Cable in the right USB-C port."
-                                    : "The car plays ~/Music as if from a USB stick.\nSwitch on the left: Slave. Cable "
-                                      "in the right USB-C port.";
+                        head = usb_name(r.usb);
+                        help = ipod   ? "The car takes this for an iPod: no delay."
+                               : live ? "The car plays what plays here, a few seconds late."
+                                      : "The car plays ~/Music as if from a USB stick.";
+                        help += "\nSwitch on the left: Slave. Cable in the right USB-C port.";
                         break;
                     case UsbStickStatus::Building:
-                        head = live ? "Starting" : fmt("Copying %d%%", stick_.percent);
-                        help = live ? "Getting the sound ready." : "Making the stick from ~/Music. Only needed when the music changed.";
+                        head = live || ipod ? "Starting" : fmt("Copying %d%%", stick_.percent);
+                        help = live || ipod ? "Getting the sound ready."
+                                            : "Making the stick from ~/Music. Only needed when the music changed.";
                         color = kWarn;
                         break;
                     case UsbStickStatus::Ready:
                         head = "Ready";
-                        help = live ? "Plug the right USB-C port into the car and pick USB on it. Switch on the left: Slave."
-                                    : "Plug the right USB-C port into the car. Switch on the left: Slave.";
+                        help = ipod   ? "Plug the right USB-C port into the car and pick iPod or USB on it. Switch on the "
+                                        "left: Slave."
+                               : live ? "Plug the right USB-C port into the car and pick USB on it. Switch on the left: "
+                                        "Slave."
+                                      : "Plug the right USB-C port into the car. Switch on the left: Slave.";
                         color = kGood;
                         break;
                     case UsbStickStatus::Attached:
                         head = "In use";
-                        help = live ? "Play \"Live sound\" on the car. Its skip and pause buttons work; sound here goes "
-                                      "to the car."
-                                    : "The car is reading the stick. Use the car's buttons.";
+                        help = ipod   ? "The car has taken it up. Sound here goes to the car, and its buttons work."
+                               : live ? "Play \"Live sound\" on the car. Its skip and pause buttons work; sound here "
+                                        "goes to the car."
+                                      : "The car is reading the stick. Use the car's buttons.";
                         color = kGood;
                         break;
                     case UsbStickStatus::Error:

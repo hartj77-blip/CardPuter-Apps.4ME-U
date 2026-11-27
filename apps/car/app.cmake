@@ -6,13 +6,17 @@ zs_app_test(car_phone_test SOURCES tests/phone_player_test.cpp)
 
 # USB live sound: zeroos-car-live serves a made-up USB stick whose songs are
 # the sound playing now (live/main.cpp). Linux only: it speaks to /dev/fuse
-# and /dev/uinput. car.pkg packs it from the build's bin/.
+# and /dev/uinput. car.pkg packs the programs from the build's bin/.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   find_package(Threads REQUIRED)
   add_executable(zeroos-car-live ${CMAKE_CURRENT_LIST_DIR}/live/main.cpp)
   set_target_properties(zeroos-car-live PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
   target_compile_options(zeroos-car-live PRIVATE -Wall -Wextra)
   target_link_libraries(zeroos-car-live PRIVATE Threads::Threads)
+  # iPod mode: zeroos-car-keys presses the buttons its client reports (live/keys.cpp).
+  add_executable(zeroos-car-keys ${CMAKE_CURRENT_LIST_DIR}/live/keys.cpp)
+  set_target_properties(zeroos-car-keys PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+  target_compile_options(zeroos-car-keys PRIVATE -Wall -Wextra)
 endif()
 # The stick itself: its layout, its songs, and the car's buttons read from
 # how it reads (no USB). tests/car-live-test.sh runs the program for real.

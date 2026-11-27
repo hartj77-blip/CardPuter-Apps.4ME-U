@@ -1,13 +1,16 @@
 # Car (README.md): music for a car stereo over one USB cable (the files in
-# ~/Music, or whatever plays now), Bluetooth audio with the car's play and
-# skip buttons, and a phone's music through the Cardputer.
+# ~/Music, or whatever plays now, as a stick or as an iPod), Bluetooth audio
+# with the car's play and skip buttons, and a phone's music through the
+# Cardputer. prepare.sh builds iPod mode's driver and client into $WORK/ipod.
 NAME="Car"
-SUMMARY="Music for a car stereo over USB (your files, or what plays now), Bluetooth audio with the car's buttons, your phone's music to the aux"
+SUMMARY="Music for a car stereo over USB (your files, or what plays now, as a stick or as an iPod), Bluetooth audio with the car's buttons, your phone's music to the aux"
 APP_VERSION="1.4.0"
 # lame and pw-record (pipewire-bin): USB live sound's encoder and its input.
-DEPENDS="mtools, dosfstools, fdisk, lame, pipewire-bin"
+# aplay (alsa-utils): iPod mode's player.
+DEPENDS="mtools, dosfstools, fdisk, lame, pipewire-bin, alsa-utils"
 NEEDS="mtools, lame"
-STOP_ON_REMOVE="zeroos-usb-stick.service zeroos-car-live.service"
+# The stick service first: stopping it takes iPod mode's driver out too.
+STOP_ON_REMOVE="zeroos-usb-stick.service zeroos-car-live.service zeroos-car-ipod.service"
 # Wi-Fi off while a phone's music plays and Wi-Fi isn't connected (README.md).
 ENABLE="zeroos-car-wifi.service"
 # BlueALSA (from the base image) takes a phone's music before PipeWire can,
@@ -21,6 +24,21 @@ payload() {
     [ -x "$live" ] || { echo "error: no $live" >&2; exit 1; }
     install -D -m 0755 "$live" "$D/usr/lib/zeroos/car-live"
     install -D -m 0644 "$F/zeroos-car-live.service" "$D/etc/systemd/system/zeroos-car-live.service"
+    # iPod mode: the driver (for one kernel, named by its folder) and the
+    # client from prepare.sh, and the program that presses the car's buttons.
+    local ipod=${WORK:-}/ipod keys=${ZEROOS_BUILD:-}/bin/zeroos-car-keys m
+    [ -x "$ipod/ipod" ] && [ -x "$keys" ] || { echo "error: no $ipod/ipod or $keys" >&2; exit 1; }
+    case $(file -b "$ipod/ipod") in *aarch64*) ;; *) echo "error: $ipod/ipod isn't an arm64 program" >&2; exit 1 ;; esac
+    install -D -m 0755 "$ipod/ipod" "$D/usr/lib/zeroos/car-ipod/ipod"
+    for m in "$ipod"/modules/*/*.ko; do
+        install -D -m 0644 "$m" "$D/usr/lib/zeroos/car-ipod/$(basename "$(dirname "$m")")/$(basename "$m")"
+    done
+    install -D -m 0755 "$keys" "$D/usr/lib/zeroos/car-keys"
+    install -D -m 0644 "$F/zeroos-car-ipod.service" "$D/etc/systemd/system/zeroos-car-ipod.service"
+    install -D -m 0644 "$F/THIRD_PARTY.md" "$D/usr/share/doc/zeroos-app-car/THIRD_PARTY.md"
+    install -m 0644 "$ipod/LICENSE.ipod-gadget" "$ipod/LICENSE.ipod" "$D/usr/share/doc/zeroos-app-car/"
+    install -d "$D/usr/share/doc/zeroos-app-car/licenses"
+    install -m 0644 "$ipod"/licenses/* "$D/usr/share/doc/zeroos-app-car/licenses/"
     install -D -m 0755 "$F/zeroos-car-wifi" "$D/usr/lib/zeroos/car-wifi"
     install -D -m 0644 "$F/zeroos-car-wifi.service" "$D/etc/systemd/system/zeroos-car-wifi.service"
     # uinput: BlueZ turns the car's play/skip buttons into key presses with it.

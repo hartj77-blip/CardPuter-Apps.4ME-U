@@ -8,7 +8,7 @@ about 4,500 real remotes from [Flipper-IRDB](https://github.com/Lucaslhm/Flipper
 
 ## Using it
 
-The app opens on three lists.
+The app opens on four lists.
 
 **My remotes** are yours to keep and change (they live in `~/IR`).
 
@@ -19,6 +19,29 @@ The app opens on three lists.
 - On a remote: **Enter** sends the button, **L** learns it again, **N** adds a button, **D** (or
   **Del**) deletes one, after asking. The bar at the bottom of the screen shows these keys, and
   **Tab** opens the menu with them.
+
+**Brand remotes** are for when you know the brand but not the model: pick the kind and the brand
+(Sony, then TVs) and you get one remote with every button that brand uses (45 for Sony TVs: power,
+discrete on and off, inputs and HDMI 1 to 4, volume, channels, arrows, OK, menu, digits, transport).
+
+1. Point at the device and press **Enter** on a button (Power is a good start). Every code the
+   brand uses for that button goes out, one every 150 ms, most common first: for Sony TVs, 15
+   Power codes take about 4 seconds.
+2. Press any key as soon as the device reacts. The remote **locks** to that code's set: its
+   protocol and device address, which a maker keeps across a range of models (Sony TVs: SIRC,
+   address 01). **Left** and **Right** try the codes either side if you pressed late.
+3. From then on each button sends one code, from the locked set, at once. When a set has more
+   than one code for a button (some remotes label discrete on/off or a second input as Power),
+   **Left** and **Right** after sending try the others, and the remote keeps the one you pick.
+   A button the set doesn't have sweeps the brand's codes for it, and locks again on the one
+   that works.
+4. **S** saves the locked remote to My remotes (Sony TVs: 34 buttons); **U** unlocks it to find
+   the code again. The lock lasts until you leave the app.
+
+Why lock instead of sending every code on each press: a sweep of Sony TV codes takes 1 to 4
+seconds per button, and buttons that toggle (Power, Input, Mute) can act twice when two codes in a
+sweep both work. Most of a brand's devices share one set: 46 of 75 Sony TV remotes have the same
+Power code.
 
 **Universal: send every code** is for when you don't know which remote a device uses.
 
@@ -74,7 +97,7 @@ recordings (most air conditioners).
 | Sending and receiving: `ir-ctl` on the rc-core devices (`gpio-ir-tx`, `gpio-ir-recv`) | `LinuxHal::ir_send`, `ir_learn` in `base/shell/src/hal/linux_hal.cpp` |
 | Building the database | `apps/ir/irdb/build_irdb.py` |
 | Tests (encoders checked against known frames, file round trips) | `base/shell/tests/ir_test.cpp`, run by CI |
-| Tests of the database build (kinds, merging, decoding) | `apps/ir/tests/irdb-test.sh`, run by CI |
+| Tests of the database build (kinds, merging, decoding, brand remotes) | `apps/ir/tests/irdb-test.sh`, run by CI |
 
 The encoders are our own, written from the protocols' published timings; they pack address and
 command bits the way the Flipper does, so codes it recorded replay the same. Every one of the
@@ -88,7 +111,7 @@ receives from `ir-ctl --features`. Learning runs `ir-ctl -r --one-shot` for up t
 ## The database
 
 It comes with the IR Remote app (docs/APPS.md), whose package installs it in
-`/usr/share/zeroos/ir` (about 60 MB on disk, about 2 MB in the package), so the base image
+`/usr/share/zeroos/ir` (about 68 MB on disk, about 2.5 MB in the package), so the base image
 doesn't carry it. `apps/ir/irdb/build_irdb.py --fetch` clones a pinned Flipper-IRDB
 commit and takes:
 
@@ -110,6 +133,9 @@ It writes:
   most-used first, each credited to the brand that uses it most. Pronto files hold every code as a
   raw recording; a clean NEC, Samsung32 or SIRC frame is read as that protocol (as learning does),
   so it counts as the same code as elsewhere and goes out as a clean frame;
+- `brands/<Kind>/<Brand>.ir` for each brand with two or more remotes of a kind (447 of them):
+  every distinct code the brand uses for each of 45 common buttons, most-used first, each with
+  the remote it came from; and `brands/index.tsv` (kind, brand, number of remotes, path, buttons);
 - `SOURCE.txt` (commit) and Flipper-IRDB's `LICENSE`.
 
 `apps/ir/prepare.sh` runs it when the app is packaged (into `build/work/ir/irdb`); it is kept if it is already there.

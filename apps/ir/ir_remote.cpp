@@ -8,6 +8,10 @@
 //                boxes, conferencing, ACs, fans and lights, most common
 //                first: Enter sends them one after another; press any key
 //                when the device reacts, then O opens that brand's remotes
+//   Brands       one remote per brand and kind (Sony TVs): the first press
+//                sweeps that button's codes; press any key when the device
+//                reacts and the remote locks to that code's protocol and
+//                address, so every button after sends one code
 //   Browse       4,500 remotes by kind, brand and model; type to search
 //
 // The lists are List screens (docs/UX.md in the OS): typing filters them and
@@ -15,7 +19,9 @@
 // sender are Control screens: their letters are shortcuts, each one listed
 // in the screen's actions so the soft-key bar shows it.
 #include <algorithm>
+#include <cstdio>
 #include <functional>
+#include <map>
 
 #include "apps/common.h"
 #include "ir/db.h"
@@ -43,6 +49,7 @@ public:
         db_ = ir::db_root();
         index_ = ir::load_index(db_);
         universals_ = ir::universal_names(db_);
+        brand_index_ = ir::load_index(db_ + "/brands");
         // The AV kinds first, in the order a room is set up; anything else after, as the OS sorts it.
         static const char* order[] = {"TVs", "Projectors", "Displays", "Screens", "Audio", "Players",
                                       "Set_top_boxes", "Conferencing", "ACs", "Fans", "Lights"};
@@ -66,18 +73,17 @@ public:
             if (d) d(answer_);
             return;
         }
-        if (page_.kind != Page::Universal || run_ != Run::Sending) return;
+        if (!sweeping_page() || run_ != Run::Sending) return;
         // One code every 150 ms: time for the device to react, and for you
         // to press a key while the code that worked is still the last one.
         if (lv_tick_elaps(last_send_) < 150) return;
         last_send_ = lv_tick_get();
-        auto& codes = uni_.codes[size_t(page_.focus)];
-        if (pos_ >= int(codes.size())) {
+        if (pos_ >= int(queue_.size())) {
             run_ = Run::Done;
             update_universal();
             return;
         }
-        send(codes[size_t(pos_)]);
+        send(queue_[size_t(pos_)]);
         update_universal();
         ++pos_;
     }
@@ -86,7 +92,8 @@ public:
         if (input_) return false;   // the text box has the keys
         switch (page_.kind) {
             case Page::Remote: return remote_key(key);
-            case Page::Universal: return universal_key(key);
+            case Page::Universal:
+            case Page::Brand: return universal_key(key);
             case Page::Kinds:
                 // The first Browse page searches every remote, not just its
                 // own rows, so it keeps its own search.
@@ -110,9 +117,8 @@ public:
             close_input();
             return true;
         }
-        if (page_.kind == Page::Universal && run_ == Run::Sending) {
-            run_ = Run::Stopped;
-            update_universal();
+        if (sweeping_page() && run_ == Run::Sending) {
+            stop_sweep();
             return true;
         }
         if (!filter_.empty()) {
@@ -128,12 +134,13 @@ public:
     }
 
 private:
-    enum class Page { Home, Kinds, Brands, Models, Remote, Universal };
-    enum class Run { Idle, Sending, Stopped, Done };
+    enum class Page { Home, Kinds, Brands, Models, Remote, Universal, BrandKinds, BrandList, Brand };
+    // Sent: a brand remote, locked, sent its one code for the button.
+    enum class Run { Idle, Sending, Stopped, Done, Sent };
     struct Nav {
         Page kind = Page::Home;
         std::string category, brand;
-        std::string path;        // Remote: full path; Universal: kind name
+        std::string path;        // Remote, Brand: full path; Universal: kind name
         bool mine = false;       // Remote: in ~/IR, so it can be changed
         int focus = 0;           // focused row or button, restored on Back
     };
@@ -183,7 +190,10 @@ private:
             case Page::Brands: build_brands(); break;
             case Page::Models: build_models(); break;
             case Page::Remote: build_remote(); break;
-            case Page::Universal: build_universal(); break;
+            case Page::Universal:
+            case Page::Brand: build_universal(); break;
+            case Page::BrandKinds: build_brand_kinds(); break;
+            case Page::BrandList: build_brand_list(); break;
         }
         page_.focus = want;
         if (!focusables_.empty()) {
@@ -194,8 +204,10 @@ private:
         }
         set_actions();
         if (page_.kind == Page::Remote) show_info(std::clamp(want, 0, std::max(0, int(sigs_.size()) - 1)));
-        if (page_.kind == Page::Universal) update_universal();
+        if (sweeping_page()) update_universal();
     }
+
+    bool sweeping_page() const { return page_.kind == Page::Universal || page_.kind == Page::Brand; }
 
     // A header line and a list under it.
     void list_page(const std::string& title, const std::string& right) {
@@ -226,6 +238,8 @@ private:
             case Page::Kinds:
             case Page::Brands:
             case Page::Models:
+            case Page::BrandKinds:
+            case Page::BrandList:
                 a.push_back({"Open", 0, "Enter", nullptr});
                 a.push_back({"Back", 0, "Esc", nullptr});
                 break;
@@ -257,8 +271,27 @@ private:
                         a.push_back({"Try nearby", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
                         a.push_back({"Open brand", 'o', "O", [this] { open_brand(); }});
                         break;
+                    case Run::Sent: break;
                 }
                 break;
+            case Page::Brand: {
+                bool here = locked_for(size_t(std::max(0, page_.focus)));
+                switch (run_) {
+                    case Run::Sending: a.push_back({"Stop", 0, "Any key", nullptr}); break;
+                    case Run::Stopped:
+                    case Run::Sent:
+                        a.push_back({"Send again", 0, "Enter", nullptr});
+                        a.push_back({run_ == Run::Sent ? "Other codes" : "Try nearby", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT,
+                                     nullptr});
+                        break;
+                    default: a.push_back({here ? "Send" : "Find code", 0, "Enter", nullptr}); break;
+                }
+                if (!lock_.empty()) {
+                    a.push_back({"Save to My remotes", 's', "S", [this] { save_brand(); }});
+                    a.push_back({"Unlock", 'u', "U", [this] { unlock(); }});
+                }
+                break;
+            }
         }
         actions_run_ = run_;
         shell_set_actions(std::move(a));
@@ -271,6 +304,9 @@ private:
         for (auto& p : ir::user_remotes())
             row(LV_SYMBOL_POWER, ir::stem(p), "Mine", [this, p] { go(nav(Page::Remote, "", "", p, true)); });
         row(LV_SYMBOL_PLUS, "New remote (learn buttons)", "", [this] { new_remote(); });
+        if (!brand_index_.empty())
+            row(LV_SYMBOL_LIST, "Brand remotes (Sony TVs...)", thousands(brand_index_.size()),
+                [this] { go(nav(Page::BrandKinds)); });
         for (auto& u : universals_)
             row(LV_SYMBOL_SHUFFLE, ir::display(u), "Universal", [this, u] { go(nav(Page::Universal, "", "", u, false)); });
         if (!index_.empty())
@@ -341,6 +377,49 @@ private:
             if (r.category != page_.category || r.brand != page_.brand) continue;
             row(nullptr, r.model, std::to_string(r.buttons) + " buttons",
                 [this, r] { go(nav(Page::Remote, r.category, r.brand, db_ + "/" + r.path, false)); });
+        }
+        list_.finish();
+    }
+
+    // Brand remotes: the kinds, AV first, then the brands of one.
+    void build_brand_kinds() {
+        static const char* order[] = {"TVs", "Projectors", "Monitors", "Touchscreen_Displays", "Digital_Signs",
+                                      "Projector_Screens", "Audio_and_Video_Receivers", "SoundBars", "Speakers",
+                                      "Blu-Ray", "DVD_Players", "Cable_Boxes", "Streaming_Devices",
+                                      "Videoconferencing", "Cameras", "Switchers_and_Scalers"};
+        auto rank = [](const std::string& n) {
+            int i = 0;
+            for (const char* o : order) {
+                if (n == o) return i;
+                ++i;
+            }
+            return i;
+        };
+        std::vector<std::pair<std::string, int>> kinds;
+        for (auto& r : brand_index_) {
+            if (kinds.empty() || kinds.back().first != r.category) kinds.push_back({r.category, 0});
+            kinds.back().second++;
+        }
+        std::stable_sort(kinds.begin(), kinds.end(),
+                         [&](const auto& a, const auto& b) { return rank(a.first) < rank(b.first); });
+        list_page("Brand remotes: pick the kind", "");
+        list_.set_empty_text("No kind matches");
+        for (auto& k : kinds) {
+            std::string cat = k.first;
+            row(LV_SYMBOL_DIRECTORY, ir::display(cat), std::to_string(k.second) + " brands",
+                [this, cat] { go(nav(Page::BrandList, cat)); });
+        }
+        list_.finish();
+    }
+
+    void build_brand_list() {
+        list_page(ir::display(page_.category) + ": pick the brand", "");
+        list_.set_empty_text("No brand matches");
+        for (auto& r : brand_index_) {
+            if (r.category != page_.category) continue;
+            std::string path = db_ + "/brands/" + r.path, brand = r.brand;
+            row(nullptr, brand, r.model + " remotes",
+                [this, path, brand] { go(nav(Page::Brand, page_.category, brand, path)); });
         }
         list_.finish();
     }
@@ -504,22 +583,14 @@ private:
 
     // Universal: the buttons on the left, what is being sent on the right.
     void build_universal() {
-        ir::load_universal(db_, page_.path, uni_);
-        list_.build(root_, 2, 2, 132, kBodyH - 2);
-        for (size_t i = 0; i < uni_.buttons.size(); ++i) {
-            row(nullptr, ir::pretty_name(uni_.buttons[i]), std::to_string(uni_.codes[i].size()), [this, i] {
-                if (page_.focus != int(i) || run_ == Run::Idle || run_ == Run::Done) {
-                    page_.focus = int(i);
-                    pos_ = 0;
-                    run_ = Run::Sending;
-                } else if (run_ == Run::Stopped) {   // Enter again: resend the one it stopped on
-                    send(uni_.codes[i][size_t(pos_)]);
-                } else {
-                    run_ = Run::Stopped;
-                }
-                update_universal();
-            });
+        if (page_.kind == Page::Brand) {
+            load_brand();
+        } else {
+            ir::load_universal(db_, page_.path, uni_);
         }
+        list_.build(root_, 2, 2, 132, kBodyH - 2);
+        for (size_t i = 0; i < uni_.buttons.size(); ++i)
+            row(nullptr, ir::pretty_name(uni_.buttons[i]), std::to_string(uni_.codes[i].size()), [this, i] { press(i); });
         list_.finish();
         lv_obj_t* side = lv_obj_create(root_);
         style_panel(side);
@@ -539,15 +610,148 @@ private:
         update_universal();
     }
 
+    // Enter on button i.
+    void press(size_t i) {
+        if (page_.kind == Page::Brand && locked_for(i) &&
+            (page_.focus != int(i) || run_ != Run::Sending)) {   // locked: its one code, now
+            page_.focus = int(i);
+            queue_ = family_codes(i);
+            pos_ = std::clamp(choice_[uni_.buttons[i]], 0, int(queue_.size()) - 1);
+            send(queue_[size_t(pos_)]);
+            run_ = Run::Sent;
+        } else if (page_.focus != int(i) || run_ == Run::Idle || run_ == Run::Done || run_ == Run::Sent) {
+            page_.focus = int(i);
+            queue_ = uni_.codes[i];
+            pos_ = 0;
+            run_ = Run::Sending;
+        } else if (run_ == Run::Stopped) {   // Enter again: resend the one it stopped on
+            send(queue_[size_t(pos_)]);
+        } else {
+            stop_sweep();
+            return;
+        }
+        update_universal();
+    }
+
+    // A key while sweeping: the last code sent is probably the one. On a
+    // brand remote, that locks it to the code's set.
+    void stop_sweep() {
+        pos_ = std::max(0, pos_ - 1);
+        run_ = Run::Stopped;
+        if (page_.kind == Page::Brand) lock_to_stopped();
+        update_universal();
+    }
+
+    // --- brand remotes ----------------------------------------------------
+    // A code's set: protocol and address, which a maker keeps across a
+    // range of devices; a raw recording only matches its own remote.
+    static std::string family(const ir::Signal& s) {
+        return s.raw ? "raw " + s.source : s.protocol + " " + std::to_string(s.address);
+    }
+    static std::string family_text(const ir::Signal& s) {
+        if (s.raw) return "the codes of " + ir::display(ir::stem(s.source));
+        char a[16];
+        std::snprintf(a, sizeof a, "%0*X", s.address > 0xff ? 4 : 2, unsigned(s.address));
+        return s.protocol + " " + a;
+    }
+
+    std::vector<ir::Signal> family_codes(size_t b) const {
+        std::vector<ir::Signal> out;
+        if (lock_.empty() || b >= uni_.codes.size()) return out;
+        for (auto& s : uni_.codes[b])
+            if (family(s) == lock_) out.push_back(s);
+        return out;
+    }
+    bool locked_for(size_t b) const { return !family_codes(b).empty(); }
+
+    void load_brand() {
+        uni_ = ir::Universal{};
+        uni_.name = page_.brand + " " + ir::display(page_.category);
+        std::vector<ir::Signal> sigs;
+        ir::load(page_.path, sigs);
+        for (auto& s : sigs) {
+            size_t i = 0;
+            while (i < uni_.buttons.size() && uni_.buttons[i] != s.name) ++i;
+            if (i == uni_.buttons.size()) {
+                uni_.buttons.push_back(s.name);
+                uni_.codes.emplace_back();
+            }
+            uni_.codes[i].push_back(s);
+        }
+        auto it = locks_.find(page_.path);   // locked earlier, this run of the app
+        lock_ = it == locks_.end() ? "" : it->second.first;
+        lock_text_ = it == locks_.end() ? "" : it->second.second;
+        choice_ = it == locks_.end() ? std::map<std::string, int>{} : choices_[page_.path];
+    }
+
+    void remember_lock() {
+        locks_[page_.path] = {lock_, lock_text_};
+        choices_[page_.path] = choice_;
+    }
+
+    void lock_to_stopped() {
+        if (queue_.empty()) return;
+        const ir::Signal& s = queue_[size_t(std::clamp(pos_, 0, int(queue_.size()) - 1))];
+        if (family(s) != lock_) choice_.clear();
+        lock_ = family(s);
+        lock_text_ = family_text(s);
+        size_t b = size_t(std::max(0, page_.focus));
+        auto fam = family_codes(b);
+        for (size_t k = 0; k < fam.size(); ++k)
+            if (fam[k].protocol == s.protocol && fam[k].command == s.command && fam[k].timings == s.timings)
+                choice_[uni_.buttons[b]] = int(k);
+        remember_lock();
+        set_actions();
+    }
+
+    void unlock() {
+        lock_.clear();
+        lock_text_.clear();
+        choice_.clear();
+        remember_lock();
+        run_ = Run::Idle;
+        update_universal();
+        set_actions();
+        shell_toast("Unlocked: the next press finds the code again");
+    }
+
+    // The locked set, one code per button, as a remote of your own.
+    void save_brand() {
+        if (lock_.empty()) return;
+        std::vector<ir::Signal> out;
+        for (size_t b = 0; b < uni_.buttons.size(); ++b) {
+            auto fam = family_codes(b);
+            if (fam.empty()) continue;
+            ir::Signal s = fam[size_t(std::clamp(choice_[uni_.buttons[b]], 0, int(fam.size()) - 1))];
+            s.source.clear();
+            out.push_back(s);
+        }
+        std::string p = ir::user_remote_path(uni_.name);
+        if (ir::save(p, out, "Brand remote " + uni_.name + ", locked to " + lock_text_))
+            shell_toast("Saved to My remotes: " + ir::stem(p) + fmt(" (%d buttons)", int(out.size())));
+        else
+            shell_toast("Couldn't save to ~/IR");
+    }
+
     void update_universal() {
         if (!info_ || uni_.buttons.empty()) return;
         size_t b = size_t(std::clamp(page_.focus, 0, int(uni_.buttons.size()) - 1));
-        auto& codes = uni_.codes[b];
+        bool brand_page = page_.kind == Page::Brand;
+        // Idle shows what Enter will do; otherwise what is being, or was, sent.
+        const std::vector<ir::Signal>& codes = run_ == Run::Idle ? uni_.codes[b] : queue_;
         std::string button = ir::pretty_name(uni_.buttons[b]);
         int n = int(codes.size());
         int at = n ? std::clamp(pos_, 0, n - 1) : 0;
-        std::string brand = n ? ir::source_brand(codes[size_t(at)].source) : "";
+        // Who uses the code: the brand on a universal list, the model on a brand remote.
+        std::string brand = !n ? ""
+                            : brand_page ? ir::display(ir::stem(codes[size_t(at)].source))
+                                         : ir::source_brand(codes[size_t(at)].source);
         lv_bar_set_range(bar_, 0, std::max(1, n));
+        if (brand_page && (run_ == Run::Idle || run_ == Run::Stopped || run_ == Run::Sent)) {
+            update_brand(b, button, n, at, brand);
+            if (run_ != actions_run_) set_actions();
+            return;
+        }
         switch (run_) {
             case Run::Idle:
                 lv_bar_set_value(bar_, 0, LV_ANIM_OFF);
@@ -572,32 +776,81 @@ private:
                 lv_label_set_text(status_, "No reaction? Go closer and aim at the device's front, or find its "
                                            "remote under Browse.");
                 break;
+            case Run::Sent: break;   // brand remotes only
         }
         if (run_ != actions_run_) set_actions();
+    }
+
+    void update_brand(size_t b, const std::string& button, int n, int at, const std::string& model) {
+        switch (run_) {
+            case Run::Idle: {
+                lv_bar_set_value(bar_, 0, LV_ANIM_OFF);
+                lv_label_set_text(info_, (uni_.name + ": " + button).c_str());
+                std::string t;
+                if (locked_for(b))
+                    t = "Locked to " + lock_text_ + ". Enter sends its " + button + ".";
+                else if (!lock_.empty())
+                    t = fmt("The locked set has no %s: Enter tries all %d codes, and the one that works locks "
+                            "the remote again.", button.c_str(), n);
+                else
+                    t = fmt("Aim and press Enter: %d codes go out. Press any key when it reacts: the remote locks "
+                            "on, and each button then sends one code.", n);
+                lv_label_set_text(status_, t.c_str());
+                break;
+            }
+            case Run::Stopped:
+                lv_bar_set_value(bar_, at + 1, LV_ANIM_OFF);
+                lv_label_set_text(info_, ("Locked: " + lock_text_).c_str());
+                lv_label_set_text(status_, fmt("Code %d / %d, from %s. Each button now sends its code from this "
+                                               "set. " LV_SYMBOL_LEFT " " LV_SYMBOL_RIGHT " try codes either side.",
+                                               at + 1, n, model.c_str()).c_str());
+                break;
+            case Run::Sent:
+                lv_bar_set_value(bar_, n, LV_ANIM_OFF);
+                lv_label_set_text(info_, (button + "  " LV_SYMBOL_OK).c_str());
+                lv_label_set_text(status_, (n > 1 ? fmt("Locked: %s. Code %d of %d for %s in this set: "
+                                                        LV_SYMBOL_LEFT " " LV_SYMBOL_RIGHT " try the others.",
+                                                        lock_text_.c_str(), at + 1, n, button.c_str())
+                                                  : "Locked: " + lock_text_ + ".").c_str());
+                break;
+            default: break;
+        }
     }
 
     bool universal_key(uint32_t key) {
         if (run_ == Run::Sending) {   // any key stops; the last code sent is probably the one
             if (key == LV_KEY_UP || key == LV_KEY_DOWN || printable(key) || key == LV_KEY_ENTER ||
                 key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
-                pos_ = std::max(0, pos_ - 1);
-                run_ = Run::Stopped;
-                update_universal();
+                stop_sweep();
                 return true;
             }
             return false;
         }
-        if (run_ == Run::Stopped && !uni_.buttons.empty()) {
-            auto& codes = uni_.codes[size_t(page_.focus)];
-            int n = int(codes.size());
+        if ((run_ == Run::Stopped || run_ == Run::Sent) && !uni_.buttons.empty()) {
+            int n = int(queue_.size());
             if ((key == LV_KEY_LEFT || key == LV_KEY_RIGHT) && n) {
                 pos_ = std::clamp(pos_ + (key == LV_KEY_RIGHT ? 1 : -1), 0, n - 1);
-                send(codes[size_t(pos_)]);
+                send(queue_[size_t(pos_)]);
+                if (run_ == Run::Stopped && page_.kind == Page::Brand) lock_to_stopped();
+                if (run_ == Run::Sent) {
+                    choice_[uni_.buttons[size_t(page_.focus)]] = pos_;
+                    remember_lock();
+                }
                 update_universal();
                 return true;
             }
-            if (key == 'o' || key == 'O') {
+            if ((key == 'o' || key == 'O') && page_.kind == Page::Universal) {
                 open_brand();
+                return true;
+            }
+        }
+        if (page_.kind == Page::Brand && !lock_.empty()) {
+            if (key == 'u' || key == 'U') {
+                unlock();
+                return true;
+            }
+            if (key == 's' || key == 'S') {
+                save_brand();
                 return true;
             }
         }
@@ -618,7 +871,7 @@ private:
     // The brand of the code it stopped on: its remotes.
     void open_brand() {
         if (run_ != Run::Stopped || uni_.buttons.empty()) return;
-        auto& codes = uni_.codes[size_t(page_.focus)];
+        auto& codes = queue_;
         if (codes.empty()) return;
         const std::string& src = codes[size_t(std::clamp(pos_, 0, int(codes.size()) - 1))].source;
         std::string cat = src.substr(0, src.find('/'));
@@ -695,6 +948,7 @@ private:
     std::string db_;
     std::vector<ir::RemoteRef> index_;
     std::vector<std::string> universals_;
+    std::vector<ir::RemoteRef> brand_index_;   // brands/index.tsv: model is the number of remotes
 
     Nav page_;
     std::vector<Nav> stack_;
@@ -712,6 +966,14 @@ private:
     Run run_ = Run::Idle;
     Run actions_run_ = Run::Idle;   // what the soft-key bar was last set for
     int pos_ = 0;
+    std::vector<ir::Signal> queue_;   // the codes being swept, or the locked set's for a button
+
+    // Brand remote: the set it is locked to ("" when not), and which of the
+    // set's codes each button sends (the first unless you picked another).
+    std::string lock_, lock_text_;
+    std::map<std::string, int> choice_;
+    std::map<std::string, std::pair<std::string, std::string>> locks_;   // by path, for this run
+    std::map<std::string, std::map<std::string, int>> choices_;
 
     uint32_t last_send_ = 0;
 

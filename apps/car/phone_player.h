@@ -64,6 +64,19 @@ inline bool is_music_source(const std::string& info) {
     return info.find("Audio Source (0000110a") != std::string::npos || info.find("Icon: phone") != std::string::npos;
 }
 
+// What a paired device is, from "bluetoothctl info": a phone (it sends
+// music), a game controller, keyboard or mouse (nothing to do with the car:
+// Car leaves it out), or anything else (a car, a speaker, headphones).
+enum class Kind { Phone, Input, Other };
+inline Kind kind_of_info(const std::string& info) {
+    if (is_music_source(info)) return Kind::Phone;
+    bool plays = info.find("Audio Sink (0000110b") != std::string::npos;   // a speaker with buttons stays
+    // HID over classic Bluetooth (1124) or Bluetooth LE (1812, as an Xbox controller).
+    bool input = info.find("Icon: input-") != std::string::npos || info.find("(00001124-") != std::string::npos ||
+                 info.find("(00001812-") != std::string::npos;
+    return input && !plays ? Kind::Input : Kind::Other;
+}
+
 // busctl's text form of a value, split into words; a quoted string is one
 // word with its C escapes undone (busctl writes UTF-8 bytes as \xNN).
 inline std::vector<std::string> words(const std::string& line) {
@@ -188,6 +201,10 @@ inline bool is_address(const std::string& a) {
 // A paired device that sends music: a phone, a tablet.
 inline bool is_phone(const std::string& address) {
     return is_address(address) && is_music_source(run("bluetoothctl info " + address));
+}
+
+inline Kind kind_of(const std::string& address) {
+    return is_address(address) ? kind_of_info(run("bluetoothctl info " + address)) : Kind::Other;
 }
 
 // The phone's player, or "" while it has none (just connected, or nothing

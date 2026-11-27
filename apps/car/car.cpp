@@ -29,6 +29,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <map>
@@ -88,7 +89,7 @@ public:
         // Car's WirePlumber settings, if it hasn't loaded them yet (just
         // installed or updated): restarts it once.
         phone::apply_sound_settings();
-        devices_ = hal().bt_devices();
+        devices_ = car_devices();
         asked_ = usb_from(first_word(usb_mode_path()));
         stick_ = hal().usb_stick();
         mode_ = usb_mode();
@@ -191,13 +192,24 @@ private:
         return i >= 0 && i < int(rows_.size()) && rows_[size_t(i)].kind == Row::Device && rows_[size_t(i)].dev.paired;
     }
 
-    // --- A phone's music. Which devices are phones is asked once each.
-    bool is_phone(const std::string& address) {
-        auto it = phone_.find(address);
-        if (it != phone_.end()) return it->second;
-        bool yes = phone::is_phone(address);
-        phone_[address] = yes;
-        return yes;
+    // --- A phone's music. What each paired device is, is asked once.
+    phone::Kind kind(const std::string& address) {
+        auto it = kind_.find(address);
+        if (it != kind_.end()) return it->second;
+        phone::Kind k = phone::kind_of(address);
+        kind_[address] = k;
+        return k;
+    }
+    bool is_phone(const std::string& address) { return kind(address) == phone::Kind::Phone; }
+
+    // The Bluetooth devices Car is for: not game controllers, keyboards or
+    // mice, which are paired for other apps and have nothing to do with the car.
+    std::vector<BtDevice> car_devices() {
+        std::vector<BtDevice> v = hal().bt_devices();
+        v.erase(std::remove_if(v.begin(), v.end(),
+                               [this](const BtDevice& d) { return d.paired && kind(d.address) == phone::Kind::Input; }),
+                v.end());
+        return v;
     }
 
     // The connected phone, if any.
@@ -267,8 +279,8 @@ private:
         if (usb_on(UsbMode::Live) || usb_on(UsbMode::Ipod)) return "USB";
         for (auto& d : devices_)
             if (d.connected && d.address != phone_addr_) {
-                auto it = phone_.find(d.address);
-                if (it == phone_.end() || !it->second) return d.name;
+                auto it = kind_.find(d.address);
+                if (it == kind_.end() || it->second != phone::Kind::Phone) return d.name;
             }
         return "";
     }
@@ -277,8 +289,8 @@ private:
         int i = focused();
         hal().bt_forget(d.address);
         shell_toast("Forgot " + d.name);
-        phone_.erase(d.address);
-        devices_ = hal().bt_devices();
+        kind_.erase(d.address);
+        devices_ = car_devices();
         find_phone();
         rebuild(i);
     }
@@ -562,7 +574,7 @@ private:
     }
 
     void refresh_devices() {
-        std::vector<BtDevice> now = hal().bt_devices();
+        std::vector<BtDevice> now = car_devices();
         bool same = now.size() == devices_.size();
         for (size_t i = 0; same && i < now.size(); ++i)
             same = now[i].address == devices_[i].address && now[i].connected == devices_[i].connected &&
@@ -617,7 +629,7 @@ private:
                 shell_toast("Visible as \"cardputer\" for 2 minutes");
                 return;
         }
-        devices_ = hal().bt_devices();
+        devices_ = car_devices();
         find_phone();
         poll_phone();
         rebuild(i);
@@ -628,7 +640,7 @@ private:
         busy("Disconnecting...");
         hal().bt_disconnect(d.address);
         shell_toast("Disconnected " + d.name);
-        devices_ = hal().bt_devices();
+        devices_ = car_devices();
         find_phone();
         rebuild(i);
     }
@@ -649,7 +661,7 @@ private:
     std::string shown_phone_;   // the phone the list was last built with
     std::vector<Row> rows_;
     std::vector<BtDevice> devices_;
-    std::map<std::string, bool> phone_;   // address: sends music (a phone)
+    std::map<std::string, phone::Kind> kind_;   // address: a phone, a controller, or other
     std::string phone_addr_;              // the connected phone, or ""
     std::string player_;                  // its player object, or ""
     phone::Info track_;                   // what it plays

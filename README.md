@@ -6,7 +6,7 @@ for the M5Stack Cardputer Zero.
 ZeroOS itself ships with just three apps: **Apps**, **Settings** (which includes Wi-Fi and
 Bluetooth) and **Update**. That's
 enough to get online, keep the OS up to date and install things. Everything else is in this
-repository, one folder per app: 28 packages, from a clock to a software-defined radio. You install
+repository, one folder per app: 29 packages, from a clock to a software-defined radio. You install
 them from the **Apps** app on the device, and each one is versioned and released on its own, so
 updating one app never touches another.
 
@@ -221,6 +221,7 @@ the app. It all goes again when you remove the app.
 | App | Id | What it does | Needs | Brings |
 | --- | --- | --- | --- | --- |
 | [IR Remote](apps/ir/README.md) | `ir` | A universal remote with about 4,500 remotes for AV and home: TVs, projectors, displays, screens, receivers, players, cable boxes, video conferencing, switchers, lighting and more, a remote per kind, Universal or per brand (pick TVs, then Sony: it finds the code once, then every button just works) and remotes you teach it | nothing (the IR LED and receiver are built in) | v4l-utils, ir-keytable, the code database |
+| [Maps](apps/maps/README.md) | `maps` | An offline map of New Jersey with spoken turn-by-turn directions: find a town or a street, and it follows your position with the next turn, your speed, the road's speed limit and when you'll get there. Made from OpenStreetMap data; Navit plans the routes | a GPS module, as for GPS (install GPS too) | Navit, Xvfb, espeak-ng, the map, search and routing data (about 95 MB) |
 | [GPS](apps/gps/README.md) | `gps` | Position, speed, saved spots and GPX track recording | the Cap LoRa-1262 (it has GPS), a Grove GPS unit, or a USB GPS | gpsd |
 | [Mesh](apps/mesh/README.md) | `mesh` | Meshtastic text messages over LoRa, with no phone signal or internet | the Cap LoRa-1262 | meshtasticd (from Meshtastic's repository) |
 | [Grove](apps/grove/README.md) | `grove` | Light a NeoPixel (WS2812 / SK6812) LED strip on the Grove port, with effects | an LED strip on the Grove port | its own LED service |
@@ -247,6 +248,7 @@ Terminal, SSH, or another computer.
 | `~/Notes/` | Your notes (`notes.txt` and any more you make) | Notes |
 | `~/Documents/waypoints.txt` | Spots you saved, one per line | GPS |
 | `~/Documents/Tracks/` | Recorded tracks, as GPX | GPS |
+| `~/Maps/` | Maps you add (a `.zmap`, `.search` and `.navit` file each), used before the one Maps comes with | you; Maps reads it |
 | `~/Documents/logbook.adi` | Your radio contacts, as ADIF | RF Tools (Logbook, FT8) |
 | `~/Recordings/` | Voice notes (16 kHz WAV), and packet captures (`.pcap`) | Recorder, Net Tools (Capture) |
 | `~/Music/` | Music to play, and what Car's USB stick mode copies | you; Media and Car read it |
@@ -603,7 +605,7 @@ shows here before the OS is released.
 | --- | --- | --- |
 | Every changed app has a new version | `tools/check-versions.sh`: compares each app folder with `main`; a change to a kit file counts for every app that uses it. README and test changes don't count | An app that changed without a new version, which devices would never be offered |
 | Simulator and headless builds | Builds every app into the SDL and headless ZeroShell | Code that doesn't compile |
-| Unit tests | `ctest`: AI's requests, replies and settings (no network); Browser's Markdown and HTML parsing, forms, pictures, layout and addresses; Desktop's host list; Grove's LED effects; Jellyfin's requests and replies, cover art and background threads; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
+| Unit tests | `ctest`: AI's requests, replies and settings (no network); Browser's Markdown and HTML parsing, forms, pictures, layout and addresses; Desktop's host list; Grove's LED effects; Jellyfin's requests and replies, cover art and background threads; Maps' map builder, drawing, search and reading of Navit's answers, and a real route planned by Navit across a made-up town; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
 | App script tests | `apps/<id>/tests/*-test.sh`: Router's routing script against stand-ins; the Jellyfin app against a stand-in server | A broken helper script |
 | Open every app | `tools/screenshots.sh`: drives the headless build through the home screen and every app, and every tool inside Net Tools and RF Tools, and saves a screenshot of each (uploaded as an artifact). Games plays a test-pattern core; AI gets a canned answer; RF Tools runs against a simulated radio | An app that crashes or hangs when opened |
 | Apps as modules | Builds every app as a module and loads each into a ZeroShell that has none built in | A module with a missing symbol or the wrong app level |
@@ -655,7 +657,7 @@ You need Linux (or WSL) with CMake, a C++17 compiler and SDL2:
 ```sh
 git clone --recurse-submodules https://github.com/hartj77-blip/CardPuter-Apps.4ME-U
 cd CardPuter-Apps.4ME-U
-sudo apt install cmake g++ libsdl2-dev
+sudo apt install cmake g++ libsdl2-dev zlib1g-dev
 cmake -S . -B build/sim && cmake --build build/sim -j
 ./build/sim/zeroshell
 ```
@@ -666,6 +668,7 @@ simulated hardware. The PC keyboard stands in for the Cardputer's. Optional extr
 ```sh
 sudo apt install libvncserver-dev freerdp3-dev   # Desktop can really connect
 sudo apt install librtlsdr-dev                   # RF Tools can use a real dongle
+sudo apt install navit maptool xvfb               # Maps' test of a real route; ZS_MAPS_NAVIT=1 uses Navit in the simulator
 ```
 
 To try RF Tools with a simulated radio:
@@ -694,7 +697,7 @@ Releases are built on arm64 Debian trixie. To build them yourself, on an arm64 D
 machine or container (a Raspberry Pi 4 or 5 on Raspberry Pi OS trixie works):
 
 ```sh
-sudo apt install cmake g++ dpkg-dev curl gpg python3 pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev
+sudo apt install cmake g++ dpkg-dev curl gpg python3 pkgconf zlib1g-dev maptool libvncserver-dev freerdp3-dev librtlsdr-dev
 sudo apt install git make patch golang-go        # Car: iPod mode's kernel driver and client
 cmake -S . -B build/device -DZS_BACKEND=device
 cmake --build build/device -j
@@ -734,7 +737,7 @@ place of the old one (AI was once called `zclaw`).
    | --- | --- |
    | 10 to 90 | Terminal 10, Remote 20, Desktop 25, Sync 30, Files 40, Notes 50, Recorder 55, AI 60, Browser 65, Media 70, Jellyfin 72, Grove 75, Camera 80, Car 90 |
    | 100 | the OS's own apps |
-   | 110 to 190 | Tether 110, Router 115, IR Remote 120, GPS 130, Mesh 140, Compass 150, Battery 160, Clock 170, Dock 180, System 190 |
+   | 110 to 190 | Tether 110, Router 115, IR Remote 120, GPS 130, Maps 135, Mesh 140, Compass 150, Battery 160, Clock 170, Dock 180, System 190 |
    | 200 to 220 | the OS's own apps, Net Tools 220 |
    | 300 and up | Dev Tools 300 to 330, Libretro 400, RF Tools 500 |
 
@@ -922,6 +925,7 @@ and it will be added. The OS underneath has [its own credits](https://github.com
 | [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) (commit `d126fb1`) | IR Remote's code database | CC0-1.0, see [apps/ir/README.md](apps/ir/README.md#licence) |
 | [Webamp](https://github.com/captbaritone/webamp)'s documentation of the Winamp skin layout (`skinSprites.ts` and its CSS) | Where Media finds each sprite in a classic Winamp skin. No Winamp skins are shipped; you bring your own, for example from the [Winamp Skin Museum](https://skins.webamp.org) | MIT |
 | [M5Stack CameraApp](https://github.com/CardputerZero/CameraApp) 1.0.4 | Camera (installed as M5's own package) | MIT |
+| [OpenStreetMap](https://www.openstreetmap.org) data © OpenStreetMap contributors, New Jersey extract and outline from [Geofabrik](https://download.geofabrik.de) | The map in Maps | ODbL-1.0, see [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright) |
 | [Meshtastic](https://github.com/meshtastic/firmware)'s board config for the Cardputer Zero | Mesh's settings for the Cap LoRa-1262 | GPL-3.0 |
 
 ### Programs the apps install
@@ -936,6 +940,7 @@ under its own licence.
 | [Syncthing](https://github.com/syncthing/syncthing) (MPL-2.0) | Sync |
 | [gpsd](https://gpsd.io) | GPS |
 | [LAME](https://lame.sourceforge.io) (LGPL-2.0+) | Car's USB live sound |
+| [Navit](https://www.navit-project.org) (GPL-2.0, its maptool too, when the package is built), [Xvfb](https://www.x.org), [eSpeak NG](https://github.com/espeak-ng/espeak-ng) (GPL-3.0) | Maps: Navit plans the routes, Xvfb gives it a screen in memory, eSpeak NG speaks the turns |
 | [mpv](https://github.com/mpv-player/mpv) and libmpv | Media, Jellyfin |
 | [libretro](https://www.libretro.com) cores: Nestopia, Gambatte and mGBA from Debian; more downloaded when you ask, from [libretro's buildbot](https://buildbot.libretro.com) | Libretro. Each core has its own licence; a few, such as Snes9x and Genesis Plus GX, are for non-commercial use only |
 | [rtl-sdr](https://osmocom.org/projects/rtl-sdr/wiki), [rtl_433](https://github.com/merbanan/rtl_433), [multimon-ng](https://github.com/EliasOenal/multimon-ng), [Hamlib](https://github.com/Hamlib/Hamlib), [SoX](https://sourceforge.net/projects/sox/) | RF Tools |

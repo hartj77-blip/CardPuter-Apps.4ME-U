@@ -74,7 +74,7 @@ jobs:
       - name: Install tools and libraries
         run: |
           apt-get update -qq
-          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file >/dev/null
+          apt-get install -y -qq git ca-certificates curl gpg cmake g++ dpkg-dev python3 file zlib1g-dev maptool >/dev/null
           # Car's prepare.sh builds iPod mode's kernel driver and its client (Go).
           apt-get install -y -qq --no-install-recommends make patch golang-go >/dev/null
           apt-get install -y -qq --no-install-recommends pkgconf libvncserver-dev freerdp3-dev librtlsdr-dev >/dev/null

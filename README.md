@@ -3,13 +3,22 @@
 The apps for [ZeroOS](https://github.com/hartj77-blip/CardPuter-OS.4ME-U), the operating system
 for the M5Stack Cardputer Zero.
 
-ZeroOS itself ships with just four apps: **Apps**, **Settings**, **Update** and **Wi-Fi**. That's
+ZeroOS itself ships with just three apps: **Apps**, **Settings** (which includes Wi-Fi and
+Bluetooth) and **Update**. That's
 enough to get online, keep the OS up to date and install things. Everything else is in this
-repository, one folder per app: 26 packages, from a clock to a software-defined radio. You install
+repository, one folder per app: 28 packages, from a clock to a software-defined radio. You install
 them from the **Apps** app on the device, and each one is versioned and released on its own, so
 updating one app never touches another.
 
 This is a community project. It isn't made, endorsed or supported by M5Stack.
+
+**Is it safe to install?** Every app is open source, in this repository. Every pull request is built
+and tested by GitHub Actions, in public: every app is built, opened, installed and removed again
+([what is tested](#status-what-is-tested-and-what-isnt)). The packages your device
+downloads are built from `main` by the same workflows, and each download is checked against the
+SHA-256 in the index before it's installed. [Security and what you are trusting](#security-and-what-you-are-trusting)
+says exactly what you rely on, and [the credits](#licence-and-third-party-code) list every project the
+apps build on.
 
 - [Newest release of the apps](https://github.com/hartj77-blip/CardPuter-Apps.4ME-U/releases/latest)
 - [Report a problem](https://github.com/hartj77-blip/CardPuter-Apps.4ME-U/issues)
@@ -19,7 +28,7 @@ This is a community project. It isn't made, endorsed or supported by M5Stack.
 
 | Repository | What's in it |
 | --- | --- |
-| [CardPuter-OS.4ME-U](https://github.com/hartj77-blip/CardPuter-OS.4ME-U) | The OS: the home screen (ZeroShell), the four built-in apps, the hardware layer, the SD card image, OS updates |
+| [CardPuter-OS.4ME-U](https://github.com/hartj77-blip/CardPuter-OS.4ME-U) | The OS: the home screen (ZeroShell), the three built-in apps, the hardware layer, the SD card image, OS updates |
 | This one | Every other ZeroOS app, the packages the Apps app downloads, and the index that lists them |
 | [emu-cardputer-os.4me-u](https://github.com/hartj77-blip/emu-cardputer-os.4me-u) | The browser emulator: the real home screen and apps compiled to WebAssembly, [running here](https://hartj77-blip.github.io/emu-cardputer-os.4me-u/) |
 | [M5Stack's app store](https://github.com/CardputerZero/packages) | Not ours: about 190 community apps made for M5's own launcher, which ZeroOS can install too. [Which ones work on ZeroOS](https://github.com/hartj77-blip/CardPuter-OS.4ME-U/blob/main/docs/M5-APPS.md) |
@@ -879,19 +888,67 @@ git submodule update --init base
 
 ## Licence and third-party code
 
-This repository is MIT licensed, see [LICENSE](LICENSE).
+This repository is MIT licensed, see [LICENSE](LICENSE). The apps stand on a lot of other people's
+work, listed here with thanks. Each project keeps its own licence. If something of yours is used
+and isn't listed, please [open an issue](https://github.com/hartj77-blip/CardPuter-Apps.4ME-U/issues)
+and it will be added. The OS underneath has [its own credits](https://github.com/hartj77-blip/CardPuter-OS.4ME-U#license-and-third-party-code).
 
-Parts built in or shipped from elsewhere, each described in that app's README:
+### Code built into the apps
 
-| Part | Used by | Licence |
+| Project | Used by | Licence |
 | --- | --- | --- |
-| [LVGL](https://lvgl.io) 9.2 | every app, through ZeroShell | MIT |
-| [quirc](https://github.com/dlbeer/quirc) | Camera's QR reader | ISC |
-| [stb_image.h](https://github.com/nothings/stb) v2.34 | Libretro's PNG border pictures (vendored); Browser's pictures in pages and Jellyfin's cover art (fetched at build time, same commit) | Public domain or MIT, see [apps/games/third_party](apps/games/third_party/README.md) |
-| The [libretro](https://www.libretro.com) API | Libretro, which declares the parts of `libretro.h` it uses (`apps/games/libretro_api.h`) and loads libretro cores; credits in [its README](apps/games/README.md#credits) | MIT (the cores keep their own) |
-| [M5Stack CameraApp](https://github.com/CardputerZero/CameraApp) | Camera (installed as M5's own package) | MIT |
-| [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) | IR Remote's code database | CC0-1.0, see [apps/ir/README.md](apps/ir/README.md#licence) |
-| ft8_lib and others | RF Tools | see [apps/rf/files/THIRD_PARTY.md](apps/rf/files/THIRD_PARTY.md) |
+| [LVGL](https://github.com/lvgl/lvgl) 9.2.2 | Every app, through ZeroShell | MIT |
+| [quirc](https://github.com/dlbeer/quirc) 1.2 | Camera's QR reader | ISC |
+| [stb_image.h](https://github.com/nothings/stb) v2.34 | Libretro's PNG border pictures (vendored), Media's `.wsz` skins (its inflate), Browser's pictures in pages and Jellyfin's cover art (fetched at build time, same commit) | Public domain or MIT, see [apps/games/third_party](apps/games/third_party/README.md) |
+| [ft8_lib](https://github.com/kgoba/ft8_lib) by Kārlis Goba, with [KISS FFT](https://github.com/mborgerding/kissfft) by Mark Borgerding | RF Tools' FT8 | MIT and BSD-3, see [apps/rf/files/THIRD_PARTY.md](apps/rf/files/THIRD_PARTY.md) |
+| [libretro](https://github.com/libretro/libretro-common) API ([docs](https://docs.libretro.com)) | How Libretro talks to emulator cores (`apps/games/libretro_api.h`); credits in [its README](apps/games/README.md#credits) | MIT |
+| [libvncclient](https://github.com/LibVNC/libvncserver), [FreeRDP 3](https://github.com/FreeRDP/FreeRDP) | Desktop's VNC and RDP | GPL-2.0+, Apache-2.0 |
 
-Everything an app installs from Debian, Raspberry Pi, Tailscale or Meshtastic keeps its own
-licence; apt installs those packages as published.
+### Data and designs
+
+| Work | Used by | Licence |
+| --- | --- | --- |
+| [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) (commit `d126fb1`) | IR Remote's code database | CC0-1.0, see [apps/ir/README.md](apps/ir/README.md#licence) |
+| [Webamp](https://github.com/captbaritone/webamp)'s documentation of the Winamp skin layout (`skinSprites.ts` and its CSS) | Where Media finds each sprite in a classic Winamp skin. No Winamp skins are shipped; you bring your own, for example from the [Winamp Skin Museum](https://skins.webamp.org) | MIT |
+| [M5Stack CameraApp](https://github.com/CardputerZero/CameraApp) 1.0.4 | Camera (installed as M5's own package) | MIT |
+| [Meshtastic](https://github.com/meshtastic/firmware)'s board config for the Cardputer Zero | Mesh's settings for the Cap LoRa-1262 | GPL-3.0 |
+
+### Programs the apps install
+
+Apps install these from Debian, Raspberry Pi or the project's own repository, as published, each
+under its own licence.
+
+| Program | Used by |
+| --- | --- |
+| [Meshtastic](https://meshtastic.org) `meshtasticd` (GPL-3.0), from [Meshtastic's openSUSE repository](https://download.opensuse.org/repositories/network:/Meshtastic:/beta/) | Mesh |
+| [Tailscale](https://github.com/tailscale/tailscale) (BSD-3), from [Tailscale's repository](https://pkgs.tailscale.com/stable/); [mosh](https://mosh.org) | Remote, Router |
+| [Syncthing](https://github.com/syncthing/syncthing) (MPL-2.0) | Sync |
+| [gpsd](https://gpsd.io) | GPS |
+| [mpv](https://github.com/mpv-player/mpv) and libmpv | Media, Jellyfin |
+| [libretro](https://www.libretro.com) cores: Nestopia, Gambatte and mGBA from Debian; more downloaded when you ask, from [libretro's buildbot](https://buildbot.libretro.com) | Libretro. Each core has its own licence; a few, such as Snes9x and Genesis Plus GX, are for non-commercial use only |
+| [rtl-sdr](https://osmocom.org/projects/rtl-sdr/wiki), [rtl_433](https://github.com/merbanan/rtl_433), [multimon-ng](https://github.com/EliasOenal/multimon-ng), [Hamlib](https://github.com/Hamlib/Hamlib), [SoX](https://sourceforge.net/projects/sox/) | RF Tools |
+| [nmap](https://nmap.org), [arp-scan](https://github.com/royhills/arp-scan), [mtr](https://github.com/traviscross/mtr), dig, [tcpdump](https://www.tcpdump.org), dnsmasq, nftables | Net Tools, Router |
+| [tmux](https://github.com/tmux/tmux), [micro](https://github.com/zyedidia/micro), git, gcc, Lua, SQLite | Terminal, Dev Tools |
+| gvncviewer, usbmuxd, mtools, v4l-utils and ir-keytable, rpicam-apps | Desktop, Tether, Car, IR Remote, Camera |
+
+### Services the apps can talk to
+
+These are other people's services. An app only talks to one when you use it, with your own account
+or key.
+
+| Service | Used by |
+| --- | --- |
+| [Anthropic](https://www.anthropic.com), [OpenAI](https://openai.com), [Google Gemini](https://ai.google.dev), [OpenRouter](https://openrouter.ai), [Groq](https://groq.com), [Mistral](https://mistral.ai), [Ollama](https://ollama.com) and other OpenAI-compatible servers | AI |
+| [Jellyfin](https://jellyfin.org) (your own server, through its [API](https://api.jellyfin.org)) | Jellyfin |
+| [Tailscale](https://tailscale.com) or your own [Headscale](https://headscale.net) | Remote, Router |
+| [DuckDuckGo Lite](https://lite.duckduckgo.com/lite/) | Browser's search |
+
+### References
+
+- The BCM2835 ARM Peripherals manual, the Linux kernel's `bcm2835_smi` driver and
+  [Jeremy Bentham's SMI write-ups](https://iosoft.blog) for how Grove drives an LED strip, and
+  [rpi_ws281x](https://github.com/jgarff/rpi_ws281x) for its choice of DMA channel.
+- [libretro's overlay borders](https://github.com/libretro/overlay-borders), suggested in the
+  [Libretro guide](apps/games/README.md) as borders you can add.
+- The [ADIF](https://adif.org) logbook format and the ITU Region 2 band plan, for RF Tools.
+- The [GPX 1.1](https://www.topografix.com/GPX/1/1/) format, for GPS tracks.

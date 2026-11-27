@@ -7,12 +7,15 @@ filed as <Category>/<Brand>/<Model>.ir. The app reads those files as they
 are; this script picks the ones it can send, and writes beside them:
 
   index.tsv              category, brand, model, path, buttons: one line per
-                         remote, so the app can list 2,000 remotes without
+                         remote, so the app can list 4,500 remotes without
                          opening them
-  universal/<Name>.ir    "universal remote" lists: every distinct Power (or
-                         Vol +, Mute, ...) code for a kind of device, the
-                         most common first, each with "# src:" naming the
-                         remote it came from
+  brands/<Kind>/<Brand>.ir
+                         a brand's remote for a kind of device: every
+                         distinct code its remotes use for each of 55 common
+                         buttons, the most common first, each with "# src:"
+                         naming a remote it came from. _all.ir is the
+                         universal one: every brand's codes
+  brands/index.tsv       kind, brand ("" for _all), remotes, path, buttons
   SOURCE.txt, LICENSE    where the data came from (commit) and its licence
 
 Usage:
@@ -28,8 +31,7 @@ probonopd/irdb, whose licence asks every product that ships it to register)
 and IR Plus are left out.
 
 Every remote is written to <Kind>/<Brand>/<Model>.ir under the kind it is
-listed as, so a universal code's "# src:" names the kind and brand the app
-opens.
+listed as, so a code's "# src:" names the kind and brand the app opens.
 """
 import argparse
 import collections
@@ -68,45 +70,13 @@ BLANK = ["blank", "av_mute", "a_v_mute", "avmute", "pic_mute", "picture_mute", "
          "blank_screen", "no_show", "black_screen", "av_mute_toggle"]
 FREEZE = ["freeze", "still", "freeze_frame"]
 PLAY = ["play", "play_pause", "playpause", "play_and_pause"]
-UNIVERSAL = [
-    ("TVs", ["TVs"], [("Power", POWER), ("Power_on", POWER_ON), ("Power_off", POWER_OFF), ("Input", INPUT),
-                      ("HDMI_1", HDMI_1), ("HDMI_2", HDMI_2), ("Vol_up", VOL_UP), ("Vol_dn", VOL_DN),
-                      ("Mute", MUTE), ("Ch_next", CH_UP), ("Ch_prev", CH_DN)]),
-    ("Projectors", ["Projectors"], [("Power", POWER), ("Power_on", POWER_ON), ("Power_off", POWER_OFF),
-                                    ("Input", INPUT), ("Blank", BLANK), ("Freeze", FREEZE),
-                                    ("Vol_up", VOL_UP), ("Vol_dn", VOL_DN), ("Mute", MUTE)]),
-    ("Displays", ["Monitors", "Digital_Signs", "Touchscreen_Displays"],
-     [("Power", POWER), ("Power_on", POWER_ON), ("Power_off", POWER_OFF), ("Input", INPUT), ("HDMI_1", HDMI_1),
-      ("Vol_up", VOL_UP), ("Vol_dn", VOL_DN), ("Mute", MUTE)]),
-    ("Screens", ["Projector_Screens"], [("Up", ["up", "screen_up", "raise", "up_screen", "open", "retract"]),
-                                        ("Down", ["down", "dn", "screen_down", "screen_dn", "lower", "down_screen",
-                                                  "close", "extend"]),
-                                        ("Stop", ["stop", "screen_stop", "hold", "pause"])]),
-    ("Audio", ["SoundBars", "Audio_and_Video_Receivers", "Speakers"],
-     [("Power", POWER), ("Power_on", POWER_ON), ("Power_off", POWER_OFF), ("Input", INPUT),
-      ("Vol_up", VOL_UP), ("Vol_dn", VOL_DN), ("Mute", MUTE), ("Play", PLAY)]),
-    ("Players", ["Blu-Ray", "DVD_Players", "Laserdisc", "CD_Players", "VCR"],
-     [("Power", POWER), ("Play", PLAY), ("Pause", ["pause", "play_pause", "playpause"]), ("Stop", ["stop"]),
-      ("Eject", ["eject", "open_close", "open", "openclose", "open_eject"]), ("Menu", ["menu", "top_menu", "disc_menu"])]),
-    ("Set_top_boxes", ["Cable_Boxes", "Streaming_Devices", "DVB-T", "TV_Tuner"],
-     [("Power", POWER), ("Ch_next", CH_UP), ("Ch_prev", CH_DN), ("Guide", ["guide", "epg", "tv_guide"]),
-      ("Play", PLAY)]),
-    ("Conferencing", ["Videoconferencing", "Cameras"],
-     [("Power", POWER), ("Mute", MUTE + ["mic_mute", "mute_mic", "privacy"]), ("Vol_up", VOL_UP),
-      ("Vol_dn", VOL_DN)]),
-    ("ACs", ["ACs"], [("Off", ["off", "power_off", "poweroff"]), ("Power", POWER)]),
-    ("Fans", ["Fans"], [("Power", POWER), ("Oscillate", ["osc", "oscillate", "oscillation", "rotate", "rotation",
-                                                         "swing", "swing_toggle"]),
-                        ("Speed", ["speed", "fan_speed", "speed_up", "fan_up", "wind_speed"])]),
-    ("Lights", ["LED_Lighting"], [("On", ["on", "power_on", "light_on"]), ("Off", ["off", "power_off", "light_off"]),
-                                  ("Power", POWER)]),
-]
-MAX_PER_BUTTON = 400
-
-# Brand remotes: brands/<Kind>/<Brand>.ir, every code each brand uses for each
-# of these buttons in that kind of device, most common first. The app sweeps a
-# button's codes once, then locks to the protocol and address of the one that
-# worked, so every button after that sends one code.
+# Brand remotes: brands/<Kind>/<Brand>.ir, every code a brand uses for each of
+# these buttons in that kind of device, most common first; _all.ir has every
+# brand's. The app sweeps a button's codes once, then locks to the protocol
+# and address of the one that worked, so every button after that sends one
+# code. Aliases are compared after norm() below.
+MAX_PER_BUTTON = 400        # universal (_all.ir)
+MAX_PER_BRAND_BUTTON = 60
 BRAND_BUTTONS = [
     ("Power", POWER), ("Power_on", POWER_ON), ("Power_off", POWER_OFF), ("Input", INPUT),
     ("HDMI_1", HDMI_1), ("HDMI_2", HDMI_2), ("HDMI_3", ["hdmi_3", "hdmi3"]), ("HDMI_4", ["hdmi_4", "hdmi4"]),
@@ -126,10 +96,15 @@ BRAND_BUTTONS = [
     ("Prev", ["prev", "previous", "skip_dn", "track_dn", "r_trk", "skip_back", "chapter_dn"]),
     ("Next", ["next", "skip_up", "track_up", "f_trk", "skip_fwd", "chapter_up"]),
     ("Eject", ["eject", "open_close", "openclose", "open_eject"]),
+    ("Oscillate", ["osc", "oscillate", "oscillation", "rotate", "rotation", "swing", "swing_toggle"]),
+    ("Speed", ["speed", "fan_speed", "speed_up", "fan_up", "wind_speed"]), ("Mode", ["mode", "ac_mode", "fan_mode"]),
+    ("Temp_up", ["temp_up", "temperature_up", "temp_plus", "heat_up"]),
+    ("Temp_dn", ["temp_dn", "temp_down", "temperature_down", "temp_minus", "heat_dn"]), ("Timer", ["timer"]),
+    ("Bright_up", ["bright_up", "brightness_up", "brighter", "dim_up", "light_up"]),
+    ("Bright_dn", ["bright_dn", "brightness_down", "brightness_dn", "dimmer", "dim_dn", "light_dn", "darker"]),
 ] + [(str(d), [str(d), "num_%d" % d, "digit_%d" % d, "key_%d" % d, "btn_%d" % d]) for d in range(1, 10)] + [
     ("0", ["0", "num_0", "digit_0", "key_0", "btn_0"]),
 ]
-MAX_PER_BRAND_BUTTON = 60
 
 
 def norm(name):
@@ -554,41 +529,6 @@ def build(src, out, commit=None):
         for row in index:
             fh.write("\t".join(map(str, row)) + "\n")
 
-    os.makedirs(os.path.join(out, "universal"))
-    summary = []
-    for name, cats, buttons in UNIVERSAL:
-        blocks = []
-        total = 0
-        for button, aliases in buttons:
-            aliases = set(aliases)
-            # code key -> [signal, count, {brand: [files, first file]}]
-            seen = collections.OrderedDict()
-            for cat in cats:
-                for rel, sigs in by_cat.get(cat, []):
-                    brand = brand_of[rel]
-                    in_file = set()
-                    for s in sigs:
-                        if norm(s["name"]) not in aliases:
-                            continue
-                        s = decode(s) or s
-                        k = code_key(s)
-                        if k in in_file:
-                            continue
-                        in_file.add(k)
-                        e = seen.setdefault(k, [s, 0, {}])
-                        e[1] += 1
-                        e[2].setdefault(brand.lower(), [0, rel])[0] += 1
-            ranked = sorted(seen.values(), key=lambda e: -e[1])[:MAX_PER_BUTTON]
-            # Credit each code to the brand with the most remotes using it,
-            # so stopping on it in the app names the likely maker.
-            blocks += [signal_text(s, button, max(b.values(), key=lambda v: v[0])[1]) for s, _, b in ranked]
-            total += len(ranked)
-        if total:
-            with open(os.path.join(out, "universal", name + ".ir"), "w", encoding="utf-8") as fh:
-                fh.write("Filetype: IR library file\nVersion: 1\n# ZeroOS universal remote: %s\n" % name)
-                fh.write("\n".join(blocks) + "\n")
-            summary.append("%s %d" % (name, total))
-
     brand_remotes = write_brand_remotes(out, by_cat, brand_of)
 
     lic = os.path.join(src, "LICENSE")
@@ -597,67 +537,81 @@ def build(src, out, commit=None):
     with open(os.path.join(out, "SOURCE.txt"), "w", encoding="utf-8") as fh:
         fh.write("IR codes from Flipper-IRDB, %s\ncommit: %s\n" % (REPO, commit or "local copy"))
         fh.write("Licence: CC0-1.0 (see LICENSE and the project's README for its scope).\n")
-        fh.write("Built by apps/ir/irdb/build_irdb.py: %d remotes (%d from %s), universal lists: %s, "
-                 "%d brand remotes\n" % (len(index), from_converted, ", ".join(CONVERTED), ", ".join(summary),
-                                         brand_remotes))
-    print("irdb: %d remotes (%d converted, %d skipped), universal: %s, %d brand remotes -> %s"
-          % (len(index), from_converted, skipped, ", ".join(summary), brand_remotes, out))
+        fh.write("Built by apps/ir/irdb/build_irdb.py: %d remotes (%d from %s), %d brand remotes, "
+                 "%d universal\n" % (len(index), from_converted, ", ".join(CONVERTED), *brand_remotes))
+    print("irdb: %d remotes (%d converted, %d skipped), %d brand remotes, %d universal -> %s"
+          % (len(index), from_converted, skipped, *brand_remotes, out))
+
+
+def merged_remote(remotes, brand_of, alias, limit):
+    """[(button, [(signal, credited remote)])] for a set of remotes: each
+    distinct code once, the most used first, credited to a remote of the
+    brand that uses it most (so the app can name the likely maker)."""
+    # button -> code key -> [signal, remotes using it, {brand: [remotes, first remote]}]
+    seen = collections.defaultdict(collections.OrderedDict)
+    for rel, sigs in remotes:
+        in_file = set()
+        for s in sigs:
+            button = alias.get(norm(s["name"]))
+            if not button:
+                continue
+            s = decode(s) or s
+            k = code_key(s)
+            if (button, k) in in_file:
+                continue
+            in_file.add((button, k))
+            e = seen[button].setdefault(k, [s, 0, {}])
+            e[1] += 1
+            e[2].setdefault(brand_of[rel].lower(), [0, rel])[0] += 1
+    out = []
+    for button, _ in BRAND_BUTTONS:
+        if button in seen:
+            ranked = sorted(seen[button].values(), key=lambda e: -e[1])[:limit]
+            out.append((button, [(s, max(b.values(), key=lambda v: v[0])[1]) for s, _, b in ranked]))
+    return out
 
 
 def write_brand_remotes(out, by_cat, brand_of):
     """brands/<Kind>/<Brand>.ir for each brand with two or more remotes of a
-    kind, and brands/index.tsv (kind, brand, remotes, path, buttons)."""
+    kind, brands/<Kind>/_all.ir with every brand's codes (the universal
+    remote), and brands/index.tsv (kind, brand or "", remotes, path,
+    buttons). A brand with one remote has none: the app opens that remote."""
     alias = {}
     for button, names in BRAND_BUTTONS:
         for n in names:
             alias.setdefault(n, button)
     rows = []
+    universal = 0
     for cat in sorted(by_cat):
         brands = collections.defaultdict(list)
         for rel, sigs in by_cat[cat]:
             brands[brand_of[rel]].append((rel, sigs))
-        for brand, remotes in sorted(brands.items(), key=lambda b: b[0].lower()):
+        sets = [("", by_cat[cat], MAX_PER_BUTTON)] + [
+            (brand, remotes, MAX_PER_BRAND_BUTTON)
+            for brand, remotes in sorted(brands.items(), key=lambda b: b[0].lower())]
+        for brand, remotes, limit in sets:
             if len(remotes) < 2:
                 continue
-            # button -> code key -> [signal, remotes using it, first remote]
-            seen = collections.defaultdict(collections.OrderedDict)
-            for rel, sigs in remotes:
-                in_file = set()
-                for s in sigs:
-                    button = alias.get(norm(s["name"]))
-                    if not button:
-                        continue
-                    s = decode(s) or s
-                    k = code_key(s)
-                    if (button, k) in in_file:
-                        continue
-                    in_file.add((button, k))
-                    seen[button].setdefault(k, [s, 0, rel])[1] += 1
-            blocks = []
-            nbuttons = 0
-            for button, _ in BRAND_BUTTONS:
-                if button not in seen:
-                    continue
-                nbuttons += 1
-                ranked = sorted(seen[button].values(), key=lambda e: -e[1])[:MAX_PER_BRAND_BUTTON]
-                blocks += [signal_text(s, button, rel) for s, _, rel in ranked]
-            if nbuttons < 2:
+            buttons = merged_remote(remotes, brand_of, alias, limit)
+            if len(buttons) < 2:
                 continue
-            fname = re.sub(r"[^A-Za-z0-9._ -]+", "_", brand).strip() or "Brand"
+            fname = "_all" if not brand else re.sub(r"[^A-Za-z0-9._ -]+", "_", brand).strip(" ._") or "Brand"
             rel = "%s/%s.ir" % (cat, fname)
             dest = os.path.join(out, "brands", cat, fname + ".ir")
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "w", encoding="utf-8") as fh:
-                fh.write("Filetype: IR library file\nVersion: 1\n# ZeroOS brand remote: %s %s, from %d remotes\n"
-                         % (brand, cat, len(remotes)))
-                fh.write("\n".join(blocks) + "\n")
-            rows.append((cat, brand, len(remotes), rel, nbuttons))
+                fh.write("Filetype: IR library file\nVersion: 1\n# ZeroOS %s remote: %s, from %d remotes\n"
+                         % ("brand" if brand else "universal", (brand + " " if brand else "") + cat, len(remotes)))
+                fh.write("\n".join(signal_text(sig, button, src) for button, codes in buttons
+                                    for sig, src in codes) + "\n")
+            rows.append((cat, brand, len(remotes), rel, len(buttons)))
+            universal += not brand
     os.makedirs(os.path.join(out, "brands"), exist_ok=True)
     with open(os.path.join(out, "brands", "index.tsv"), "w", encoding="utf-8") as fh:
         fh.write("# kind\tbrand\tremotes\tpath\tbuttons\n")
         for row in rows:
             fh.write("\t".join(map(str, row)) + "\n")
-    return len(rows)
+    return len(rows) - universal, universal
 
 
 def main():

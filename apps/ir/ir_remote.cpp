@@ -3,22 +3,21 @@
 //   My remotes   ~/IR/*.ir: saved from the database, learned from your own
 //                remotes (L relearns a button, N adds one, D deletes), or
 //                .ir files copied from a Flipper Zero
-//   Universal    every Power (Input, Vol +, Mute, ...) code for TVs,
-//                projectors, displays, screens, audio, players, set-top
-//                boxes, conferencing, ACs, fans and lights, most common
-//                first: Enter sends them one after another; press any key
-//                when the device reacts, then O opens that brand's remotes
-//   Brands       one remote per brand and kind (Sony TVs): the first press
-//                sweeps that button's codes; press any key when the device
-//                reacts and the remote locks to that code's protocol and
-//                address, so every button after sends one code
-//   Browse       4,500 remotes by kind, brand and model; type to search
+//   Kinds        TVs, Projectors, ... each with Universal (every brand's
+//                codes) at the top, then its brands A to Z. Universal and a
+//                brand are one remote with every common button: the first
+//                press sweeps that button's codes, most common first; press
+//                any key when the device reacts and the remote locks to that
+//                code's protocol and address, so every button after sends
+//                one code. A brand with one remote opens that remote.
+//   Search       4,500 remotes by kind, brand and model; type to search
 //
 // The lists are List screens (docs/UX.md in the OS): typing filters them and
 // their actions are in the Tab menu. A remote's keypad and the universal
 // sender are Control screens: their letters are shortcuts, each one listed
 // in the screen's actions so the soft-key bar shows it.
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <functional>
 #include <map>
@@ -39,6 +38,11 @@ std::string thousands(size_t n) {
     return s;
 }
 
+std::string lower(std::string s) {
+    for (char& ch : s) ch = char(std::tolower((unsigned char)ch));
+    return s;
+}
+
 bool printable(uint32_t key) { return key >= 32 && key < 127 && key != '`'; }
 bool digit(uint32_t key) { return key >= '0' && key <= '9'; }
 
@@ -48,21 +52,7 @@ public:
         root_ = root;
         db_ = ir::db_root();
         index_ = ir::load_index(db_);
-        universals_ = ir::universal_names(db_);
         brand_index_ = ir::load_index(db_ + "/brands");
-        // The AV kinds first, in the order a room is set up; anything else after, as the OS sorts it.
-        static const char* order[] = {"TVs", "Projectors", "Displays", "Screens", "Audio", "Players",
-                                      "Set_top_boxes", "Conferencing", "ACs", "Fans", "Lights"};
-        auto rank = [](const std::string& n) {
-            int i = 0;
-            for (const char* o : order) {
-                if (n == o) return i;
-                ++i;
-            }
-            return i;
-        };
-        std::stable_sort(universals_.begin(), universals_.end(),
-                         [&](const std::string& a, const std::string& b) { return rank(a) < rank(b); });
         show();
     }
 
@@ -92,7 +82,6 @@ public:
         if (input_) return false;   // the text box has the keys
         switch (page_.kind) {
             case Page::Remote: return remote_key(key);
-            case Page::Universal:
             case Page::Brand: return universal_key(key);
             case Page::Kinds:
                 // The first Browse page searches every remote, not just its
@@ -134,13 +123,14 @@ public:
     }
 
 private:
-    enum class Page { Home, Kinds, Brands, Models, Remote, Universal, BrandKinds, BrandList, Brand };
+    // Brands: one kind's Universal and brands. Brand: a brand (or Universal) remote.
+    enum class Page { Home, Kinds, Brands, Models, Remote, Brand };
     // Sent: a brand remote, locked, sent its one code for the button.
     enum class Run { Idle, Sending, Stopped, Done, Sent };
     struct Nav {
         Page kind = Page::Home;
         std::string category, brand;
-        std::string path;        // Remote, Brand: full path; Universal: kind name
+        std::string path;        // Remote, Brand: full path
         bool mine = false;       // Remote: in ~/IR, so it can be changed
         int focus = 0;           // focused row or button, restored on Back
     };
@@ -190,10 +180,7 @@ private:
             case Page::Brands: build_brands(); break;
             case Page::Models: build_models(); break;
             case Page::Remote: build_remote(); break;
-            case Page::Universal:
             case Page::Brand: build_universal(); break;
-            case Page::BrandKinds: build_brand_kinds(); break;
-            case Page::BrandList: build_brand_list(); break;
         }
         page_.focus = want;
         if (!focusables_.empty()) {
@@ -207,7 +194,7 @@ private:
         if (sweeping_page()) update_universal();
     }
 
-    bool sweeping_page() const { return page_.kind == Page::Universal || page_.kind == Page::Brand; }
+    bool sweeping_page() const { return page_.kind == Page::Brand; }
 
     // A header line and a list under it.
     void list_page(const std::string& title, const std::string& right) {
@@ -238,8 +225,6 @@ private:
             case Page::Kinds:
             case Page::Brands:
             case Page::Models:
-            case Page::BrandKinds:
-            case Page::BrandList:
                 a.push_back({"Open", 0, "Enter", nullptr});
                 a.push_back({"Back", 0, "Esc", nullptr});
                 break;
@@ -261,19 +246,6 @@ private:
                 }
                 break;
             }
-            case Page::Universal:
-                switch (run_) {
-                    case Run::Idle:
-                    case Run::Done: a.push_back({"Send all", 0, "Enter", nullptr}); break;
-                    case Run::Sending: a.push_back({"Stop", 0, "Any key", nullptr}); break;
-                    case Run::Stopped:
-                        a.push_back({"Send again", 0, "Enter", nullptr});
-                        a.push_back({"Try nearby", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
-                        a.push_back({"Open brand", 'o', "O", [this] { open_brand(); }});
-                        break;
-                    case Run::Sent: break;
-                }
-                break;
             case Page::Brand: {
                 bool here = locked_for(size_t(std::max(0, page_.focus)));
                 switch (run_) {
@@ -290,6 +262,7 @@ private:
                     a.push_back({"Save to My remotes", 's', "S", [this] { save_brand(); }});
                     a.push_back({"Unlock", 'u', "U", [this] { unlock(); }});
                 }
+                a.push_back({"Models", 'm', "M", [this] { open_models(); }});
                 break;
             }
         }
@@ -304,14 +277,50 @@ private:
         for (auto& p : ir::user_remotes())
             row(LV_SYMBOL_POWER, ir::stem(p), "Mine", [this, p] { go(nav(Page::Remote, "", "", p, true)); });
         row(LV_SYMBOL_PLUS, "New remote (learn buttons)", "", [this] { new_remote(); });
-        if (!brand_index_.empty())
-            row(LV_SYMBOL_LIST, "Brand remotes (Sony TVs...)", thousands(brand_index_.size()),
-                [this] { go(nav(Page::BrandKinds)); });
-        for (auto& u : universals_)
-            row(LV_SYMBOL_SHUFFLE, ir::display(u), "Universal", [this, u] { go(nav(Page::Universal, "", "", u, false)); });
+        for (auto& k : kinds()) {
+            std::string cat = k.first;
+            row(LV_SYMBOL_DIRECTORY, ir::display(cat), k.second == 1 ? "1 brand" : std::to_string(k.second) + " brands",
+                [this, cat] { go(nav(Page::Brands, cat)); });
+        }
         if (!index_.empty())
-            row(ZS_ICON_SEARCH, "Browse or search", thousands(index_.size()), [this] { go(nav(Page::Kinds)); });
+            row(ZS_ICON_SEARCH, "Search all remotes", thousands(index_.size()), [this] { go(nav(Page::Kinds)); });
         list_.finish();
+    }
+
+    // Every kind with its number of brands: the AV kinds first, in the order
+    // a room is set up, then the rest A to Z.
+    std::vector<std::pair<std::string, int>> kinds() const {
+        static const char* order[] = {"TVs", "Projectors", "Monitors", "Touchscreen_Displays", "Digital_Signs",
+                                      "Projector_Screens", "Audio_and_Video_Receivers", "SoundBars", "Speakers",
+                                      "Blu-Ray", "DVD_Players", "Cable_Boxes", "Streaming_Devices",
+                                      "Videoconferencing", "Cameras", "Switchers_and_Scalers", "Control_Systems",
+                                      "Lighting_Control", "Shades", "Pro_Audio", "ACs", "Fans", "LED_Lighting"};
+        auto rank = [](const std::string& n) {
+            int i = 0;
+            for (const char* o : order) {
+                if (n == o) return i;
+                ++i;
+            }
+            return i;
+        };
+        std::vector<std::pair<std::string, int>> out;
+        std::string last_brand;
+        for (auto& r : index_) {   // sorted by kind, then brand
+            if (out.empty() || out.back().first != r.category) {
+                out.push_back({r.category, 0});
+                last_brand.clear();
+            }
+            if (r.brand != last_brand) out.back().second++;
+            last_brand = r.brand;
+        }
+        std::stable_sort(out.begin(), out.end(), [&](const auto& a, const auto& b) { return rank(a.first) < rank(b.first); });
+        return out;
+    }
+
+    const ir::RemoteRef* brand_remote(const std::string& cat, const std::string& brand) const {
+        for (auto& r : brand_index_)
+            if (r.category == cat && r.brand == brand) return &r;
+        return nullptr;
     }
 
     void new_remote() {
@@ -353,19 +362,36 @@ private:
         list_.finish();
     }
 
+    // One kind: Universal at the top, then its brands A to Z.
     void build_brands() {
-        std::vector<std::pair<std::string, int>> brands;
+        std::vector<std::pair<std::string, std::vector<const ir::RemoteRef*>>> brands;
         for (auto& r : index_) {
             if (r.category != page_.category) continue;
-            if (brands.empty() || brands.back().first != r.brand) brands.push_back({r.brand, 0});
-            brands.back().second++;
+            if (brands.empty() || brands.back().first != r.brand) brands.push_back({r.brand, {}});
+            brands.back().second.push_back(&r);
         }
+        std::stable_sort(brands.begin(), brands.end(),
+                         [](const auto& a, const auto& b) { return lower(a.first) < lower(b.first); });
         list_page(ir::display(page_.category), std::to_string(brands.size()) + " brands");
         list_.set_empty_text("No brand matches");
+        std::string cat = page_.category;
+        if (const ir::RemoteRef* u = brand_remote(cat, "")) {
+            std::string path = db_ + "/brands/" + u->path;
+            row(LV_SYMBOL_SHUFFLE, "Universal: every brand", u->model + " remotes",
+                [this, cat, path] { go(nav(Page::Brand, cat, "", path)); });
+        }
         for (auto& b : brands) {
             std::string brand = b.first;
-            row(nullptr, brand, b.second > 1 ? std::to_string(b.second) : "",
-                [this, brand] { go(nav(Page::Models, page_.category, brand)); });
+            int n = int(b.second.size());
+            if (const ir::RemoteRef* br = brand_remote(cat, brand)) {
+                std::string path = db_ + "/brands/" + br->path;
+                row(nullptr, brand, std::to_string(n) + " remotes", [this, cat, brand, path] { go(nav(Page::Brand, cat, brand, path)); });
+            } else if (n == 1) {   // one remote: it is the brand's remote
+                std::string path = db_ + "/" + b.second[0]->path;
+                row(nullptr, brand, b.second[0]->model, [this, cat, brand, path] { go(nav(Page::Remote, cat, brand, path)); });
+            } else {
+                row(nullptr, brand, std::to_string(n) + " remotes", [this, cat, brand] { go(nav(Page::Models, cat, brand)); });
+            }
         }
         list_.finish();
     }
@@ -377,49 +403,6 @@ private:
             if (r.category != page_.category || r.brand != page_.brand) continue;
             row(nullptr, r.model, std::to_string(r.buttons) + " buttons",
                 [this, r] { go(nav(Page::Remote, r.category, r.brand, db_ + "/" + r.path, false)); });
-        }
-        list_.finish();
-    }
-
-    // Brand remotes: the kinds, AV first, then the brands of one.
-    void build_brand_kinds() {
-        static const char* order[] = {"TVs", "Projectors", "Monitors", "Touchscreen_Displays", "Digital_Signs",
-                                      "Projector_Screens", "Audio_and_Video_Receivers", "SoundBars", "Speakers",
-                                      "Blu-Ray", "DVD_Players", "Cable_Boxes", "Streaming_Devices",
-                                      "Videoconferencing", "Cameras", "Switchers_and_Scalers"};
-        auto rank = [](const std::string& n) {
-            int i = 0;
-            for (const char* o : order) {
-                if (n == o) return i;
-                ++i;
-            }
-            return i;
-        };
-        std::vector<std::pair<std::string, int>> kinds;
-        for (auto& r : brand_index_) {
-            if (kinds.empty() || kinds.back().first != r.category) kinds.push_back({r.category, 0});
-            kinds.back().second++;
-        }
-        std::stable_sort(kinds.begin(), kinds.end(),
-                         [&](const auto& a, const auto& b) { return rank(a.first) < rank(b.first); });
-        list_page("Brand remotes: pick the kind", "");
-        list_.set_empty_text("No kind matches");
-        for (auto& k : kinds) {
-            std::string cat = k.first;
-            row(LV_SYMBOL_DIRECTORY, ir::display(cat), std::to_string(k.second) + " brands",
-                [this, cat] { go(nav(Page::BrandList, cat)); });
-        }
-        list_.finish();
-    }
-
-    void build_brand_list() {
-        list_page(ir::display(page_.category) + ": pick the brand", "");
-        list_.set_empty_text("No brand matches");
-        for (auto& r : brand_index_) {
-            if (r.category != page_.category) continue;
-            std::string path = db_ + "/brands/" + r.path, brand = r.brand;
-            row(nullptr, brand, r.model + " remotes",
-                [this, path, brand] { go(nav(Page::Brand, page_.category, brand, path)); });
         }
         list_.finish();
     }
@@ -581,13 +564,9 @@ private:
         return ir::encode(s, w) && hal().ir_send(w);
     }
 
-    // Universal: the buttons on the left, what is being sent on the right.
+    // A brand (or Universal) remote: the buttons on the left, what is being sent on the right.
     void build_universal() {
-        if (page_.kind == Page::Brand) {
-            load_brand();
-        } else {
-            ir::load_universal(db_, page_.path, uni_);
-        }
+        load_brand();
         list_.build(root_, 2, 2, 132, kBodyH - 2);
         for (size_t i = 0; i < uni_.buttons.size(); ++i)
             row(nullptr, ir::pretty_name(uni_.buttons[i]), std::to_string(uni_.codes[i].size()), [this, i] { press(i); });
@@ -666,7 +645,7 @@ private:
 
     void load_brand() {
         uni_ = ir::Universal{};
-        uni_.name = page_.brand + " " + ir::display(page_.category);
+        uni_.name = (page_.brand.empty() ? "Universal" : page_.brand) + " " + ir::display(page_.category);
         std::vector<ir::Signal> sigs;
         ir::load(page_.path, sigs);
         for (auto& s : sigs) {
@@ -736,47 +715,27 @@ private:
     void update_universal() {
         if (!info_ || uni_.buttons.empty()) return;
         size_t b = size_t(std::clamp(page_.focus, 0, int(uni_.buttons.size()) - 1));
-        bool brand_page = page_.kind == Page::Brand;
         // Idle shows what Enter will do; otherwise what is being, or was, sent.
         const std::vector<ir::Signal>& codes = run_ == Run::Idle ? uni_.codes[b] : queue_;
         std::string button = ir::pretty_name(uni_.buttons[b]);
         int n = int(codes.size());
         int at = n ? std::clamp(pos_, 0, n - 1) : 0;
-        // Who uses the code: the brand on a universal list, the model on a brand remote.
-        std::string brand = !n ? ""
-                            : brand_page ? ir::display(ir::stem(codes[size_t(at)].source))
-                                         : ir::source_brand(codes[size_t(at)].source);
+        // Who uses the code: its remote, and on Universal its brand.
+        std::string from = !n ? "" : source_text(codes[size_t(at)].source);
         lv_bar_set_range(bar_, 0, std::max(1, n));
-        if (brand_page && (run_ == Run::Idle || run_ == Run::Stopped || run_ == Run::Sent)) {
-            update_brand(b, button, n, at, brand);
-            if (run_ != actions_run_) set_actions();
-            return;
-        }
         switch (run_) {
-            case Run::Idle:
-                lv_bar_set_value(bar_, 0, LV_ANIM_OFF);
-                lv_label_set_text(info_, (ir::display(uni_.name) + ": " + button).c_str());
-                lv_label_set_text(status_, fmt("Point at the device and send: %d codes go out, most common "
-                                               "first. Stop as soon as it reacts.", n).c_str());
-                break;
             case Run::Sending:
                 lv_bar_set_value(bar_, pos_ + 1, LV_ANIM_OFF);
                 lv_label_set_text(info_, fmt("%s  %d / %d", button.c_str(), at + 1, n).c_str());
-                lv_label_set_text(status_, brand.c_str());
-                break;
-            case Run::Stopped:
-                lv_bar_set_value(bar_, at + 1, LV_ANIM_OFF);
-                lv_label_set_text(info_, fmt("Stopped at %d / %d", at + 1, n).c_str());
-                lv_label_set_text(status_, (brand + "\nNot quite? Try the codes either side of it, or open " + brand +
-                                            "'s remotes.").c_str());
+                lv_label_set_text(status_, from.c_str());
                 break;
             case Run::Done:
                 lv_bar_set_value(bar_, n, LV_ANIM_OFF);
                 lv_label_set_text(info_, fmt("Sent all %d", n).c_str());
                 lv_label_set_text(status_, "No reaction? Go closer and aim at the device's front, or find its "
-                                           "remote under Browse.");
+                                           "remote under Search all remotes.");
                 break;
-            case Run::Sent: break;   // brand remotes only
+            default: update_brand(b, button, n, at, from); break;
         }
         if (run_ != actions_run_) set_actions();
     }
@@ -839,10 +798,11 @@ private:
                 update_universal();
                 return true;
             }
-            if ((key == 'o' || key == 'O') && page_.kind == Page::Universal) {
-                open_brand();
-                return true;
-            }
+            
+        }
+        if (key == 'm' || key == 'M') {
+            open_models();
+            return true;
         }
         if (page_.kind == Page::Brand && !lock_.empty()) {
             if (key == 'u' || key == 'U') {
@@ -868,15 +828,25 @@ private:
         return used;
     }
 
-    // The brand of the code it stopped on: its remotes.
-    void open_brand() {
-        if (run_ != Run::Stopped || uni_.buttons.empty()) return;
-        auto& codes = queue_;
-        if (codes.empty()) return;
-        const std::string& src = codes[size_t(std::clamp(pos_, 0, int(codes.size()) - 1))].source;
-        std::string cat = src.substr(0, src.find('/'));
+    // "Sony  KDL-46EX720" on Universal, "KDL-46EX720" on a brand: a remote a code came from.
+    std::string source_text(const std::string& src) const {
+        std::string model = ir::display(ir::stem(src));
         std::string brand = ir::source_brand(src);
-        if (!brand.empty()) go(nav(Page::Models, cat, brand));
+        if (!page_.brand.empty() || brand.empty()) return model;
+        return brand + "  " + model;
+    }
+
+    // The brand's models; on Universal, those of the brand of the code it
+    // stopped on, or last sent.
+    void open_models() {
+        std::string brand = page_.brand;
+        if (brand.empty() && !queue_.empty() && run_ != Run::Idle)
+            brand = ir::source_brand(queue_[size_t(std::clamp(pos_, 0, int(queue_.size()) - 1))].source);
+        if (brand.empty()) {
+            shell_toast("Find a code first: then M opens its brand's models");
+            return;
+        }
+        go(nav(Page::Models, page_.category, brand));
     }
 
     // --- text input (as in Media) -----------------------------------------
@@ -947,7 +917,6 @@ private:
     lv_obj_t* root_ = nullptr;
     std::string db_;
     std::vector<ir::RemoteRef> index_;
-    std::vector<std::string> universals_;
     std::vector<ir::RemoteRef> brand_index_;   // brands/index.tsv: model is the number of remotes
 
     Nav page_;

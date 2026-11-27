@@ -6,7 +6,7 @@ and works like Jellyfin's own apps: the near-black dark theme, the
 purple-to-blue logo, **cover art everywhere**, a home screen of card rows
 (My Media, Continue Watching, Next Up, what is new in each library), poster
 grids, a page for each album, film and episode, a search that finds as you
-type, and a now-playing bar along the bottom.
+type, a now-playing bar along the bottom, and a full player for music.
 
 Nothing waits on the server with the screen frozen: lists, searches and
 covers are fetched in the background and the screen fills in as they arrive.
@@ -158,6 +158,7 @@ On the **home screen**, letters are shortcuts:
 | Arrows | Move between cards and rows |
 | Enter | Open; play, on Continue Watching and Next Up |
 | F | Search |
+| Y | The player (Now playing), while music plays |
 | Space | Pause / resume the music |
 | N / P | Next / previous track |
 | + / - | Volume |
@@ -194,21 +195,44 @@ previous track.
 
 ## Playing music
 
-Playing a track queues the rest of the album or playlist after it. The playing
-track is marked with a speaker, and the bar along the bottom shows it with
-its cover, its time and a blue progress line. **Now playing** in the menu
-(**Tab**, then **Y**) opens the player: the cover large, the track, artist
-and album, and the time.
+Playing a track queues the rest of the album or playlist after it and opens
+the **player**, as Jellyfin's own apps do (Esc goes back to the list you
+played from). The playing track is marked with a speaker in its list, and
+while you look round the rest of the app the bar along the bottom shows it
+with its cover, its time and a blue progress line. **Y** on the home screen
+(or **Now playing** in any menu, Tab then Y) opens the player again.
+
+```
+ < Now playing                                   Q (J)
+ +----------+  Tunnel Lights
+ |          |  Synthwave Demos
+ |  cover   |  Night Drive · 2019
+ |          |  =====-----------------------
+ +----------+  0:42 / 2:52          |<  (||)  >|
+ Up next: Last Petrol Station - Synthwave Demos   2 of 4
+```
+
+The page takes the colour of the cover, fading to black, as Jellyfin's player
+stands on its blurred cover.
 
 | Key, in the player | Does |
 | --- | --- |
 | Space or Enter | Pause / resume |
-| Left / Right, or P / N | Previous / next track |
+| Left / Right, or P / N | Previous / next track. Previous past the first few seconds goes back to the start of the track, as in Jellyfin |
 | Up / Down, or + / - | Volume |
-| Tab | The menu: Open the album (A), Search (F), Stop music (T) |
+| Q | The queue: every track in order, the playing one marked. Enter plays from the one you pick and goes back to the player |
+| V | Add the track to your favourites, or take it off |
+| A | Open the track's album |
+| Backspace or Esc | Back |
+| Tab | The menu, with also: Shuffle the queue (S), Search (F), Stop music (T) |
+
+**Shuffle the queue** keeps the playing track first and shuffles the rest
+after it. ZeroShell's player takes a new queue only by starting it, so the
+playing track starts again from its beginning.
 
 The queue belongs to ZeroShell, not the app, so music carries on to the next
-track after you leave the app and while the screen is off. Wi-Fi stays on
+track after you leave the app and while the screen is off; come back and **Y**
+opens the player where it is, with its cover and what is up next. Wi-Fi stays on
 while something is playing. The media keys (Fn + Q, W, E) and a Bluetooth
 headset's or car's buttons work everywhere.
 
@@ -343,6 +367,8 @@ libraries, Continue Watching, what is new in a library).
 ## Limits
 
 - No subtitle or audio track choice (the server's defaults are used).
+- Music can't be fast-forwarded or rewound within a track (ZeroShell's player
+  has no seek for streams yet); video can.
 - No photos, e-books or Live TV; people and genres aren't in the search.
 - Video needs Wi-Fi that keeps up with about 1 Mbit/s.
 - Names in scripts the built-in font lacks (Chinese, Japanese, Cyrillic...)
@@ -392,7 +418,8 @@ Tests, all run in CI:
   server. It signs in over real HTTP and checks what the app asked for and
   what it drew: the token in every request's header and in no address, the
   covers on the screen and kept for the next visit, a library of 230 in three
-  pages, one search request for each kind of thing, a favourite reaching the
+  pages, one search request for each kind of thing, playing a track opening
+  the player with its cover and the queue picking another, a favourite reaching the
   server, signing out, a refused token, and a server from before 10.9.
 
 To try the app on a PC without a server, run the stand-in and sign in to it

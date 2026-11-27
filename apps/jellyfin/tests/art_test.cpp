@@ -191,6 +191,18 @@ static void test_demo() {
     demo_picture("x", Kind::Folder, 0, 10, a);
     CHECK(a.px.empty());
 
+    // The now-playing page's colour: the cover's, dark.
+    Pixels red;
+    red.w = red.h = 4;
+    red.px.assign(16, 0xF800);
+    CHECK(backdrop_for(red) == 0x400000);
+    Pixels dim;
+    dim.w = dim.h = 2;
+    dim.px.assign(4, uint16_t((4 << 11) | (8 << 5) | 4));   // already dark: kept as it is
+    uint32_t d = backdrop_for(dim);
+    CHECK((d >> 16) == 32 && ((d >> 8) & 0xFF) == 32 && (d & 0xFF) == 32);
+    CHECK(backdrop_for(Pixels{}) == 0);
+
     // One of five colours, the same for a name every time.
     CHECK(tint_for("Albums") == tint_for("Albums"));
     bool differ = false;

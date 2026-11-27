@@ -16,7 +16,10 @@
 //   Details   Control: a film or episode. Left / Right choose a button,
 //             Enter presses it; R from the start, W watched, V favourite
 //   Search    Text: results arrive as you type, a row for each kind of thing
-//   Playing   Control: the track that is playing, with its cover
+//   Playing   Control: the track that is playing: its cover large, on a page
+//             tinted with it; Space pause, Left / Right previous / next,
+//             Up / Down volume, Q the queue, V favourite. It opens when you
+//             play music; Y on Home opens it again
 //   Video     Control: Enter or Space pause, Left / Right -/+10 s, Up / Down
 //             +/-1 min, R from the start, M on the TV (or back), S or Esc stop
 // Fn + Q / W / E, the keyboard's media keys, work everywhere.
@@ -195,6 +198,19 @@ Item pseudo(const std::string& name, const std::string& what) {
     return it;
 }
 
+// The music the app queued, as the server described it: each track's name,
+// album and cover, and the queue in order. It outlives the app's screen
+// (the module stays loaded while ZeroShell runs), so leaving Jellyfin and
+// coming back still finds the queue and the covers of what is playing.
+struct MusicState {
+    std::vector<Item> queue;
+    std::unordered_map<std::string, Item> by_url;   // stream address -> track
+};
+MusicState& music() {
+    static MusicState m;
+    return m;
+}
+
 class JellyfinApp : public App {
 public:
     ~JellyfinApp() override {
@@ -257,7 +273,7 @@ public:
         switch (key) {
             case kKeyPlayPause: pause(); return true;
             case kKeyNextTrack: player_step(+1); return true;
-            case kKeyPrevTrack: player_step(-1); return true;
+            case kKeyPrevTrack: previous(); return true;
         }
         Level* l = top();
         if (!l) return home_key(key);
@@ -307,6 +323,7 @@ private:
         Item parent;                // Tracks: the album or playlist. Detail: the item itself
         int focus = -1;             // the card or row to select when it is drawn
         std::string typed;          // Tracks: what was typed to narrow the list
+        bool queue = false;         // Tracks: the play queue, not an album
         // Detail: the list it was opened from, so an episode can go on to the next.
         std::vector<Item> siblings;
         int at = 0;
@@ -671,6 +688,7 @@ private:
     void update_header() {
         Level* l = top();
         bool home = !l, search = l && l->type == Level::Search;
+        lv_obj_set_style_bg_color(header_, c(kJfBg), 0);   // the player tints it
         vis(logo_, home);
         vis(word_, home);
         vis(back_, !home);
@@ -712,7 +730,7 @@ private:
         Level* l = top();
         const bool playing = !hal().playback().path.empty();
         auto common = [&] {
-            a.push_back({"Now playing", 'y', nullptr, [this] { open_playing(); }, playing});
+            if (top()) a.push_back({"Now playing", 'y', nullptr, [this] { open_playing(); }, playing});
             a.push_back({tv_wanted() ? "Play on TV: On" : "Play on TV: Off", 'e', nullptr, [this] {
                 prefs::set_int("jellyfin.tv", tv_wanted() ? 0 : 1);
                 shell_toast(tv_wanted() ? "Videos play on a TV when one is plugged in" : "Videos play on this screen");
@@ -726,6 +744,8 @@ private:
         if (!l) {
             a.push_back({"Open", 0, "Enter", nullptr});
             a.push_back({"Search", 'f', "F", [this] { open_search(); }});
+            // With music on, the bar says how to get to the player.
+            a.push_back({"Now playing", 'y', playing ? "Y" : nullptr, [this] { open_playing(); }, playing});
             a.push_back({"Pause", 0, "Space", nullptr});
             a.push_back({"Next", 'n', "N", [] { player_step(+1); }});
             a.push_back({"Previous", 'p', "P", [] { player_step(-1); }});
@@ -736,7 +756,7 @@ private:
             a.push_back({"Back", 0, "Esc", nullptr});
             a.push_back({"Pause", 'u', "Space", [this] { pause(); }});
             if (l->type == Level::Tracks) {
-                a.push_back({"Play all", 'a', nullptr, [this] { play_all(false); }});
+                a.push_back({l->queue ? "Play from the start" : "Play all", 'a', nullptr, [this] { play_all(false); }});
                 a.push_back({"Shuffle", 's', nullptr, [this] { play_all(true); }});
                 a.push_back({l->parent.favorite ? "Not a favourite" : "Favourite", 'v', nullptr,
                              [this] { toggle_favorite_parent(); }, !l->parent.id.empty()});
@@ -764,10 +784,16 @@ private:
             a.push_back({"Move", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr});
             common();
         } else {   // Playing
+            const bool fav = play_.item.favorite;
             a.push_back({"Pause", 0, "Space", nullptr});
-            a.push_back({"Previous", 'p', "P", [] { player_step(-1); }});
-            a.push_back({"Next", 'n', "N", [] { player_step(+1); }});
+            a.push_back({"Skip", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
+            a.push_back({"Queue", 'q', "Q", [this] { open_queue(); }});
+            a.push_back({"Previous", 'p', nullptr, [this] { previous(); }});
+            a.push_back({"Next", 'n', nullptr, [] { player_step(+1); }});
             a.push_back({"Volume", 0, "+ -", nullptr});
+            a.push_back({fav ? "Not a favourite" : "Favourite", 'v', nullptr, [this] { playing_favorite(); },
+                         !play_.item.id.empty()});
+            a.push_back({"Shuffle the queue", 's', nullptr, [this] { shuffle_queue(); }, queue_.size() > 1});
             a.push_back({"Open the album", 'a', nullptr, [this] { open_playing_album(); }});
             a.push_back({"Search", 'f', nullptr, [this] { open_search(); }});
             a.push_back({"Stop music", 't', nullptr, [this] {
@@ -1050,6 +1076,7 @@ private:
             case 'n': case 'N': player_step(+1); return true;
             case 'p': case 'P': player_step(-1); return true;
             case 'f': case 'F': open_search(); return true;
+            case 'y': case 'Y': open_playing(); return true;
             case '+': case '=':
                 h.set_volume(std::min(100, h.volume() + 5));
                 return true;
@@ -1074,6 +1101,9 @@ private:
             home_loaded_ = false;
             home_loading_ = false;
             load_home();
+            show();
+        } else if (l->type == Level::Tracks && l->queue) {
+            l->items = queue_;
             show();
         } else if (l->type == Level::Grid || l->type == Level::Tracks) {
             reload(*l);
@@ -1413,7 +1443,7 @@ private:
         int x = 4;
         if (cover) {
             // The cover, and under it who and when.
-            int side = std::min(68, page_h() - 34);
+            int side = std::min(68, page_h() - 37);
             build_side(l.parent, Shape::Square, side, side);
             lv_obj_set_x(side_.box, 4 + (kSideW - side) / 2);
             lv_obj_t* who = dots_label(page_, &zs_font_12, kJfText, kSideW, 1);
@@ -1510,13 +1540,53 @@ private:
             q.push_back({url, t.name, t.detail, t.duration_s, header});
         }
         queue_ = tracks;
-        if (!player_play(std::move(q), at)) shell_toast("Can't play " + tracks[size_t(at)].name);
-        show();
+        if (!player_play(std::move(q), at)) {
+            shell_toast("Can't play " + tracks[size_t(at)].name);
+            show();
+            return;
+        }
+        // As in Jellyfin's own apps, starting music shows its player. Esc
+        // goes back to the list it was started from.
+        open_playing();
+    }
+
+    // Start the queue the app knows (queue_) again at `at`: a track picked in
+    // the queue, or the one playing from its start.
+    bool start_queue(int at) {
+        if (at < 0 || at >= int(queue_.size())) return false;
+        std::vector<QueueItem> q;
+        const std::string header = auth();
+        for (const Item& t : queue_) {
+            std::string url = jf::stream_url(jf_, t.id);
+            by_url_[url] = t;
+            q.push_back({url, t.name, t.detail, t.duration_s, header});
+        }
+        return player_play(std::move(q), at);
+    }
+
+    // Where the track that is playing is in queue_; -1 if the app didn't
+    // queue it (another app did, or the queue changed since).
+    int queue_at() const {
+        const QueueItem* q = player_current();
+        if (!q) return -1;
+        for (size_t i = 0; i < queue_.size(); ++i)
+            if (jf::stream_url(jf_, queue_[i].id) == q->path) return int(i);
+        return -1;
+    }
+
+    // Previous, as in Jellyfin: past the first few seconds, back to the start
+    // of this track; otherwise the one before.
+    void previous() {
+        PlaybackState pb = hal().playback();
+        int at = queue_at();
+        if (pb.pos_ms > 4000 && at >= 0 && start_queue(at)) return;
+        player_step(-1);
     }
 
     void play_all(bool shuffle) {
         Level* l = top();
         if (!l || l->type != Level::Tracks) return;
+        if (l->queue) l->items = queue_;
         const std::vector<Item> items = l->items;
         for (size_t i = 0; i < items.size(); ++i)
             if (items[i].kind == Kind::Track) {
@@ -1934,43 +2004,119 @@ private:
 
     struct PlayingView {
         lv_obj_t *title = nullptr, *artist = nullptr, *album = nullptr, *bar = nullptr, *time = nullptr,
-                 *state = nullptr, *next = nullptr;
-        std::string path;   // the track on show
+                 *state = nullptr, *state_box = nullptr, *next = nullptr, *count = nullptr;
+        std::string path;    // the track on show
         Item item;
+        bool tinted = false; // the page has its cover's colour
+        int next_at = -2;    // the queue position "Up next" was drawn for
     };
 
+    // The player, on top. One at a time: another further down goes, so Esc
+    // leads back through the lists, not through old players.
     void open_playing() {
         if (hal().playback().path.empty()) {
             shell_toast("Nothing is playing");
             return;
         }
-        if (Level* l = top(); l && l->type == Level::Playing) return;
+        Level* l = top();
+        // A track picked in the queue: back to the player it was opened from.
+        if (l && l->type == Level::Tracks && l->queue) {
+            stack_.pop_back();
+            l = top();
+        }
+        if (l && l->type == Level::Playing) {
+            show();
+            return;
+        }
+        save_focus();
+        stack_.erase(std::remove_if(stack_.begin(), stack_.end(),
+                                    [](const std::unique_ptr<Level>& x) { return x->type == Level::Playing; }),
+                     stack_.end());
         push(Level::Playing, "Now playing");
         show();
     }
 
+    // The queue, as a list: Enter plays from that track.
+    void open_queue() {
+        if (queue_.empty() || queue_at() < 0) {
+            shell_toast("The queue isn't known: it was started elsewhere");
+            return;
+        }
+        Level& l = push(Level::Tracks, fmt("Queue (%zu)", queue_.size()));
+        l.queue = true;
+        l.items = queue_;
+        l.focus = queue_at();
+        show();
+    }
+
+    void shuffle_queue() {
+        int at = queue_at();
+        if (at < 0 || queue_.size() < 2) return;
+        // The track playing goes first and carries on; the rest are shuffled after it.
+        Item now = queue_[size_t(at)];
+        queue_.erase(queue_.begin() + at);
+        std::mt19937 rng{std::random_device{}()};
+        std::shuffle(queue_.begin(), queue_.end(), rng);
+        queue_.insert(queue_.begin(), now);
+        // ZeroShell's player takes a new queue only by starting it, so the
+        // track playing starts again from its beginning (paused if it was).
+        PlaybackState pb = hal().playback();
+        bool paused = pb.paused;
+        if (start_queue(0) && paused) hal().set_paused(true);
+        play_.next_at = -2;
+        shell_toast("Queue shuffled");
+        show();
+    }
+
+    void playing_favorite() {
+        if (play_.item.id.empty()) return;
+        set_flag(play_.item, true, !play_.item.favorite);
+        play_.path.clear();   // draw it again with the new mark
+        show();
+    }
+
     void build_playing() {
-        const int side = 96, x = side + 18, w = kScreenW - x - 8;
+        constexpr int kCover = 92, x = kCover + 18, w = kScreenW - x - 8;
         play_ = PlayingView{};
         play_.title = dots_label(page_, &zs_font_16, kJfText, w, 2);
-        lv_obj_set_pos(play_.title, x, 6);
-        play_.artist = dots_label(page_, &zs_font_14, kJfDim, w, 1);
-        lv_obj_set_pos(play_.artist, x, 46);
+        lv_obj_set_pos(play_.title, x, 2);
+        play_.artist = dots_label(page_, &zs_font_14, 0xd0d0d0, w, 1);
+        lv_obj_set_pos(play_.artist, x, 39);
         play_.album = dots_label(page_, &zs_font_12, kJfDim, w, 1);
-        lv_obj_set_pos(play_.album, x, 63);
+        lv_obj_set_pos(play_.album, x, 56);
         play_.bar = thin_bar(page_, w, 3, kJfBlue);
-        lv_obj_set_style_bg_color(play_.bar, c(kJfRaised), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(play_.bar, c(0x505050), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(play_.bar, LV_OPA_COVER, LV_PART_MAIN);
         lv_bar_set_range(play_.bar, 0, 1000);
-        lv_obj_set_pos(play_.bar, x, 82);
-        play_.state = label(page_, LV_SYMBOL_PLAY, &zs_font_14, kJfBlue);
-        lv_obj_set_pos(play_.state, x, 90);
+        lv_obj_set_pos(play_.bar, x, 74);
         play_.time = label(page_, "", &zs_font_12, kJfDim);
-        lv_obj_set_pos(play_.time, x + 18, 91);
-        play_.next = dots_label(page_, &zs_font_12, kJfDim, kScreenW - 16, 1);
-        lv_obj_set_pos(play_.next, 8, 0);
-        vis(play_.next, false);
+        lv_obj_set_pos(play_.time, x, 80);
+        // The buttons, as Jellyfin draws them: previous, play or pause in a
+        // blue circle, next. The keys are on the bar below.
+        lv_obj_t* next = label(page_, LV_SYMBOL_NEXT, &zs_font_14, kJfText);
+        lv_obj_set_pos(next, kScreenW - 8 - 14, 79);
+        play_.state_box = panel(page_, kScreenW - 8 - 14 - 26, 77, 20, 20, kJfBlue, LV_RADIUS_CIRCLE);
+        play_.state = label(play_.state_box, LV_SYMBOL_PAUSE, &zs_font_12, kJfText);
+        lv_obj_center(play_.state);
+        lv_obj_t* prev = label(page_, LV_SYMBOL_PREV, &zs_font_14, kJfText);
+        lv_obj_set_pos(prev, kScreenW - 8 - 14 - 26 - 22, 79);
+        // Under it all: what comes next, and where this is in the queue.
+        play_.next = dots_label(page_, &zs_font_12, kJfDim, kScreenW - 16 - 56, 1);
+        lv_obj_set_pos(play_.next, 8, 100);
+        play_.count = label(page_, "", &zs_font_12, kJfDim);
+        lv_obj_set_width(play_.count, 52);
+        lv_obj_set_style_text_align(play_.count, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_pos(play_.count, kScreenW - 8 - 52, 100);
         update_playing(false);
+    }
+
+    // The page and the header take the colour of the cover, fading to
+    // black, as Jellyfin's player stands on its blurred cover.
+    void tint_playing(uint32_t color) {
+        lv_obj_set_style_bg_color(header_, c(color), 0);
+        lv_obj_set_style_bg_color(page_, c(color), 0);
+        lv_obj_set_style_bg_grad_color(page_, c(kJfBg), 0);
+        lv_obj_set_style_bg_grad_dir(page_, LV_GRAD_DIR_VER, 0);
     }
 
     // The track changed, or its details came in: draw its cover and names.
@@ -1995,34 +2141,64 @@ private:
             play_.item = it;
             lv_label_set_text(play_.title, it.name.c_str());
             lv_label_set_text(play_.artist, it.detail.c_str());
-            lv_label_set_text(play_.album, it.album.c_str());
+            std::string album = it.album;
+            if (it.year > 0) album = dot(album, std::to_string(it.year));
+            if (it.favorite) album = dot(album, LV_SYMBOL_OK " Favourite");
+            lv_label_set_text(play_.album, album.c_str());
             if (side_.box) lv_obj_delete(side_.box);
             side_ = CardView{};
             side_shape_ = Shape::Square;
-            card_create(side_, page_, 8, 6, 96, 96, false);
+            card_create(side_, page_, 8, 4, 92, 92, false);
             card_bind(side_, it, "");
             card_load(side_, it, Shape::Square, art_);
             art_.flush();
+            play_.tinted = false;
+            play_.next_at = -2;
+            tint_playing(kJfBg);
+            set_actions();   // Favourite or not
         }
-        lv_label_set_text(play_.state, pb.paused ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+        // The cover came: the page takes its colour.
+        if (!play_.tinted && side_.art) {
+            play_.tinted = true;
+            tint_playing(backdrop_for(side_.art->px));
+        }
+        // Up next, from the queue the app started (it wraps round, as the player does).
+        const int at = queue_at(), n = int(queue_.size());
+        if (at != play_.next_at) {
+            play_.next_at = at;
+            if (at >= 0 && n > 1) {
+                const Item& nx = queue_[size_t((at + 1) % n)];
+                lv_label_set_text(play_.next, ("Up next: " + (nx.detail.empty() ? nx.name : nx.name + " - " + nx.detail)).c_str());
+                lv_label_set_text(play_.count, fmt("%d of %d", at + 1, n).c_str());
+            } else {
+                lv_label_set_text(play_.next, "");
+                lv_label_set_text(play_.count, "");
+            }
+        }
+        lv_label_set_text(play_.state, pb.paused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
+        lv_obj_center(play_.state);
         lv_label_set_text(play_.time, (mmss(pb.pos_ms) + " / " + mmss(pb.dur_ms)).c_str());
         lv_bar_set_value(play_.bar, pb.dur_ms > 0 ? int(1000LL * pb.pos_ms / pb.dur_ms) : 0, LV_ANIM_OFF);
     }
 
-    bool playing_key(uint32_t key) {
+    void change_volume(int by) {
         auto& h = hal();
+        h.set_volume(std::clamp(h.volume() + by, 0, 100));
+        shell_toast(fmt(LV_SYMBOL_VOLUME_MAX "  %d%%", h.volume()));
+    }
+
+    bool playing_key(uint32_t key) {
         switch (key) {
             case ' ':
             case LV_KEY_ENTER:
             case '\r': pause(); return true;
             case LV_KEY_RIGHT: case 'n': case 'N': player_step(+1); return true;
-            case LV_KEY_LEFT: case 'p': case 'P': player_step(-1); return true;
-            case LV_KEY_UP: case '+': case '=':
-                h.set_volume(std::min(100, h.volume() + 5));
-                return true;
-            case LV_KEY_DOWN: case '-': case '_':
-                h.set_volume(std::max(0, h.volume() - 5));
-                return true;
+            case LV_KEY_LEFT: case 'p': case 'P': previous(); return true;
+            case LV_KEY_UP: case '+': case '=': change_volume(+5); return true;
+            case LV_KEY_DOWN: case '-': case '_': change_volume(-5); return true;
+            case 'q': case 'Q': open_queue(); return true;
+            case 'v': case 'V': playing_favorite(); return true;
+            case 'a': case 'A': open_playing_album(); return true;
             case LV_KEY_BACKSPACE:
             case LV_KEY_DEL: back(); return true;
             case 'f': case 'F': open_search(); return true;
@@ -2627,8 +2803,8 @@ private:
     std::string typed_server_, typed_user_;
 
     // Music the app queued: what the server said about each track.
-    std::unordered_map<std::string, Item> by_url_;
-    std::vector<Item> queue_;
+    std::unordered_map<std::string, Item>& by_url_ = music().by_url;
+    std::vector<Item>& queue_ = music().queue;
     std::string asked_track_;
 
     // Video

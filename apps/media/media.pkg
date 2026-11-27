@@ -4,6 +4,6 @@
 # the shell's player (mpv, part of ZeroOS for Dock). Jellyfin moved to its own app; voice notes to the Recorder app.
 NAME="Media"
 SUMMARY="Classic MP3 player with a file explorer, pixel-art skins and Winamp skins: music from the SD card, USB drives and servers"
-APP_VERSION="3.4.0"
+APP_VERSION="3.5.0"
 DEPENDS="mpv"
 NEEDS="mpv"

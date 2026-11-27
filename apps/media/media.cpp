@@ -5,14 +5,20 @@
 // share is mounted (SMB, NFS, SSHFS), and http(s) addresses. Jellyfin has its
 // own app. Voice notes are in Recorder. Music only: video files aren't listed.
 //
-// Two tabs, Left / Right between them (docs/UX.md in the OS):
-//   Library   the explorer, a List screen: typing narrows the folder, 1 to 9
-//             pick a row, Enter opens or plays, Backspace goes up a folder,
-//             Space pauses while nothing is typed.
-//             Everything else is in the Tab menu (Ctrl + its letter).
-//   Player    a Control screen in the explorer's place: Enter or Space
-//             pause, Left / Right previous / next, S stop, H shuffle,
-//             T the next skin, + / - volume. Esc: the Library.
+// Two tabs (docs/UX.md in the OS):
+//   Library   the explorer, a List screen. It is the Music folder: Media
+//             opens there, and Backspace stops at its top. Typing narrows
+//             the folder, 1 to 9 pick a row, Enter opens or plays,
+//             Backspace goes up a folder, Space pauses while nothing is
+//             typed, Left / Right go to the Player. Everything else is in
+//             the Tab menu (Ctrl + its letter): drives, shares and
+//             addresses are under Other places there.
+//   Player    what is playing, a Control screen in the explorer's place:
+//             Enter or Space pause, Left / Right previous / next, S stop,
+//             H shuffle, T the next skin, + / - volume. Esc, L, Up or
+//             Down: the Library.
+// Starting anything (a track, a playlist, Play all) goes to the Player,
+// and Media opens on it while something plays.
 // Tracks are changed with the keyboard's media keys, Fn + Q (play / pause),
 // Fn + W (previous) and Fn + E (next), on both tabs and in every app; no
 // letters do it (Ctrl + N and Ctrl + P from the menu too).
@@ -141,6 +147,12 @@ bool is_dir(const std::string& path) {
     return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
+// path is root, or somewhere under it.
+bool under(const std::string& path, const std::string& root) {
+    if (root.empty() || path.rfind(root, 0) != 0) return false;
+    return path.size() == root.size() || root.back() == '/' || path[root.size()] == '/';
+}
+
 struct SkinChoice {
     std::string name;   // what the toast and the menu say
     std::string path;   // a Winamp skin's file or folder; "" for a built-in one
@@ -234,6 +246,11 @@ std::vector<Entry> mounted_places() {
     return v;
 }
 
+// What Media queued last, for "3/12" and what comes next. Not the app's own:
+// the queue plays on with Media closed, and the Player shows it on the way
+// back in.
+std::vector<std::string> g_queue_paths;
+
 class MediaApp : public App {
 public:
     ~MediaApp() override {
@@ -254,19 +271,29 @@ public:
             shell_toast("Skin " + skins_[size_t(skin_)].name + ": " + why);
             skin_ = 0;
         }
-        // Back where you were last time, if it is still there.
-        std::string last = prefs::get_str("media.folder", "");
-        std::string base = prefs::get_str("media.place", "");
-        if (!last.empty() && !base.empty() && is_dir(last) && last.rfind(base, 0) == 0) {
-            place_ = base;
-            cwd_ = last;
+        // The Library is the Music folder. (If it can't be made, the places.)
+        music_ = home_dir() + "/Music";
+        if (!is_dir(music_)) mkdir(music_.c_str(), 0755);
+        if (!is_dir(music_)) music_.clear();
+        place_ = cwd_ = music_;
+        // While something plays, Media opens on the Player, and the Library
+        // behind it is the folder that track is in.
+        std::string playing = hal().playback().path;
+        if (!playing.empty() && !is_url(playing)) {
+            std::string base = place_of(playing);
+            if (!base.empty() && is_dir(parent_of(playing))) {
+                place_ = base;
+                cwd_ = parent_of(playing);
+            }
         }
+        list_view_ = playing.empty();   // a skin's first screen
 
         build_player(std::move(first));
         anim_ = lv_timer_create([](lv_timer_t* t) { static_cast<MediaApp*>(lv_timer_get_user_data(t))->animate(); },
                                 60, this);
         set_actions();
-        load();
+        load(playing);
+        if (!playing.empty()) show_player();
     }
 
     void tick() override {
@@ -285,8 +312,8 @@ public:
 
         const QueueItem* q = player_current();
         int at = -1;
-        for (size_t i = 0; i < queue_paths_.size(); ++i)
-            if (queue_paths_[i] == pb.path) at = int(i);
+        for (size_t i = 0; i < g_queue_paths.size(); ++i)
+            if (g_queue_paths[i] == pb.path) at = int(i);
         std::string marquee;
         if (pb.path.empty()) {
             marquee = "ZeroOS Media  ***  " + skin_name() + "  ***  ";
@@ -301,7 +328,7 @@ public:
             shown_marquee_ = marquee;
         }
         lv_label_set_text(kind_, pb.path.empty() ? "---" : format_of(pb.path).c_str());
-        lv_label_set_text(pos_, at >= 0 ? fmt("%d/%zu", at + 1, queue_paths_.size()).c_str() : "-/-");
+        lv_label_set_text(pos_, at >= 0 ? fmt("%d/%zu", at + 1, g_queue_paths.size()).c_str() : "-/-");
         lv_obj_set_style_text_color(shuf_, c(shuffle_ ? kGreen : kGreenDim), 0);
         lv_bar_set_value(vol_, h.muted() ? 0 : h.volume(), LV_ANIM_OFF);
         int permille = pb.dur_ms > 0 ? int(1000LL * pb.pos_ms / pb.dur_ms) : 0;
@@ -354,11 +381,11 @@ public:
             rebuild_list();
             return true;
         }
-        if (!cwd_.empty()) {
+        if (can_go_up()) {
             up();
             return true;
         }
-        return false;
+        return false;   // the top of Music: Esc leaves Media
     }
 
 private:
@@ -603,7 +630,7 @@ private:
             // Short labels, so the bar keeps room for Tab Menu.
             a.push_back({"Pause", 0, "Enter", nullptr});
             a.push_back({"Track", 0, "Fn W E", nullptr});
-            a.push_back({"Library", 0, "Esc", nullptr});
+            a.push_back({"Library", 'l', "Esc", [this] { show_library(); }});
             a.push_back({"Play / pause", 0, "Fn Q", nullptr});
             a.push_back({"Play / pause", 0, "Space", nullptr});
             a.push_back({"Previous / next", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
@@ -616,8 +643,10 @@ private:
             a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
         } else {
             a.push_back({"Open", 0, "Enter", nullptr});
+            // "Player" on the bar, which is short of room; its name in the menu.
             a.push_back({"Player", 0, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT, nullptr});
-            if (!cwd_.empty()) a.push_back({"Up", 0, "Bksp", nullptr});
+            a.push_back({"Now playing", 'l', nullptr, [this] { show_player(); }});
+            if (can_go_up()) a.push_back({"Up", 0, "Bksp", nullptr});
             a.push_back({"Play all", 'a', nullptr, [this] {
                              flash(kPlay);
                              play_focused();
@@ -631,7 +660,7 @@ private:
             a.push_back({shuffle(), 'h', nullptr, [this] { toggle_shuffle(); }});
             a.push_back({skin(), 't', nullptr, [this] { next_skin(); }});
             a.push_back({"Open an address", 'o', nullptr, [this] { open_address(); }});
-            a.push_back({"Go to places", 'g', nullptr, [this] { go_places(); }});
+            a.push_back({"Other places", 'g', nullptr, [this] { go_places(); }});
             a.push_back({"Rescan", 'r', nullptr, [this] {
                              int i = focused_index();
                              load(i >= 0 && i < int(entries_.size()) ? entries_[size_t(i)].path : "");
@@ -685,6 +714,9 @@ private:
             case ' ': play_pause(); return true;
             case LV_KEY_RIGHT: next(); return true;
             case LV_KEY_LEFT: previous(); return true;
+            case 'l': case 'L':
+            case LV_KEY_UP:
+            case LV_KEY_DOWN: show_library(); return true;
             case 's': case 'S': stop(); return true;
             case 'h': case 'H': toggle_shuffle(); return true;
             case 't': case 'T': next_skin(); return true;
@@ -781,7 +813,11 @@ private:
         if (now_) lv_obj_delete(now_);
         now_ = nullptr;
         set_actions();
-        rebuild_list(back_to_, false);
+        // On what is playing, if it is in this folder; else the row we left.
+        std::string playing = hal().playback().path;
+        bool here = false;
+        for (auto& e : entries_) here = here || (!playing.empty() && e.path == playing);
+        rebuild_list(here ? playing : back_to_, false);
     }
 
     // The Player tab, where the explorer was: what is playing, in big
@@ -813,10 +849,10 @@ private:
             title = q ? q->title : stem(pb.path);
             artist = q ? q->artist : "";
             info = mmss(pb.pos_ms) + " / " + mmss(pb.dur_ms) + "   " + format_of(pb.path);
-            if (at >= 0) info += fmt("   %d of %zu", at + 1, queue_paths_.size());
+            if (at >= 0) info += fmt("   %d of %zu", at + 1, g_queue_paths.size());
             if (pb.paused) info += "   PAUSED";
-            if (at >= 0 && queue_paths_.size() > 1)
-                next = "Next: " + stem(queue_paths_[size_t(at + 1) % queue_paths_.size()]);
+            if (at >= 0 && g_queue_paths.size() > 1)
+                next = "Next: " + stem(g_queue_paths[size_t(at + 1) % g_queue_paths.size()]);
         }
         std::string all = title + '\n' + artist + '\n' + info + '\n' + next;
         if (all == now_shown_) return;   // ten times a second: only redraw what changed
@@ -853,7 +889,10 @@ private:
         };
         if (!cwd_.empty() && entries_.empty()) {
             add_note(is_dir(cwd_) ? "No music here" : "Can't open this folder");
-            if (place_ == home_dir() + "/Music") add_note("Copy music to ~/Music on the SD card");
+            if (cwd_ == music_) {
+                add_note("Copy music to ~/Music on the SD card");
+                add_note("Tab: other places (USB, shares)");
+            }
         }
         int files = 0, focus = -1, now = -1;
         for (size_t i = 0; i < entries_.size(); ++i) {
@@ -986,9 +1025,9 @@ private:
                 if (album != v.artist) v.album = album;
             }
             v.format = format_of(pb.path);
-            for (size_t i = 0; i < queue_paths_.size(); ++i)
-                if (queue_paths_[i] == pb.path) v.q_at = int(i);
-            if (v.q_at >= 0) v.q_n = int(queue_paths_.size());
+            for (size_t i = 0; i < g_queue_paths.size(); ++i)
+                if (g_queue_paths[i] == pb.path) v.q_at = int(i);
+            if (v.q_at >= 0) v.q_n = int(g_queue_paths.size());
         }
         v.shuffle = shuffle_;
         v.muted = h.muted();
@@ -1066,11 +1105,7 @@ private:
             entries_ = std::move(dirs);
             entries_.insert(entries_.end(), files.begin(), files.end());
         }
-        if (!cwd_.empty()) {
-            prefs::set_str("media.place", place_);
-            prefs::set_str("media.folder", cwd_);
-        }
-        set_actions();   // Backspace goes up a folder only in a folder
+        set_actions();   // Backspace goes up only where there is an up
         rebuild_list(focus, false);
     }
 
@@ -1180,7 +1215,10 @@ private:
         int shown_n = 0;
         if (!cwd_.empty() && entries_.empty()) {
             note(is_dir(cwd_) ? "No music here" : "Can't open this folder");
-            if (place_ == home_dir() + "/Music") note("Copy music to ~/Music on the SD card");
+            if (cwd_ == music_) {
+                note("Copy music to ~/Music on the SD card");
+                note("Tab: other places (USB, shares)");
+            }
         }
         for (size_t i = 0; i < entries_.size(); ++i) {
             const Entry& e = entries_[i];
@@ -1232,12 +1270,35 @@ private:
         return int((intptr_t)lv_obj_get_user_data(f));
     }
 
+    // The place a file is in: Music, Downloads, a drive or share, or (the
+    // widest, so last) the SD card. "" if it is in none of them.
+    std::string place_of(const std::string& path) const {
+        std::string home = home_dir(), widest;
+        for (auto& p : places()) {
+            if (p.type != Entry::Place || !under(path, p.path)) continue;
+            if (p.path != home) return p.path;
+            widest = home;
+        }
+        return widest;
+    }
+
+    // Backspace and Esc have somewhere to go: anywhere but the top of Music.
+    bool can_go_up() const { return cwd_ != music_; }
+
+    // The other places music can be: Tab > Other places.
     void go_places() {
         std::string was = place_;
         cwd_.clear();
         place_.clear();
         filter_.clear();
         load(was);
+        // From Music, it is the others that were asked for: on the first of them.
+        if (was == music_ && entries_.size() > 1 && entries_[0].path == music_) rebuild_list(entries_[1].path, false);
+    }
+
+    void open_place(const std::string& path) {
+        place_ = path;
+        open_dir(path);
     }
 
     void open_dir(const std::string& path) {
@@ -1246,10 +1307,15 @@ private:
         load();
     }
 
-    // Up a folder; from the top of a place, back to the places.
+    // Up a folder. The top of Music is the top. From the top of another
+    // place, the places; from the places, back to Music.
     void up() {
-        if (cwd_.empty()) return;
+        if (!can_go_up()) return;
         if (!filter_.empty()) filter_.clear();
+        if (cwd_.empty()) {
+            open_place(music_);
+            return;
+        }
         if (cwd_ == place_) {
             go_places();
             return;
@@ -1268,8 +1334,8 @@ private:
             std::shuffle(q.begin() + 1, q.end(), std::mt19937(std::random_device{}()));
             at = 0;
         }
-        queue_paths_.clear();
-        for (auto& x : q) queue_paths_.push_back(x.path);
+        g_queue_paths.clear();
+        for (auto& x : q) g_queue_paths.push_back(x.path);
         return q;
     }
 
@@ -1279,9 +1345,11 @@ private:
             return;
         }
         q = arrange(std::move(q), at);
-        if (!player_play(std::move(q), at)) shell_toast("Can't play " + name);
-        else if (queue_paths_.size() > 1) shell_toast(fmt("Playing %zu tracks", queue_paths_.size()));
+        bool ok = player_play(std::move(q), at);
+        if (!ok) shell_toast("Can't play " + name);
+        else if (g_queue_paths.size() > 1) shell_toast(fmt("Playing %zu tracks", g_queue_paths.size()));
         rebuild_list();
+        if (ok) show_player();   // what you picked, playing: Esc comes back to the list
     }
 
     // The artist: the folder two up from a track (Artist/Album/track), or
@@ -1357,8 +1425,7 @@ private:
                         return;
                     }
                 }
-                place_ = e.path;
-                open_dir(e.path);
+                open_place(e.path);
                 break;
             case Entry::Address: open_address(); break;
             case Entry::Dir: open_dir(e.path); break;
@@ -1515,11 +1582,11 @@ private:
     bool playing_ = false;
     std::string shown_marquee_;
 
+    std::string music_;                // ~/Music: the Library's top ("" if it can't be made)
     std::string place_;                // the place we are in ("" on the places screen)
     std::string cwd_;                  // the folder shown, "" for the places
     std::vector<Entry> entries_;
     std::string filter_;               // the search, within this folder
-    std::vector<std::string> queue_paths_;   // what we queued, for "3/12"
     bool shuffle_ = false;
     std::vector<SkinChoice> skins_;    // what T steps through
     int skin_ = 0;                     // skins_[skin_]; 0 is the classic look

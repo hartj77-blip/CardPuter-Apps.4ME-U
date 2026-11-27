@@ -2,6 +2,11 @@
 //
 //   USB stick mode   the Cardputer shows up as a USB stick holding ~/Music;
 //                    the car plays the files and its own buttons work.
+//   USB live sound   a USB stick whose songs are whatever plays here now
+//                    (a phone's music, Media, Jellyfin), a few seconds
+//                    behind; the car's skip and pause reach the player.
+//   iPod mode        the same sound without the delay, to a stereo that
+//                    takes an iPod on its USB socket.
 //   Bluetooth        the Cardputer plays (Jellyfin too) and the car, a
 //                    speaker or headphones is the loudspeaker; the car's
 //                    play and skip buttons drive the play queue.
@@ -14,16 +19,18 @@
 // right. While a phone is connected, a "now playing" card runs across the
 // top (the song, the artist and the phone, how far in), the phone's row
 // comes first, and Enter on it plays and pauses; the menu skips.
-// Otherwise Enter turns USB stick mode on or off, or connects and
-// disconnects a device; the menu (Tab) has Forget, which asks first (Del
+// Otherwise Enter turns a USB mode on or off (one at a time: they share the
+// one USB device port), or connects and disconnects a device; the menu (Tab) has Forget, which asks first (Del
 // does the same).
 #include "apps/common.h"
 #include "ui/list_view.h"
 #include "apps/kit/look.h"
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <chrono>
+#include <fstream>
 #include <map>
 
 #include "phone_player.h"
@@ -35,6 +42,30 @@ using namespace theme;
 constexpr int kListW = 184;
 constexpr int kNowH = 40;   // the now playing card
 namespace phone = car_phone;
+
+// The USB modes. zeroos-usb-stick.service (files/zeroos-usb-stick) sets up
+// the one named in ~/.config/zeroos/car-usb and says which is on in
+// /run/zeroos/usb-stick.mode.
+enum class UsbMode { Files, Live, Ipod };
+constexpr UsbMode kUsbModes[] = {UsbMode::Files, UsbMode::Live, UsbMode::Ipod};
+const char* usb_word(UsbMode m) { return m == UsbMode::Live ? "live" : m == UsbMode::Ipod ? "ipod" : "files"; }
+const char* usb_name(UsbMode m) {
+    return m == UsbMode::Live ? "USB live sound" : m == UsbMode::Ipod ? "iPod mode" : "USB stick mode";
+}
+// Its row: short, so "In use" fits beside it.
+const char* usb_row(UsbMode m) { return m == UsbMode::Live ? "USB live" : m == UsbMode::Ipod ? "USB iPod" : "USB stick"; }
+UsbMode usb_from(const std::string& word) {
+    for (UsbMode m : kUsbModes)
+        if (word == usb_word(m)) return m;
+    return UsbMode::Files;
+}
+
+std::string first_word(const std::string& path) {
+    std::ifstream f(path);
+    std::string w;
+    f >> w;
+    return w;
+}
 
 class CarApp : public App {
 public:
@@ -58,7 +89,9 @@ public:
         // installed or updated): restarts it once.
         phone::apply_sound_settings();
         devices_ = hal().bt_devices();
+        asked_ = usb_from(first_word(usb_mode_path()));
         stick_ = hal().usb_stick();
+        mode_ = usb_mode();
         find_phone();
         poll_phone();
         rebuild(0);
@@ -67,10 +100,14 @@ public:
     void tick() override {
         if (++n_ % 10 == 0) {   // once a second
             UsbStickStatus st = hal().usb_stick();
-            bool changed = st.state != stick_.state || st.percent != stick_.percent;
+            UsbMode mode = usb_mode();
+            bool changed = st.state != stick_.state || st.percent != stick_.percent || mode != mode_;
             stick_ = st;
+            mode_ = mode;
             if (changed) {
-                list_.set_value(usb_row_, usb_value());
+                for (size_t i = 0; i < rows_.size(); ++i)
+                    if (rows_[i].kind == Row::Usb) list_.set_value(int(i), usb_value(rows_[i].usb));
+                show_now();   // where the sound goes
                 show_panel(focused());
                 set_actions();
             }
@@ -101,17 +138,53 @@ private:
     struct Row {
         enum Kind { Usb, Device, AddPhone, Scan, Visible } kind;
         BtDevice dev;
+        UsbMode usb = UsbMode::Files;   // Kind::Usb: which mode
     };
 
-    std::string usb_value() const {
-        switch (stick_.state) {
+    // --- The USB modes. One is on at a time.
+    static std::string usb_mode_path() { return home_dir() + "/.config/zeroos/car-usb"; }
+
+    // The mode the service is in; without it (the simulator), the one last asked for.
+    UsbMode usb_mode() const {
+        std::string on = first_word("/run/zeroos/usb-stick.mode");
+        return on.empty() ? asked_ : usb_from(on);
+    }
+
+    // The service's state as far as this mode goes: Off unless it is the one that is on.
+    UsbStickStatus::State usb_state(UsbMode m) const { return m == mode_ ? stick_.state : UsbStickStatus::Off; }
+
+    std::string usb_value(UsbMode m) const {
+        switch (usb_state(m)) {
             case UsbStickStatus::Off: return "Off";
-            case UsbStickStatus::Building: return fmt("%d%%", stick_.percent);
+            case UsbStickStatus::Building: return m == UsbMode::Files ? fmt("%d%%", stick_.percent) : "...";
             case UsbStickStatus::Ready: return "On";
             case UsbStickStatus::Attached: return "In use";
             case UsbStickStatus::Error: return "Failed";
         }
         return "";
+    }
+
+    bool usb_on(UsbMode m) const {
+        UsbStickStatus::State s = usb_state(m);
+        return s != UsbStickStatus::Off && s != UsbStickStatus::Error;
+    }
+
+    // Turns this mode on (and whichever was on, off), or off if it is on.
+    void usb_toggle(UsbMode m) {
+        if (usb_on(m)) {
+            hal().usb_stick_stop();
+            shell_toast(std::string(usb_name(m)) + " off");
+        } else {
+            if (stick_.state != UsbStickStatus::Off) hal().usb_stick_stop();
+            std::string dir = home_dir() + "/.config";
+            mkdir(dir.c_str(), 0755);
+            mkdir((dir + "/zeroos").c_str(), 0755);
+            std::ofstream(usb_mode_path()) << usb_word(m) << "\n";
+            asked_ = m;
+            hal().usb_stick_start();
+            shell_toast(std::string(usb_name(m)) + " on");
+        }
+        n_ = 5;   // look at the result soon
     }
 
     bool can_forget(int i) const {
@@ -187,9 +260,11 @@ private:
                rows_[size_t(i)].dev.connected && rows_[size_t(i)].dev.address == phone_addr_;
     }
 
-    // Where a phone's music comes out: a Bluetooth car or speaker that is
-    // connected too, else the headphone jack (or the speaker).
+    // Where a phone's music comes out: the car over USB while USB live
+    // sound is on, a Bluetooth car or speaker that is connected too, else
+    // the headphone jack (or the speaker).
     std::string sound_goes_to() const {
+        if (usb_on(UsbMode::Live) || usb_on(UsbMode::Ipod)) return "USB";
         for (auto& d : devices_)
             if (d.connected && d.address != phone_addr_) {
                 auto it = phone_.find(d.address);
@@ -216,10 +291,7 @@ private:
         if (i >= 0 && i < int(rows_.size())) {
             const Row& r = rows_[size_t(i)];
             switch (r.kind) {
-                case Row::Usb:
-                    enter = stick_.state == UsbStickStatus::Off || stick_.state == UsbStickStatus::Error ? "Turn on"
-                                                                                                       : "Turn off";
-                    break;
+                case Row::Usb: enter = usb_on(r.usb) ? "Turn off" : "Turn on"; break;
                 case Row::Device:
                     enter = is_connected_phone(i) ? (track_.playing() ? "Pause" : "Play")
                             : r.dev.connected     ? "Disconnect"
@@ -283,8 +355,7 @@ private:
         // The connected phone first: it's what you came for.
         for (auto& d : devices_)
             if (d.connected && d.address == phone_addr_) add_device(d);
-        usb_row_ = int(rows_.size());
-        add(LV_SYMBOL_USB, "USB stick mode", usb_value(), {Row::Usb, {}});
+        for (UsbMode m : kUsbModes) add(LV_SYMBOL_USB, usb_row(m), usb_value(m), {Row::Usb, {}, m});
         for (auto& d : devices_)
             if (!(d.connected && d.address == phone_addr_)) add_device(d);
         add(LV_SYMBOL_PLUS, "Add a phone", "", {Row::AddPhone, {}});
@@ -402,6 +473,7 @@ private:
     int focused() const { return list_.focused(); }
 
     static std::string row_key(const Row& r) {
+        if (r.kind == Row::Usb) return std::string("u") + usb_word(r.usb);
         return r.kind == Row::Device ? "d" + r.dev.address : std::to_string(int(r.kind));
     }
 
@@ -412,26 +484,38 @@ private:
         std::string head, help;
         uint32_t color = kText;
         switch (r.kind) {
-            case Row::Usb:
-                switch (stick_.state) {
+            case Row::Usb: {
+                // What the panel says in each state, for each mode.
+                bool live = r.usb == UsbMode::Live, ipod = r.usb == UsbMode::Ipod;
+                switch (usb_state(r.usb)) {
                     case UsbStickStatus::Off:
-                        head = "USB stick";
-                        help = "The car plays ~/Music as if from a USB stick.\nSwitch on the left: Slave. Cable in the "
-                               "right USB-C port.";
+                        head = usb_name(r.usb);
+                        help = ipod   ? "The car takes this for an iPod: no delay."
+                               : live ? "The car plays what plays here, a few seconds late."
+                                      : "The car plays ~/Music as if from a USB stick.";
+                        help += "\nSwitch on the left: Slave. Cable in the right USB-C port.";
                         break;
                     case UsbStickStatus::Building:
-                        head = fmt("Copying %d%%", stick_.percent);
-                        help = "Making the stick from ~/Music. Only needed when the music changed.";
+                        head = live || ipod ? "Starting" : fmt("Copying %d%%", stick_.percent);
+                        help = live || ipod ? "Getting the sound ready."
+                                            : "Making the stick from ~/Music. Only needed when the music changed.";
                         color = kWarn;
                         break;
                     case UsbStickStatus::Ready:
                         head = "Ready";
-                        help = "Plug the right USB-C port into the car. Switch on the left: Slave.";
+                        help = ipod   ? "Plug the right USB-C port into the car and pick iPod or USB on it. Switch on the "
+                                        "left: Slave."
+                               : live ? "Plug the right USB-C port into the car and pick USB on it. Switch on the left: "
+                                        "Slave."
+                                      : "Plug the right USB-C port into the car. Switch on the left: Slave.";
                         color = kGood;
                         break;
                     case UsbStickStatus::Attached:
                         head = "In use";
-                        help = "The car is reading the stick. Use the car's buttons.";
+                        help = ipod   ? "The car has taken it up. Sound here goes to the car, and its buttons work."
+                               : live ? "Play \"Live sound\" on the car. Its skip and pause buttons work; sound here "
+                                        "goes to the car."
+                                      : "The car is reading the stick. Use the car's buttons.";
                         color = kGood;
                         break;
                     case UsbStickStatus::Error:
@@ -441,6 +525,7 @@ private:
                         break;
                 }
                 break;
+            }
             case Row::Device:
                 head = r.dev.name;
                 color = r.dev.connected ? kGood : kText;
@@ -500,14 +585,7 @@ private:
         const Row r = rows_[i];   // a copy: rebuilding replaces rows_
         switch (r.kind) {
             case Row::Usb:
-                if (stick_.state == UsbStickStatus::Off || stick_.state == UsbStickStatus::Error) {
-                    hal().usb_stick_start();
-                    shell_toast("USB stick mode on");
-                } else {
-                    hal().usb_stick_stop();
-                    shell_toast("USB stick mode off");
-                }
-                n_ = 5;   // look at the result soon
+                usb_toggle(r.usb);
                 return;
             case Row::Device:
                 if (is_connected_phone(i)) {
@@ -568,7 +646,6 @@ private:
     lv_obj_t* now_time_ = nullptr;
     lv_obj_t* now_bar_ = nullptr;
     std::chrono::steady_clock::time_point track_at_;
-    int usb_row_ = 0;
     std::string shown_phone_;   // the phone the list was last built with
     std::vector<Row> rows_;
     std::vector<BtDevice> devices_;
@@ -576,7 +653,9 @@ private:
     std::string phone_addr_;              // the connected phone, or ""
     std::string player_;                  // its player object, or ""
     phone::Info track_;                   // what it plays
-    UsbStickStatus stick_;
+    UsbStickStatus stick_;       // what zeroos-usb-stick.service says
+    UsbMode mode_ = UsbMode::Files;    // the mode it is in
+    UsbMode asked_ = UsbMode::Files;   // the mode last asked for here
     int n_ = 0;
 };
 }  // namespace

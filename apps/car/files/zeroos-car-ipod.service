@@ -1,0 +1,12 @@
+# iPod mode (Car's README.md): answers the car as an iPod would, passes on
+# its buttons, and plays the UI user's sound into the driver's sound card.
+# Started and stopped by zeroos-usb-stick.service (/usr/lib/zeroos/usb-stick),
+# which loads the driver first; never by itself.
+[Unit]
+Description=ZeroOS Car: iPod mode (the iPod the car talks to)
+After=user@1000.service
+
+[Service]
+ExecStart=/usr/lib/zeroos/usb-stick ipod-daemon
+# Stopped by itself: the driver is taken out again.
+ExecStopPost=/usr/lib/zeroos/usb-stick ipod-gone

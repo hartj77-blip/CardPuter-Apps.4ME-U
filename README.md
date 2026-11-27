@@ -192,7 +192,7 @@ the app. It all goes again when you remove the app.
 | [Jellyfin](apps/jellyfin/README.md) | `jellyfin` | Music, movies and shows from every library on your Jellyfin server, in Jellyfin's own look: cover art, home screen rows (Continue Watching, Next Up, what is new), poster grids, a search that finds as you type, a now-playing bar | mpv, libmpv |
 | [Recorder](apps/recorder/README.md) | `recorder` | Voice notes from the microphone: record, play back, rename, delete | sox |
 | [Camera](apps/camera/README.md) | `camera` | M5Stack's camera app (viewfinder, photos, gallery), and a QR code reader that can join Wi-Fi. Standard model only | rpicam-apps-lite, M5Stack's CameraApp |
-| [Games](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen or a TV on the HDMI port; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Two (up to four) players with USB or Bluetooth gamepads. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
+| [Libretro](apps/games/README.md) | `games` | NES, Game Boy and GBA games on the built-in screen or a TV on the HDMI port; SNES, Mega Drive, PlayStation and more with downloadable libretro cores. Two (up to four) players with USB or Bluetooth gamepads. Borders around the picture, fast forward, and carry on where you left off. Bring your own games | libretro cores for Nestopia, Gambatte and mGBA; curl, unzip |
 | [Car](apps/car/README.md) | `car` | Music in the car: the Cardputer as a USB stick of your music, Bluetooth audio with the car's buttons, or your phone's music through the Cardputer to the aux | mtools, dosfstools, fdisk |
 
 ### Networks and other computers
@@ -389,8 +389,8 @@ that uses it compiles it in.
 | File | Used by | What |
 | --- | --- | --- |
 | `kit/suite.h` | Net Tools, RF Tools | One app holding several tools: a numbered menu (1 to 9, or type to filter), each tool an ordinary `App` run inside the suite. Esc goes back to the menu. `shell_open_app("net", "ports:192.168.1.10")` opens a suite straight at a tool |
-| `kit/run.h`, `run.cpp` | Dev Tools, Files, Games, Net Tools, Notes | Run a program in the background and read its output line by line, without blocking the screen; small file helpers |
-| `kit/ui.h`, `ui.cpp` | Dev Tools, Files, Games, Net Tools, Notes | A text-input screen, a title row, running a command in the Terminal app |
+| `kit/run.h`, `run.cpp` | Dev Tools, Files, Libretro, Net Tools, Notes | Run a program in the background and read its output line by line, without blocking the screen; small file helpers |
+| `kit/ui.h`, `ui.cpp` | Dev Tools, Files, Libretro, Net Tools, Notes | A text-input screen, a title row, running a command in the Terminal app |
 
 A change to a kit file counts as a change to every app that uses it: CI asks for each of those
 apps' versions to go up.
@@ -548,10 +548,10 @@ Removing the app removes the repository and its key. While it's installed, apt t
 repository for the packages it holds.
 
 **Downloads from elsewhere.** Camera downloads M5Stack's CameraApp package from its GitHub
-release, checked against a SHA-256 pinned in `camera.pkg`. Games downloads extra emulator cores
+release, checked against a SHA-256 pinned in `camera.pkg`. Libretro downloads extra emulator cores
 from libretro's nightly builds (`buildbot.libretro.com`) when you ask it to, over HTTPS, with no
 checksum to check against: they are native code that runs inside ZeroShell. The cores that come
-with Games are Debian's.
+with Libretro are Debian's.
 
 **Extra permissions some apps add**, all removed with the app:
 
@@ -613,7 +613,7 @@ apps/<id>/              one folder per app
   prepare.sh            fetches what the package needs at build time (optional)
   tests/                unit tests, and *-test.sh script tests (optional)
   README.md             how to use it, and how it works
-apps/kit/               code shared by Dev Tools, Games, Net Tools and RF Tools
+apps/kit/               code shared by Dev Tools, Libretro, Net Tools and RF Tools
 apps/rf/core/           RF Tools' radio side: the zrfd daemon, its client, DSP, simulators
 base/                   the OS, pinned (a git submodule): the headers apps are built against
 tools/
@@ -717,7 +717,7 @@ place of the old one (AI was once called `zclaw`).
    | 100 | the OS's own apps |
    | 110 to 190 | Tether 110, Router 115, IR Remote 120, GPS 130, Mesh 140, Compass 150, Battery 160, Clock 170, Dock 180, System 190 |
    | 200 to 220 | the OS's own apps, Net Tools 220 |
-   | 300 and up | Dev Tools 300 to 330, Games 400, RF Tools 500 |
+   | 300 and up | Dev Tools 300 to 330, Libretro 400, RF Tools 500 |
 
 3. In `<id>.pkg`, set `NAME`, `SUMMARY` and `APP_VERSION="1.0.0"`, and `DEPENDS` for any Debian
    packages it needs. Everything it can set is under [The .pkg file](#the-pkg-file).
@@ -887,7 +887,8 @@ Parts built in or shipped from elsewhere, each described in that app's README:
 | --- | --- | --- |
 | [LVGL](https://lvgl.io) 9.2 | every app, through ZeroShell | MIT |
 | [quirc](https://github.com/dlbeer/quirc) | Camera's QR reader | ISC |
-| [stb_image.h](https://github.com/nothings/stb) v2.34 | Games' PNG border pictures (vendored); Browser's pictures in pages and Jellyfin's cover art (fetched at build time, same commit) | Public domain or MIT, see [apps/games/third_party](apps/games/third_party/README.md) |
+| [stb_image.h](https://github.com/nothings/stb) v2.34 | Libretro's PNG border pictures (vendored); Browser's pictures in pages and Jellyfin's cover art (fetched at build time, same commit) | Public domain or MIT, see [apps/games/third_party](apps/games/third_party/README.md) |
+| The [libretro](https://www.libretro.com) API | Libretro, which declares the parts of `libretro.h` it uses (`apps/games/libretro_api.h`) and loads libretro cores; credits in [its README](apps/games/README.md#credits) | MIT (the cores keep their own) |
 | [M5Stack CameraApp](https://github.com/CardputerZero/CameraApp) | Camera (installed as M5's own package) | MIT |
 | [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) | IR Remote's code database | CC0-1.0, see [apps/ir/README.md](apps/ir/README.md#licence) |
 | ft8_lib and others | RF Tools | see [apps/rf/files/THIRD_PARTY.md](apps/rf/files/THIRD_PARTY.md) |

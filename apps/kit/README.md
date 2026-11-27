@@ -6,8 +6,8 @@ here compiles it in (listing it in its `app.cmake`, or including the header).
 | File | Used by | What |
 | --- | --- | --- |
 | `suite.h` | Net Tools, RF Tools | One app holding several tools |
-| `run.h`, `run.cpp` | Dev Tools, Files, Games, Net Tools, Notes | Run programs in the background; small file helpers |
-| `ui.h`, `ui.cpp` | Dev Tools, Files, Games, Net Tools, Notes | A text-input screen, a title row, running a command in the Terminal |
+| `run.h`, `run.cpp` | Dev Tools, Files, Libretro, Net Tools, Notes | Run programs in the background; small file helpers |
+| `ui.h`, `ui.cpp` | Dev Tools, Files, Libretro, Net Tools, Notes | A text-input screen, a title row, running a command in the Terminal |
 | `look.h` | Every app with its own colours | The UI 3 Monochrome palette and helpers |
 
 **A change here is a change to every app that uses it.** `tools/check-versions.sh` asks for the

@@ -1,4 +1,4 @@
-// Games: play your own games for classic consoles on the built-in screen, with
+// Libretro: play your own games for classic consoles on the built-in screen, with
 // libretro emulator cores (the ones RetroArch uses). See docs/GAMES.md.
 //
 //   Library   a List: Enter a system; menu C Cores
@@ -43,7 +43,7 @@ namespace {
 using namespace theme;
 using namespace games;
 
-// While Games is open it looks after the HDMI port itself: a monitor plugged
+// While Libretro is open it looks after the HDMI port itself: a monitor plugged
 // in then is for the game, so ZeroShell mustn't open Dock over it. ZeroShell
 // (newer than 0.5.1) reads this file and leaves HDMI alone while it names its
 // own process; apps run inside ZeroShell, so that's our pid. A file left by a
@@ -210,7 +210,7 @@ private:
             if (!games_for(s).empty()) have.push_back(&s);
         for (const System* s : have) rows_.push_back(s->id);
         set_actions();
-        kit::title_row(root_, "Games");
+        kit::title_row(root_, "Libretro");
         if (have.empty()) {
             lv_obj_t* l = label(root_,
                                 "No games yet.\n\n"
@@ -771,7 +771,7 @@ private:
         }
         list_by_gamepad([this] {
             if (on_back()) return;
-            // The first page: leave Games, after this timer is done with us.
+            // The first page: leave Libretro, after this timer is done with us.
             lv_async_call([](void*) { shell_go_home(); }, nullptr);
         }, /*as_keys=*/true);
     }

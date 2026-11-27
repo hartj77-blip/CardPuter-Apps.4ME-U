@@ -1,0 +1,18 @@
+# Maps (README.md): an offline map with directions. The map of New Jersey,
+# its search index and Navit's routing map come in the package (prepare.sh
+# builds them from OpenStreetMap data). Navit plans the routes, run by the
+# app with Xvfb and a D-Bus of its own (nav.cpp); espeak-ng speaks the
+# turns. The GPS app sets up the receiver (gpsd); Maps reads the position
+# the same way.
+NAME="Maps"
+SUMMARY="Offline map of New Jersey with spoken turn-by-turn directions. Install the GPS app too"
+APP_VERSION="1.0.0"
+DEPENDS="navit, xvfb, dbus-daemon, dbus-bin, espeak-ng"
+NEEDS="Navit, Xvfb, espeak-ng"
+payload() {
+    local f
+    for f in zmap search navit; do
+        [ -s "$WORK/maps/new-jersey.$f" ] || { echo "error: no new-jersey.$f at $WORK/maps (prepare.sh builds it)" >&2; exit 1; }
+        install -D -m 0644 "$WORK/maps/new-jersey.$f" "$D/usr/share/zeroos/maps/new-jersey.$f"
+    done
+}

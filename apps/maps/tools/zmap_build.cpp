@@ -11,6 +11,8 @@
 //   --imperial the app shows miles and mph by default on this map
 //   --date     the data's date (default: the file's own timestamp)
 //   --search F also write the search index (streets and places) to F
+//   --addresses F  also write the house numbers (from points and buildings
+//              with addr:housenumber and addr:street) for Go to, to F (../addr.h)
 //   --roads F  also write the roads a car can use, with their turn
 //              restrictions, as OpenStreetMap XML to F: what Navit's maptool
 //              makes Maps' routing map from (prepare.sh)
@@ -37,6 +39,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "../addr.h"
+#include "../fold.h"
 #include "../zmap.h"
 #include "pbf.h"
 
@@ -478,6 +482,33 @@ struct Builder {
         std::string members, tags;        // as XML lines
     };
     std::vector<Restriction> restrictions;
+    // For --addresses: each street's key (fold_key), its name as written,
+    // and every house number on it with where it is.
+    bool want_addresses = false;
+    struct AddrIn {
+        uint32_t street, number, city;
+        Pt at;
+    };
+    std::vector<AddrIn> addresses;
+    std::unordered_map<std::string, uint32_t> addr_street_at;
+    std::vector<std::pair<std::string, std::string>> addr_streets;   // key, name
+    Strings addr_strings;
+    void add_address(const pbf::Tags& tags, Pt at) {
+        std::string_view number = pbf::tag(tags, "addr:housenumber"), street = pbf::tag(tags, "addr:street");
+        if (number.empty() || street.empty() || number.size() > 16) return;
+        std::string key = zmap::street_key(street);
+        if (key.empty()) return;
+        auto it = addr_street_at.find(key);
+        uint32_t id;
+        if (it == addr_street_at.end()) {
+            id = uint32_t(addr_streets.size());
+            addr_street_at.emplace(key, id);
+            addr_streets.push_back({key, std::string(street.substr(0, 60))});
+        } else {
+            id = it->second;
+        }
+        addresses.push_back({id, addr_strings.add(number, 16), addr_strings.add(pbf::tag(tags, "addr:city"), 40), at});
+    }
     Strings strings;
     Outline outline;
     bool have_outline = false;
@@ -507,6 +538,7 @@ struct Builder {
     void read(const std::string& path);
     void write_roads(const std::string& path) const;
     void write_search(const std::string& path) const;
+    void write_addresses(const std::string& path) const;
     void make_features();
     void make_sea(std::vector<Line>& land_sample);
     void write(const std::string& path, const std::string& name, const std::string& date, bool imperial);
@@ -522,6 +554,7 @@ void Builder::read(const std::string& path) {
         node_id.push_back(id);
         node_pt.push_back(p);
         if (tags.empty()) return;
+        if (want_addresses) add_address(tags, p);
         uint8_t k = place_kind(pbf::tag(tags, "place"));
         std::string_view name = pbf::tag(tags, "name");
         if (!k || name.empty()) return;
@@ -553,6 +586,15 @@ void Builder::read(const std::string& path) {
         way_start.push_back(way_refs.size());
         way_refs.insert(way_refs.end(), refs.begin(), refs.end());
         if (tags.empty()) return;
+        if (want_addresses && !pbf::tag(tags, "addr:housenumber").empty()) {   // a building: its middle
+            double sx = 0, sy = 0;
+            size_t n = 0;
+            for (size_t i = 0; i + (refs.front() == refs.back() ? 1 : 0) < refs.size(); i++) {
+                Pt q;
+                if (node(refs[i], q)) sx += q.x, sy += q.y, n++;
+            }
+            if (n) add_address(tags, {int32_t(std::lround(sx / double(n))), int32_t(std::lround(sy / double(n)))});
+        }
         if (pbf::tag(tags, "natural") == "coastline") coast_ways.push_back(w);
         if (want_roads && car_road(tags)) roads.push_back({w, xml_tags(tags, kRoadKeys)});
         uint8_t k = line_kind(tags);
@@ -1062,6 +1104,46 @@ void Builder::write_search(const std::string& path) const {
     std::fprintf(stderr, "wrote %s: %zu places and streets\n", path.c_str(), out.size());
 }
 
+// The house numbers (../addr.h): the streets sorted by key, and each
+// street's addresses together. Only those inside the outline.
+void Builder::write_addresses(const std::string& path) const {
+    std::vector<uint32_t> order(addr_streets.size());
+    for (uint32_t i = 0; i < order.size(); i++) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return addr_streets[a].first < addr_streets[b].first; });
+    std::vector<std::vector<const AddrIn*>> by_street(addr_streets.size());
+    size_t kept = 0;
+    for (const AddrIn& a : addresses)
+        if (!have_outline || outline.contains(a.at)) by_street[a.street].push_back(&a), kept++;
+    Strings names = addr_strings;   // the numbers' strings, then the streets'
+    std::vector<AddrStreet> streets;
+    std::vector<Addr> out;
+    for (uint32_t id : order) {
+        if (by_street[id].empty()) continue;
+        AddrStreet st{names.add(addr_streets[id].first, 200), names.add(addr_streets[id].second, 200), uint32_t(out.size()),
+                      uint32_t(by_street[id].size())};
+        for (const AddrIn* a : by_street[id])
+            out.push_back({int32_t(std::lround(y_to_lat(a->at.y) * 1e6)), int32_t(std::lround(x_to_lon(a->at.x) * 1e6)), a->number,
+                           a->city});
+        streets.push_back(st);
+    }
+    AddrHeader h{};
+    std::memcpy(h.magic, kAddrMagic, sizeof kAddrMagic);
+    h.nstreets = uint32_t(streets.size());
+    h.naddrs = uint32_t(out.size());
+    h.streets_off = sizeof h;
+    h.addrs_off = h.streets_off + streets.size() * sizeof(AddrStreet);
+    h.strings_off = h.addrs_off + out.size() * sizeof(Addr);
+    h.strings_size = names.data.size();
+    std::string tmp = path + ".tmp";
+    FILE* f = std::fopen(tmp.c_str(), "wb");
+    bool ok = f && std::fwrite(&h, sizeof h, 1, f) == 1 &&
+              (streets.empty() || std::fwrite(streets.data(), sizeof(AddrStreet), streets.size(), f) == streets.size()) &&
+              (out.empty() || std::fwrite(out.data(), sizeof(Addr), out.size(), f) == out.size()) &&
+              std::fwrite(names.data.data(), 1, names.data.size(), f) == names.data.size();
+    if (!f || std::fclose(f) != 0 || !ok || std::rename(tmp.c_str(), path.c_str()) != 0) die("can't write " + path);
+    std::fprintf(stderr, "wrote %s: %zu house numbers on %zu streets\n", path.c_str(), kept, streets.size());
+}
+
 // ---- Writing -------------------------------------------------------------
 
 struct TileFeat {
@@ -1295,7 +1377,7 @@ void read_poly(const std::string& path, Outline& o) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string name, poly, date, in, out, search, roads_out;
+    std::string name, poly, date, in, out, search, roads_out, addresses;
     bool imperial = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -1309,6 +1391,7 @@ int main(int argc, char** argv) {
         else if (a == "--imperial") imperial = true;
         else if (a == "--search") search = value();
         else if (a == "--roads") roads_out = value();
+        else if (a == "--addresses") addresses = value();
         else if (a.rfind("--", 0) == 0) die("unknown option " + a);
         else if (in.empty()) in = a;
         else if (out.empty()) out = a;
@@ -1316,11 +1399,12 @@ int main(int argc, char** argv) {
     }
     if (in.empty() || out.empty() || name.empty()) {
         std::fprintf(stderr, "usage: zmap-build --name NAME [--poly FILE.poly] [--imperial] [--date YYYY-MM-DD]\n"
-                             "                  [--search OUT.tsv] [--roads OUT.osm] IN.osm.pbf OUT.zmap\n");
+                             "                  [--search OUT.tsv] [--addresses OUT.addr] [--roads OUT.osm] IN.osm.pbf OUT.zmap\n");
         return 2;
     }
     Builder b;
     b.want_roads = !roads_out.empty();
+    b.want_addresses = !addresses.empty();
     try {
         b.read(in);
     } catch (const std::exception& e) {
@@ -1340,6 +1424,7 @@ int main(int argc, char** argv) {
     b.make_features();
     if (!roads_out.empty()) b.write_roads(roads_out);
     if (!search.empty()) b.write_search(search);
+    if (!addresses.empty()) b.write_addresses(addresses);
     std::vector<Line> roads;
     for (size_t i = 0; i < b.feats.size(); i += 97)
         if (is_road(b.feats[i].kind)) roads.push_back(b.feats[i].parts[0]);

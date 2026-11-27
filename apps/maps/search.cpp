@@ -10,15 +10,12 @@
 #include <sstream>
 #include <string_view>
 
+#include "apps/maps/fold.h"
+
 namespace zmap {
 namespace {
 
-char fold(char c) {
-    if (c >= 'A' && c <= 'Z') return char(c - 'A' + 'a');
-    if (c == '\t' || c == '\n') return c;
-    if (uint8_t(c) < 0x80 && !std::isalnum(uint8_t(c))) return ' ';   // "St." matches "st"
-    return c;
-}
+char fold(char c) { return fold_char(c); }
 
 int kind_rank(char k) {
     switch (k) {
@@ -85,8 +82,52 @@ bool SearchIndex::load(const std::string& path) {
 
 std::vector<Place> SearchIndex::find(const std::string& query, size_t max, bool have_near, double lat, double lon) const {
     std::vector<std::string> words = search_words(query);
+    if (words.empty() || !ok()) return {};
+    // "12 main st princeton": a house number first, and then a street.
+    if (words.size() >= 2 && std::isdigit(uint8_t(words[0][0])) && addr_.ok()) {
+        std::vector<std::string> rest(words.begin() + 1, words.end());
+        std::vector<Place> out;
+        for (const Place& street : find_words(rest, 20, have_near, lat, lon, true)) {
+            // That number on a street of that name, nearest where the street is (within 8 km).
+            const Address* best = nullptr;
+            double best_m = 8000;
+            std::vector<Address> found = addr_.find(street_key(street.name), words[0]);
+            for (const Address& a : found) {
+                double m = metres(street.lat, street.lon, a.lat, a.lon);
+                if (m < best_m) best_m = m, best = &a;
+            }
+            if (!best) continue;
+            bool seen = false;
+            for (const Place& o : out) seen |= std::fabs(o.lat - best->lat) < 1e-6 && std::fabs(o.lon - best->lon) < 1e-6;
+            if (seen) continue;
+            Place p;
+            p.kind = 'a';
+            p.name = best->number + " " + best->street;
+            p.town = best->city.empty() ? street.town : best->city;
+            p.lat = best->lat, p.lon = best->lon;
+            p.metres = have_near ? metres(lat, lon, p.lat, p.lon) : -1;
+            out.push_back(std::move(p));
+        }
+        std::stable_sort(out.begin(), out.end(), [](const Place& a, const Place& b) { return a.metres < b.metres; });
+        if (out.size() > max) out.resize(max);
+        // Then what the whole query finds ("1st st hoboken" is a street, not
+        // number 1st), then the streets without the number, for a number
+        // that isn't on the map.
+        for (const std::vector<std::string>* w : {&words, &rest})
+            for (Place& p : find_words(*w, max, have_near, lat, lon, false)) {
+                bool seen = false;
+                for (const Place& o : out) seen |= o.name == p.name && o.town == p.town && o.kind == p.kind;
+                if (!seen && out.size() < max) out.push_back(std::move(p));
+            }
+        return out;
+    }
+    return find_words(words, max, have_near, lat, lon, false);
+}
+
+std::vector<Place> SearchIndex::find_words(const std::vector<std::string>& words, size_t max, bool have_near, double lat,
+                                           double lon, bool roads_only) const {
     std::vector<Place> out;
-    if (words.empty() || !ok()) return out;
+    if (words.empty()) return out;
     struct Hit {
         uint32_t line;
         int score;
@@ -96,6 +137,7 @@ std::vector<Place> SearchIndex::find(const std::string& query, size_t max, bool 
     std::string whole;
     for (const std::string& w : words) whole += (whole.empty() ? "" : " ") + w;
     for (uint32_t at : lines_) {
+        if (roads_only && folded_[at] != 'r') continue;
         size_t end = folded_.find('\n', at);
         // Every word typed starts a word of the name or the town.
         // Only the name and the town: not the numbers after them.

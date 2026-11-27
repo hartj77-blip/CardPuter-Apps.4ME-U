@@ -591,6 +591,7 @@ private:
         if (!search_loaded_) {
             search_loaded_ = true;
             search_.load(search_path_);
+            search_.load_addresses(search_path_.substr(0, search_path_.size() - 7) + ".addr");
         }
         searching_ = true;
         query_.clear();
@@ -652,7 +653,8 @@ private:
         if (query_.empty()) {
             results_ = recent_places();
             if (results_.empty())
-                note = search_.ok() ? "Type a town or a street.\nAdd the town to narrow it down: \"main st princeton\""
+                note = search_.ok() ? (search_.has_addresses() ? "Type an address, a street or a town:\n\"20 nassau st\", \"main st princeton\""
+                                                               : "Type a town or a street.\nAdd the town to narrow it down: \"main st princeton\"")
                                     : "No search index for this map.";
         } else if (!search_.ok()) {
             results_.clear();
@@ -665,7 +667,7 @@ private:
             zmap::Place& p = results_[i];
             if (p.metres < 0) p.metres = nav::metres({clat, clon}, {p.lat, p.lon});
             std::string text = p.name + (p.town.empty() ? "" : ", " + p.town) + "   " + short_distance(p.metres);
-            lv_obj_t* b = list_button(search_list_, p.kind == 'r' ? LV_SYMBOL_RIGHT : ZS_ICON_PIN, text.c_str(),
+            lv_obj_t* b = list_button(search_list_, p.kind == 'r' ? LV_SYMBOL_RIGHT : p.kind == 'a' ? LV_SYMBOL_HOME : ZS_ICON_PIN, text.c_str(),
                                       [](lv_event_t* e) {
                                           auto* app = static_cast<MapsApp*>(lv_event_get_user_data(e));
                                           auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
@@ -692,7 +694,7 @@ private:
         if (i >= results_.size()) return;
         zmap::Place p = results_[i];
         close_search();
-        std::string name = p.name + (p.town.empty() || p.kind != 'r' ? "" : ", " + p.town);
+        std::string name = p.name + (p.town.empty() || (p.kind != 'r' && p.kind != 'a') ? "" : ", " + p.town);
         remember_place(p);
         start_route({p.lat, p.lon}, name, true);
     }

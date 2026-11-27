@@ -132,6 +132,15 @@ way([(100, -640), (220, -640), (220, -570), (100, -570)], {"natural": "coastline
 
 write_roads()
 node(60, 200, {"place": "town", "name": "Zeroville"})
+
+# House numbers: points, and a building (its middle is the address).
+node(40, 25, {"addr:housenumber": "12", "addr:street": "High Street"})
+node(60, 35, {"addr:housenumber": "12A", "addr:street": "High Street"})
+node(80, 45, {"addr:housenumber": "120", "addr:street": "High Street"})
+node(150, 195, {"addr:housenumber": "7", "addr:street": "Market St.", "addr:city": "Zeroville"})
+way([(180, -200), (220, -200), (220, -170), (180, -170)],
+    {"building": "house", "addr:housenumber": "20", "addr:street": "South Row"}, closed=True)
+node(5000, 5000, {"addr:housenumber": "1", "addr:street": "High Street"})   # outside the region: left out
 node(-380, -260, {"place": "suburb", "name": "Old Quay"})
 
 path = os.path.join(HERE, "town.osm.pbf")

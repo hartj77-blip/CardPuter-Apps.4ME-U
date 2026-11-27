@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Checks irdb/build_irdb.py on the sample (irdb/sample): converted Pronto
 # remotes get a kind and the main set's brand spelling, their raw codes merge
-# with the same codes in the universal lists, and the AV kinds and buttons
-# are there.
+# with the same codes in the brand and universal remotes, and the AV kinds
+# and buttons are there.
 #   apps/ir/tests/irdb-test.sh
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -18,14 +18,18 @@ grep -qP '^Projectors\tEpson\tEMP-Raw\tProjectors/Epson/EMP-Raw.ir\t2$' "$T/db/i
 grep -qP '^TVs\tSony\tKV-27FS\tTVs/Sony/KV-27FS.ir\t2$' "$T/db/index.tsv" || fail "Sony KV- (model: TV) in TVs"
 [ -f "$T/db/TVs/Sony/KV-27FS.ir" ] || fail "the file is where index.tsv says"
 
-for k in TVs Projectors Audio Lights; do [ -f "$T/db/universal/$k.ir" ] || fail "universal/$k.ir"; done
+[ -d "$T/db/universal" ] && fail "no universal/ lists (Universal is brands/<Kind>/_all.ir)"
+# Universal remotes: every brand's codes for a kind, brand "" in brands/index.tsv.
+grep -qP '^TVs\t\t\d+\tTVs/_all.ir\t' "$T/db/brands/index.tsv" || fail "TVs Universal in brands/index.tsv"
+U=$T/db/brands/TVs/_all.ir
 # The Pronto Sony power is raw SIRC 01/15: the same code as Sony_Bravia's, so one entry.
-n=$(grep -A4 '^name: Power$' "$T/db/universal/TVs.ir" | grep -c '^command: 15 00 00 00') || true
-[ "$n" = 1 ] || fail "Sony power once in TVs Power, not $n times"
-grep -q '^type: raw' "$T/db/universal/TVs.ir" && fail "no raw codes in TVs (all decode)"
+n=$(grep -A4 '^name: Power$' "$U" | grep -c '^command: 15 00 00 00') || true
+[ "$n" = 1 ] || fail "Sony power once in Universal TVs Power, not $n times"
+grep -q '^type: raw' "$U" && fail "no raw codes in Universal TVs (all decode)"
+grep -q '^# src: TVs/Sony/' "$U" || fail "codes name the remote they came from"
 # The Epson raw Source is NECext 83 55 / 8C 73: listed under Projectors Input.
-grep -B5 '^command: 8C 73 00 00' "$T/db/universal/Projectors.ir" | grep -q '^name: Input$' ||
-    fail "Epson Source under Projectors Input"
+grep -B5 '^command: 8C 73 00 00' "$T/db/brands/Projectors/_all.ir" | grep -q '^name: Input$' ||
+    fail "Epson Source under Universal Projectors Input"
 
 # Brand remotes: Sony has two TV remotes in the sample (Bravia and the Pronto KV-27FS).
 grep -qP '^TVs\tSony\t2\tTVs/Sony.ir\t' "$T/db/brands/index.tsv" || fail "brands/index.tsv has Sony TVs"
@@ -36,6 +40,8 @@ grep -q '^name: Vol_up$' "$T/db/brands/TVs/Sony.ir" || fail "Sony TVs Vol_up (fr
 # Two remotes each: Epson projectors (sample and Pronto), LG TVs.
 grep -qP '^Projectors\tEpson' "$T/db/brands/index.tsv" || fail "Epson Projectors (sample + Pronto)"
 grep -qP '^TVs\tLG\t' "$T/db/brands/index.tsv" || fail "LG TVs (two in the sample)"
+# One remote of a kind: no brand remote (the app opens that remote).
+grep -qP '^TVs\tPanasonic\t' "$T/db/brands/index.tsv" && fail "Panasonic has one TV remote: no brand remote"
 
 python3 -I - "$HERE/../irdb" <<'EOF'
 import sys

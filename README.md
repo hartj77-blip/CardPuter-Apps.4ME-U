@@ -220,7 +220,7 @@ the app. It all goes again when you remove the app.
 
 | App | Id | What it does | Needs | Brings |
 | --- | --- | --- | --- | --- |
-| [IR Remote](apps/ir/README.md) | `ir` | A universal remote with about 4,500 remotes for AV and home: TVs, projectors, displays, screens, receivers, players, cable boxes, video conferencing, switchers, lighting and more, brand remotes (pick Sony, TVs: it finds the code once, then every button just works) and remotes you teach it | nothing (the IR LED and receiver are built in) | v4l-utils, ir-keytable, the code database |
+| [IR Remote](apps/ir/README.md) | `ir` | A universal remote with about 4,500 remotes for AV and home: TVs, projectors, displays, screens, receivers, players, cable boxes, video conferencing, switchers, lighting and more, a remote per kind, Universal or per brand (pick TVs, then Sony: it finds the code once, then every button just works) and remotes you teach it | nothing (the IR LED and receiver are built in) | v4l-utils, ir-keytable, the code database |
 | [GPS](apps/gps/README.md) | `gps` | Position, speed, saved spots and GPX track recording | the Cap LoRa-1262 (it has GPS), a Grove GPS unit, or a USB GPS | gpsd |
 | [Mesh](apps/mesh/README.md) | `mesh` | Meshtastic text messages over LoRa, with no phone signal or internet | the Cap LoRa-1262 | meshtasticd (from Meshtastic's repository) |
 | [Grove](apps/grove/README.md) | `grove` | Light a NeoPixel (WS2812 / SK6812) LED strip on the Grove port, with effects | an LED strip on the Grove port | its own LED service |

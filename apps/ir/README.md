@@ -8,7 +8,9 @@ about 4,500 real remotes from [Flipper-IRDB](https://github.com/Lucaslhm/Flipper
 
 ## Using it
 
-The app opens on four lists.
+The app opens on **My remotes**, then the kinds of device (TVs, Projectors, Monitors, Projector
+Screens, receivers, players, cable boxes, video conferencing, switchers, control and lighting
+systems, ACs, fans, lights and more: 52 in all, the AV ones first), then **Search all remotes**.
 
 **My remotes** are yours to keep and change (they live in `~/IR`).
 
@@ -20,61 +22,39 @@ The app opens on four lists.
   **Del**) deletes one, after asking. The bar at the bottom of the screen shows these keys, and
   **Tab** opens the menu with them.
 
-**Brand remotes** are for when you know the brand but not the model: pick the kind and the brand
-(Sony, then TVs) and you get one remote with every button that brand uses (45 for Sony TVs: power,
-discrete on and off, inputs and HDMI 1 to 4, volume, channels, arrows, OK, menu, digits, transport).
+**A kind of device** lists **Universal: every brand** at the top, then its brands A to Z. Universal
+and each brand are one remote with every common button the brand (or, for Universal, every brand)
+uses: 48 for Sony TVs, 51 for Universal TVs. Power, discrete Power on and Power off, Input,
+HDMI 1 to 4, volume, channels, arrows, OK, Menu, Back, Home, Info, Guide, Blank and Freeze for
+projectors, Aspect, Picture, transport keys, Eject, digits, and Oscillate, Speed, Mode,
+temperature and brightness for fans, ACs and lights. A brand with one remote of a kind opens that
+remote.
 
-1. Point at the device and press **Enter** on a button (Power is a good start). Every code the
-   brand uses for that button goes out, one every 150 ms, most common first: for Sony TVs, 15
-   Power codes take about 4 seconds.
+1. Point at the device and press **Enter** on a button (Power is a good start). Every code for
+   that button goes out, one every 150 ms, most common first: 15 Power codes for Sony TVs, about
+   4 seconds; 209 for Universal TVs, about 50 seconds.
 2. Press any key as soon as the device reacts. The remote **locks** to that code's set: its
    protocol and device address, which a maker keeps across a range of models (Sony TVs: SIRC,
-   address 01). **Left** and **Right** try the codes either side if you pressed late.
+   address 01). **Left** and **Right** try the codes either side if you pressed late. On
+   Universal the screen names the brand and remote the code came from.
 3. From then on each button sends one code, from the locked set, at once. When a set has more
    than one code for a button (some remotes label discrete on/off or a second input as Power),
    **Left** and **Right** after sending try the others, and the remote keeps the one you pick.
-   A button the set doesn't have sweeps the brand's codes for it, and locks again on the one
-   that works.
-4. **S** saves the locked remote to My remotes (Sony TVs: 34 buttons); **U** unlocks it to find
-   the code again. The lock lasts until you leave the app.
+   A button the set doesn't have sweeps every code for it, and locks again on the one that works.
+4. **S** saves the locked remote to My remotes (Sony TVs: 36 buttons); **U** unlocks it to find
+   the code again. The lock lasts until you leave the app. **M** lists the brand's models (on
+   Universal, the models of the brand it locked to), each with all its buttons.
 
 Why lock instead of sending every code on each press: a sweep of Sony TV codes takes 1 to 4
 seconds per button, and buttons that toggle (Power, Input, Mute) can act twice when two codes in a
 sweep both work. Most of a brand's devices share one set: 46 of 75 Sony TV remotes have the same
 Power code.
 
-**Universal: send every code** is for when you don't know which remote a device uses.
-
-1. Pick the kind of device and the button:
-
-   | Kind | Buttons |
-   | --- | --- |
-   | TVs | Power, Power on, Power off, Input, HDMI 1, HDMI 2, Vol +, Vol -, Mute, Ch +, Ch - |
-   | Projectors | Power, Power on, Power off, Input, Blank (AV mute), Freeze, Vol +, Vol -, Mute |
-   | Displays (monitors, signage, touch screens) | Power, Power on, Power off, Input, HDMI 1, Vol +, Vol -, Mute |
-   | Screens (projector screens and lifts) | Up, Down, Stop |
-   | Audio (receivers, amplifiers, sound bars, speakers) | Power, Power on, Power off, Input, Vol +, Vol -, Mute, Play |
-   | Players (Blu-ray, DVD, CD, VCR, LaserDisc) | Power, Play, Pause, Stop, Eject, Menu |
-   | Set top boxes (cable, satellite, streaming) | Power, Ch +, Ch -, Guide, Play |
-   | Conferencing (codecs and cameras) | Power, Mute, Vol +, Vol - |
-   | ACs, Fans, Lights | Power, Off, Oscillate, Speed, On |
-
-   Power on and Power off are the discrete codes, for when you need a room in a known state.
-2. Point the Cardputer at the device and press **Enter**. Every distinct code for that button
-   goes out, one every 150 ms, the most common first (for TV power: LG, Samsung, Sony, Panasonic...).
-3. Press any key as soon as the device reacts. The app stops on the code it just sent and shows
-   whose it is. **Left** and **Right** try the codes either side of it (you might have pressed a
-   moment late), **Enter** sends it again.
-4. **O** (Open brand) opens that brand's remotes, where you can find the model with all its
-   buttons and press **S** to save it to My remotes.
-
-**Browse or search** lists every remote by kind, brand and model. Besides the kinds above there
-are Switchers and Scalers (Extron, tvONE, ZeeVee, Faroudja, HDMI switches and matrices), Control
-Systems (Crestron, Xantech, Niles), Lighting Control (Lutron, LiteTouch, Vantage), Shades (Somfy,
-Hunter Douglas), Pro Audio (Biamp, TASCAM, Shure) and more. Type to search: on the first
+**Search all remotes** lists every remote by kind, brand and model. Type to search: on the first
 page the search covers every brand and model (`sam`, `bravia`, `roku`); inside a kind it filters
 brands, inside a brand it filters models. **Backspace** edits the search, **Esc** clears it.
 **1** to **9** pick a row, so digits don't search. On a remote, **S** saves a copy to My remotes.
+Typing filters every list the same way (`son` on TVs finds Sony).
 
 ## Flipper Zero files
 
@@ -101,7 +81,7 @@ recordings (most air conditioners).
 
 The encoders are our own, written from the protocols' published timings; they pack address and
 command bits the way the Flipper does, so codes it recorded replay the same. Every one of the
-140,000 codes in the database (universal lists included) encodes, and the longest (a fan) is 959
+140,000 codes in the database encodes, and the longest (a fan) is 959
 edges, under the kernel's 1,024 limit.
 
 To send, ZeroShell writes the timings as `pulse`/`space` lines and runs
@@ -111,7 +91,7 @@ receives from `ir-ctl --features`. Learning runs `ir-ctl -r --one-shot` for up t
 ## The database
 
 It comes with the IR Remote app (docs/APPS.md), whose package installs it in
-`/usr/share/zeroos/ir` (about 68 MB on disk, about 2.5 MB in the package), so the base image
+`/usr/share/zeroos/ir` (about 73 MB on disk, about 2.8 MB in the package), so the base image
 doesn't carry it. `apps/ir/irdb/build_irdb.py --fetch` clones a pinned Flipper-IRDB
 commit and takes:
 
@@ -129,13 +109,16 @@ It writes:
   Projector screens and HDMI switches filed under Projectors or Miscellaneous get kinds of their
   own, and Pronto brands take the main set's spelling (Dalite: Da-Lite);
 - `index.tsv`, one line per remote, so the app lists 4,500 remotes without opening them;
-- `universal/<Kind>.ir`: for each kind of device, every distinct code for each common button,
-  most-used first, each credited to the brand that uses it most. Pronto files hold every code as a
-  raw recording; a clean NEC, Samsung32 or SIRC frame is read as that protocol (as learning does),
-  so it counts as the same code as elsewhere and goes out as a clean frame;
-- `brands/<Kind>/<Brand>.ir` for each brand with two or more remotes of a kind (447 of them):
-  every distinct code the brand uses for each of 45 common buttons, most-used first, each with
-  the remote it came from; and `brands/index.tsv` (kind, brand, number of remotes, path, buttons);
+- `brands/<Kind>/<Brand>.ir` for each brand with two or more remotes of a kind (471 of them):
+  every distinct code the brand uses for each of 55 common buttons, most-used first (up to 60 a
+  button), each credited to a remote it came from;
+- `brands/<Kind>/_all.ir`, the Universal remote of each kind (47 of them): every brand's codes the
+  same way, up to 400 a button, each credited to a remote of the brand that uses it most;
+- `brands/index.tsv`: kind, brand (empty for Universal), number of remotes, path, buttons.
+
+  Pronto files hold every code as a raw recording; a clean NEC, Samsung32 or SIRC frame is read as
+  that protocol (as learning does), so it counts as the same code as elsewhere and goes out as a
+  clean frame;
 - `SOURCE.txt` (commit) and Flipper-IRDB's `LICENSE`.
 
 `apps/ir/prepare.sh` runs it when the app is packaged (into `build/work/ir/irdb`); it is kept if it is already there.

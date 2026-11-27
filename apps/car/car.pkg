@@ -4,7 +4,7 @@
 # Cardputer. prepare.sh builds iPod mode's driver and client into $WORK/ipod.
 NAME="Car"
 SUMMARY="Music for a car stereo over USB (your files, or what plays now, as a stick or as an iPod), Bluetooth audio with the car's buttons, your phone's music to the aux"
-APP_VERSION="1.4.0"
+APP_VERSION="1.4.1"
 # lame and pw-record (pipewire-bin): USB live sound's encoder and its input.
 # aplay (alsa-utils): iPod mode's player.
 DEPENDS="mtools, dosfstools, fdisk, lame, pipewire-bin, alsa-utils"

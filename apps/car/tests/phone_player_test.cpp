@@ -32,6 +32,22 @@ int main() {
     check(yes(is_music_source("\tIcon: phone\n")), "yes", "a phone");
     check(yes(is_music_source("\tUUID: Audio Sink (0000110b-0000)\n\tIcon: audio-card\n")), "no", "a car");
 
+    // What a paired device is: Car leaves controllers, keyboards and mice out.
+    auto kind = [](const std::string& info) {
+        Kind k = kind_of_info(info);
+        return std::string(k == Kind::Phone ? "phone" : k == Kind::Input ? "input" : "other");
+    };
+    check(kind("\tIcon: phone\n\tUUID: Audio Source (0000110a-0000)\n"), "phone", "a phone");
+    check(kind("\tName: Xbox Wireless Controller\n\tIcon: input-gaming\n"
+               "\tUUID: Human Interface Device... (00001812-0000)\n"), "input", "an Xbox controller");
+    check(kind("\tIcon: input-keyboard\n\tUUID: Human Interface Device (00001124-0000)\n"), "input", "a keyboard");
+    check(kind("\tUUID: Human Interface Device (00001124-0000)\n"), "input", "HID, no icon");
+    check(kind("\tIcon: audio-card\n\tUUID: Audio Sink (0000110b-0000)\n"), "other", "a car");
+    check(kind("\tIcon: audio-headset\n\tUUID: Audio Sink (0000110b-0000)\n"
+               "\tUUID: Human Interface Device (00001124-0000)\n"), "other", "headphones with buttons");
+    check(kind("\tUUID: Human Interface Device... (00001812-0000)\n"), "input", "HID over LE, no icon");
+    check(kind(""), "other", "nothing known");
+
     Info i = parse_info(
         "s \"playing\"\n"
         "a{sv} 4 \"Title\" s \"Caf\\xc3\\xa9\" \"Artist\" s \"John\\xe2\\x80\\x99s Band\" \"Album\" s \"LP\" "

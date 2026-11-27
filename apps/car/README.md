@@ -107,7 +107,9 @@ With your phone connected and playing:
     use (and USB stick a percentage while it copies). One is on at a time:
     turning one on turns the others off;
   - paired cars, speakers, headphones and phones (phones with a phone icon;
-    connected ones say On in green), and devices the last scan found (new);
+    connected ones say On in green), and devices the last scan found (new).
+    Game controllers, keyboards and mice are left out: they are paired for
+    other apps;
   - **Add a phone**, **Scan for devices** and **Let the car find me**.
 - **The panel** on the right says what the row in focus is and what Enter
   does to it. The bar at the bottom names Enter's action too.

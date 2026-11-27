@@ -3,7 +3,8 @@
 The **Media** app plays your own music. On top it's a classic desktop MP3
 player: an LCD with the time and a spectrum analyser, the title scrolling
 past, transport buttons. Underneath, where the playlist used to be, is a file
-explorer: the music on the SD card, USB drives, and shares on a server. It
+explorer that opens on your Music folder (`~/Music` on the SD card). USB
+drives and shares on a server are a menu away. It
 comes in three skins: the classic look, a 1970s hi-fi receiver and a
 liquid-chrome player from 2001. It also wears classic Winamp skins (`.wsz`)
 that you copy to `~/Skins`.
@@ -37,6 +38,10 @@ track that's playing and the row you're on, and numbers the first nine rows;
 folders have their own colour. On the Player tab, the explorer's place shows
 the track in big letters, where it is in the queue and what comes next.
 
+Pick a track and Media goes to the Player tab. **Esc** comes back to the
+list, on the track that's playing; **Left** or **Right** goes to the Player
+again. While something is playing, Media opens on the Player.
+
 ## Skins
 
 Press **T** on the Player tab, or pick **Skin** in the Tab menu (Ctrl + T
@@ -52,8 +57,9 @@ leave it on.
 The two skins are pixel art at the screen's own size, and each has two
 screens, which are Media's two tabs: the player is the Player tab, and the
 playlist (the explorer) the Library. Left / Right on the playlist go to
-the player; on the player, Esc, **L**, Up or Down go to the playlist. On a
-skin's playlist the preset keys **1** to **6** open that row.
+the player; on the player, Esc, **L**, Up or Down go to the playlist, as in
+the classic look. On a skin's playlist the preset keys **1** to **6** open
+that row.
 
 Up to 3.1 Media had eight colour themes instead; they're gone.
 
@@ -88,25 +94,39 @@ and says why. When a part is missing from a skin, the main window's own
 picture shows in its place. Winamp would draw its own skin's part there, and
 that skin isn't ours to ship.
 
-## Places
+## Where the music is
 
-The first screen lists where media can be:
+The Library is your Music folder, `~/Music` on the SD card. Media opens at
+its top, and Backspace stops there: the top of Music is the top. Copy
+music there in folders, `Artist/Album/01 Track.mp3` for one. (If something
+is playing when you open Media, the Library is the folder that track is in.)
+
+Up to 3.4 Media opened on a list of places instead, or where you'd left it.
+
+### Other places
+
+Music that's somewhere else is in the Tab menu: **Tab**, then **Other
+places** (or Ctrl + G):
 
 | Place | What it is |
 | --- | --- |
-| **Music** | `~/Music` on the SD card |
+| **Music** | `~/Music` on the SD card, where you came from |
 | **Downloads** | `~/Downloads`, if there is one |
 | **SD card** | your whole home folder |
 | A USB drive | anything mounted under `/media`, `/run/media` or `/mnt` (DRIVE) |
 | A server share | any SMB, NFS, SSHFS, WebDAV or rclone mount, wherever it is (SMB nas, NFS nas...) |
-| **Open an address...** | an `http://` or `https://` address: a stream, internet radio, or a file on a web server |
+| **Open an address...** | an `http://` or `https://` address: a stream, internet radio, or a file on a web server (Ctrl + O from anywhere) |
+
+Backspace at the top of one of them comes back to this list, and Backspace
+on the list goes back to Music. Media doesn't remember another place: the
+next time you open it, it's in Music again.
 
 Only folders and files Media can play are listed: music (mp3, flac, ogg,
-wav, m4a, opus, aac, wma) and playlists (m3u, m3u8, pls). Media opens where you left it last time.
+wav, m4a, opus, aac, wma) and playlists (m3u, m3u8, pls).
 
 ### A share on your server
 
-Mount the share once and Media lists it. For SMB (a Windows share, a NAS,
+Mount the share once and Media lists it under Other places. For SMB (a Windows share, a NAS,
 Samba), from a terminal:
 
 ```sh
@@ -124,8 +144,9 @@ ends (see [Remote](../remote/README.md)), a share at home works from anywhere.
 ## Keys
 
 Media has two tabs: the **Library** (the explorer) and the **Player** (what's
-playing, where the explorer was). **Left / Right** go from the Library to the
-Player, **Esc** comes back. The soft-key bar along the bottom shows the keys
+playing, where the explorer was). Playing something goes to the Player by
+itself; **Esc** comes back to the Library, and **Left / Right** go from the
+Library to the Player. The soft-key bar along the bottom shows the keys
 for the tab you're on; **Tab** opens the menu with everything, **0** the key
 sheet.
 
@@ -134,13 +155,13 @@ The Library is a list, so typing searches it:
 | Key | Does |
 | --- | --- |
 | Up / Down | Move |
-| Enter | Open a folder; play a track (and the rest of the folder after it) or a playlist |
+| Enter | Open a folder; play a track (and the rest of the folder after it) or a playlist, and go to the Player |
 | 1 to 9 | Open or play the row with that number |
 | Letters | Search the folder you're in by name (Backspace takes a letter off, Esc clears it) |
 | Space | Pause / resume (with nothing playing, plays the row you're on). Once you've typed, a space in the search |
-| Backspace or Esc | Up a folder |
+| Backspace or Esc | Up a folder. At the top of Music, Backspace does nothing and Esc leaves Media |
 | Left / Right | The Player tab |
-| Tab | The menu: Play all (A), Pause (U), Next track (N), Previous track (P), Stop (S), Shuffle (H), Skin (T), Open an address (O), Go to places (G), Rescan (R). Ctrl + the letter runs one straight away |
+| Tab | The menu: Now playing (L), Play all (A), Pause (U), Next track (N), Previous track (P), Stop (S), Shuffle (H), Skin (T), Open an address (O), Other places (G), Rescan (R). Ctrl + the letter runs one straight away |
 
 **Play all** plays everything in the folder you're on, folders under it
 included (up to 3000 tracks).
@@ -155,7 +176,7 @@ Tracks are changed with the keyboard's media keys (below), not letters. The Play
 | H | Shuffle on or off (from the next track you pick) |
 | T | The next skin |
 | + / - | Volume |
-| Esc | Back to the Library |
+| Esc, L, Up or Down | Back to the Library, on the track that's playing |
 
 Anywhere in Media, and in every other app:
 

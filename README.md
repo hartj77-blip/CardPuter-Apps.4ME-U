@@ -78,7 +78,8 @@ This is where things stand.
 | Every app loads as a module into a real ZeroShell | Yes, in CI |
 | Every app installs, side by side with all the others, and removes cleanly with the real apt on Debian trixie arm64 | Yes, in CI, in a container with Raspberry Pi's repository added |
 | The apps still build against the next ZeroOS (its `main` branch) | Yes, in CI, as a second build of everything |
-| Unit tests for the parts that can run without a screen (AI requests, Browser's page engine, Desktop's host list, Grove's LED effects, Jellyfin's requests and cover art, RF Tools' DSP, Router's script) | Yes, in CI |
+| Unit tests for the parts that can run without a screen (AI requests, Browser's page engine, Desktop's host list, Grove's LED effects, Jellyfin's requests and cover art, Mesh's Meshtastic protocol and client, RF Tools' DSP, Router's script) | Yes, in CI |
+| Mesh against a stand-in Meshtastic radio: its client, and its radio daemon over real sockets with several clients at once | Yes, in CI |
 | Jellyfin against a stand-in server: signing in, lists, search, covers and signing out over real HTTP ([what it checks](apps/jellyfin/README.md#how-it-is-built-and-tested)) | Yes, in CI |
 | The apps on a real Cardputer Zero | Mostly not yet. Owners have run some; most have only been run in the simulator and CI |
 | Hardware add-ons: GPS module, Cap LoRa-1262, LED strip, RTL-SDR dongle, USB stick mode in a car, USB networking to a laptop | Not checked on a device yet. Each app's README has a "to confirm" list |
@@ -224,7 +225,7 @@ the app. It all goes again when you remove the app.
 | --- | --- | --- | --- | --- |
 | [IR Remote](apps/ir/README.md) | `ir` | A universal remote with about 4,500 remotes for AV and home: TVs, projectors, displays, screens, receivers, players, cable boxes, video conferencing, switchers, lighting and more, a remote per kind, Universal or per brand (pick TVs, then Sony: it finds the code once, then every button just works) and remotes you teach it | nothing (the IR LED and receiver are built in) | v4l-utils, ir-keytable, the code database |
 | [Maps](apps/maps/README.md) | `maps` | An offline map of New Jersey with spoken turn-by-turn directions: find an address, a street, a town, gas, food or parking (or Home), see the route first, then it follows your position with the next turn, your speed, the road's speed limit and when you'll get there. Also your position, satellites, saved spots and GPX track recording (what was the GPS app). Made from OpenStreetMap data; Navit plans the routes | the Cap LoRa-1262 (it has GPS), a Grove GPS unit, or a USB GPS | gpsd, Navit, Xvfb, espeak-ng, the map, search, house numbers and routing data (about 130 MB) |
-| [Mesh](apps/mesh/README.md) | `mesh` | Meshtastic text messages over LoRa, with no phone signal or internet | the Cap LoRa-1262 | meshtasticd (from Meshtastic's repository) |
+| [Mesh](apps/mesh/README.md) | `mesh` | Meshtastic over LoRa, with no phone signal or internet: channel and private chats with delivery marks, replies and reactions, every message kept and searchable, nodes with traceroute, a map of who is where, channels shared and joined by QR code. Phones can use the radio at the same time | the Cap LoRa-1262 | meshtasticd (from Meshtastic's repository) |
 | [Grove](apps/grove/README.md) | `grove` | Light a NeoPixel (WS2812 / SK6812) LED strip on the Grove port, with effects | an LED strip on the Grove port | its own LED service |
 | [RF Tools](apps/rf/README.md) | `rf` | Nine tools for a USB software-defined radio: Spectrum, Scanner, Sensors (433 MHz weather stations), Aircraft (ADS-B), APRS, FT8, Logbook, SDR Server and Station | an RTL-SDR dongle (RTL-SDR Blog V4 first) | rtl-sdr, rtl-433, multimon-ng, Hamlib, sox |
 
@@ -268,6 +269,9 @@ Terminal, SSH, or another computer.
 | `~/.config/zeroos/ai.conf` | AI's settings and API keys (mode 600) | AI |
 | `~/.config/zeroos/desktop-hosts` | Computers you saved in Desktop | Desktop |
 | `~/.config/zeroos/rf-memories.tsv` | Saved frequencies | RF Tools |
+| `~/.local/share/zeroos/mesh/` | Your Meshtastic messages and what you've read (mode 700) | Mesh |
+| `~/.config/zeroos/mesh-quick.txt` | Mesh's quick replies, one per line | Mesh |
+| `~/Documents/Mesh/` | Chats you saved as text | Mesh |
 | `~/.config/zeroos/jellyfin-mpv.conf` | The sign-in header and start point for a video on a TV or Dock's monitor (mode 600) | Jellyfin |
 | `~/.config/zeroos/settings.conf` | Small settings: Jellyfin server, sign-in token, recent searches and Play on TV, Grove's last effect, your callsign, Router's mode | several apps, through ZeroOS |
 
@@ -284,7 +288,7 @@ ones to know about for battery life.
 | Terminal, Dev Tools | Your tmux session, and anything running in it | `exit` in each window, or `tmux kill-server` |
 | Media, Jellyfin, Recorder | The track or note that's playing | Stop in the app, or the media keys |
 | Maps | A track you're recording (and the expansion port's power, for the GPS) | **R** in Maps |
-| Mesh | The radio (`meshtasticd`) and the expansion port's power | **Turn off mesh** in Mesh |
+| Mesh | The radio (`meshtasticd`, and `zeroos-meshd`, which keeps messages that arrive meanwhile and shares your position if you asked it to) and the expansion port's power | **Turn off mesh** in Mesh |
 | Grove | The LED strip stays lit | Open Grove, press **Space** |
 | Remote | Tailscale, by default for 15 minutes after you last used it | Settings > Tailscale |
 | Sync | Syncthing, by default only while charging | Settings > Sync |
@@ -606,7 +610,7 @@ shows here before the OS is released.
 | --- | --- | --- |
 | Every changed app has a new version | `tools/check-versions.sh`: compares each app folder with `main`; a change to a kit file counts for every app that uses it. README and test changes don't count | An app that changed without a new version, which devices would never be offered |
 | Simulator and headless builds | Builds every app into the SDL and headless ZeroShell | Code that doesn't compile |
-| Unit tests | `ctest`: AI's requests, replies and settings (no network); Browser's Markdown and HTML parsing, forms, pictures, layout and addresses; Desktop's host list; Grove's LED effects; Jellyfin's requests and replies, cover art and background threads; Maps' map builder, drawing, search and reading of Navit's answers, and a real route planned by Navit across a made-up town; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
+| Unit tests | `ctest`: AI's requests, replies and settings (no network); Browser's Markdown and HTML parsing, forms, pictures, layout and addresses; Desktop's host list; Grove's LED effects; Jellyfin's requests and replies, cover art and background threads; Maps' map builder, drawing, search and reading of Navit's answers, and a real route planned by Navit across a made-up town; Mesh's protocol (byte for byte against Google's protobuf library), its client against a stand-in Meshtastic radio, and its radio daemon end to end; RF Tools' DSP, and an integration test of its radio daemon against a simulated radio | Logic that broke |
 | App script tests | `apps/<id>/tests/*-test.sh`: Router's routing script against stand-ins; the Jellyfin app against a stand-in server | A broken helper script |
 | Open every app | `tools/screenshots.sh`: drives the headless build through the home screen and every app, and every tool inside Net Tools and RF Tools, and saves a screenshot of each (uploaded as an artifact). Games plays a test-pattern core; AI gets a canned answer; RF Tools runs against a simulated radio | An app that crashes or hangs when opened |
 | Apps as modules | Builds every app as a module and loads each into a ZeroShell that has none built in | A module with a missing symbol or the wrong app level |
@@ -928,6 +932,7 @@ and it will be added. The OS underneath has [its own credits](https://github.com
 | [M5Stack CameraApp](https://github.com/CardputerZero/CameraApp) 1.0.4 | Camera (installed as M5's own package) | MIT |
 | [OpenStreetMap](https://www.openstreetmap.org) data © OpenStreetMap contributors, New Jersey extract and outline from [Geofabrik](https://download.geofabrik.de) | The map in Maps | ODbL-1.0, see [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright) |
 | [Meshtastic](https://github.com/meshtastic/firmware)'s board config for the Cardputer Zero | Mesh's settings for the Cap LoRa-1262 | GPL-3.0 |
+| [Meshtastic's protobuf definitions](https://github.com/meshtastic/protobufs) | Mesh's protocol code is written from them, and its tests' messages are made from them (`apps/mesh/tests/vectors.h`) | GPL-3.0 |
 
 ### Programs the apps install
 

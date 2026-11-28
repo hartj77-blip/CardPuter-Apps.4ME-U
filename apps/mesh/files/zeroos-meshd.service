@@ -1,0 +1,21 @@
+# Mesh's radio daemon (apps/mesh/core/hub.h): answers Meshtastic's client API
+# on port 4403 for the Mesh app, ZeroShell's message notes and phones at once,
+# passing everything to meshtasticd (port 4404), and keeps the message history
+# while the app is closed. Started with meshtasticd, stopped with it.
+[Unit]
+Description=ZeroOS: Mesh radio daemon
+After=meshtasticd.service
+PartOf=meshtasticd.service
+
+[Service]
+# The person using the Cardputer: the history is theirs, in their home.
+User=1000
+ExecStart=/usr/bin/zeroos-meshd
+Restart=on-failure
+RestartSec=2
+Nice=5
+OOMScoreAdjust=200
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=-/home
+PrivateTmp=yes

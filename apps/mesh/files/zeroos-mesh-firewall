@@ -1,32 +1,41 @@
 #!/bin/sh
 # zeroos-mesh-firewall close|open|clear (root; meshtasticd's drop-in and
-# zeroos-mesh-lan.service run it). meshtasticd's web client (9443) and API
-# (4403) have no login: anyone who can reach them can read the mesh, send as
-# you and change the node. So they answer only this device (lo) and your
-# tailnet (tailscale0), until you choose Allow phones in Mesh, which
-# opens them to the network you're on until the mesh is turned off.
-#   close  only lo and tailscale0 reach them (before meshtasticd starts)
-#   open   anyone on the network can (Allow phones)
+# zeroos-mesh-lan.service run it). Nothing on these ports asks for a login:
+# anyone who can reach them can read the mesh, send as you and change the
+# node. So:
+#   4404  meshtasticd's own API: this device only, always. Only zeroos-meshd
+#         talks to it.
+#   4403  zeroos-meshd (the app, phones), and 9443, meshtasticd's web client:
+#         this device (lo) and your tailnet (tailscale0), until you choose
+#         Phones on this network in Mesh, which opens them to the network
+#         you're on until the mesh is turned off.
+#   close  4403 and 9443 to lo and tailscale0 only (before meshtasticd starts)
+#   open   4403 and 9443 to anyone on the network
 #   clear  remove ZeroOS's rules (meshtasticd stopped)
 set -u
 T="inet zeroos_mesh"
 command -v nft >/dev/null 2>&1 || { echo "zeroos-mesh-firewall: nft is missing (apt install nftables)" >&2; exit 1; }
-case ${1:-} in
-    close)
-        nft -f - <<NFT
+rules() {   # rules <set of ports kept to lo and tailscale0, or "">
+    if [ -n "$1" ]; then
+        phones="iifname != { \"lo\", \"tailscale0\" } tcp dport { $1 } drop"
+    else
+        phones=""
+    fi
+    nft -f - <<NFT
 table $T {}
 flush table $T
 table $T {
     chain input {
         type filter hook input priority -10; policy accept;
-        iifname != { "lo", "tailscale0" } tcp dport { 4403, 9443 } drop
+        iifname != "lo" tcp dport 4404 drop
+        $phones
     }
 }
 NFT
-        ;;
-    open)
-        nft list table $T >/dev/null 2>&1 && nft flush table $T
-        exit 0 ;;
+}
+case ${1:-} in
+    close) rules "4403, 9443" ;;
+    open)  rules "" ;;
     clear)
         nft delete table $T 2>/dev/null
         exit 0 ;;

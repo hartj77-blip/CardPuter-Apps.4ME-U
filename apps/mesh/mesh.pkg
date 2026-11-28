@@ -1,19 +1,24 @@
-# Mesh (README.md): Meshtastic text messages over LoRa with the
-# Cap LoRa-1262. meshtasticd comes from Meshtastic's openSUSE repository.
+# Mesh (README.md): a Meshtastic client for the Cap LoRa-1262. meshtasticd
+# comes from Meshtastic's openSUSE repository; zeroos-meshd, Mesh's own
+# daemon in front of it, is built here (core/, into the build's bin/).
 NAME="Mesh"
-SUMMARY="Meshtastic text messages over LoRa with the Cap LoRa-1262"
-APP_VERSION="1.2.2"
+SUMMARY="Meshtastic over LoRa with the Cap LoRa-1262: chats, private messages, nodes, map, channels by QR code"
+APP_VERSION="2.0.0"
 DEPENDS="meshtasticd, nftables"
-# Off at boot: the Mesh app starts it.
+# Off at boot: the Mesh app starts it, and zeroos-meshd with it.
 DISABLE_DEPS="meshtasticd.service"
-STOP_ON_REMOVE="zeroos-mesh-lan.service meshtasticd.service"
+STOP_ON_REMOVE="zeroos-mesh-lan.service zeroos-meshd.service meshtasticd.service"
 payload() {
+    local meshd=${ZEROOS_BUILD:-}/bin/zeroos-meshd
+    [ -x "$meshd" ] || { echo "error: no $meshd (build the apps first)" >&2; exit 1; }
+    install -D -m 0755 "$meshd" "$D/usr/bin/zeroos-meshd"
+    install -D -m 0644 "$F/zeroos-meshd.service" "$D/etc/systemd/system/zeroos-meshd.service"
     install -D -m 0644 "$F/meshtasticd-cap-lora-1262.yaml" \
                        "$D/etc/meshtasticd/config.d/zeroos-cap-lora-1262.yaml"
     install -D -m 0644 "$F/meshtasticd-zeroos.conf" \
                        "$D/etc/systemd/system/meshtasticd.service.d/zeroos.conf"
     install -D -m 0755 "$F/zeroos-mesh-cap-power" "$D/usr/lib/zeroos/mesh-cap-power"
-    # Who can reach the web client and API (zeroos-mesh-firewall).
+    # Who can reach the API and the web client (zeroos-mesh-firewall).
     install -D -m 0755 "$F/zeroos-mesh-firewall" "$D/usr/lib/zeroos/mesh-firewall"
     install -D -m 0644 "$F/zeroos-mesh-lan.service" "$D/etc/systemd/system/zeroos-mesh-lan.service"
     # Fetched by prepare.sh, which checks its fingerprint.

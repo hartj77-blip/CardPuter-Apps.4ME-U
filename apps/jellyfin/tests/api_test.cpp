@@ -253,8 +253,78 @@ static void test_safety() {
     CHECK(status_error(500) == "Server error 500");
 }
 
+// A film with three audio tracks and three subtitles, as /Items/<id> sends it.
+static const char kFilm[] = R"({"Name":"Sintel","Id":"11111111111111111111111111111111","Type":"Movie",
+ "MediaStreams":[{"Type":"Audio","Index":9,"Language":"xxx"}],
+ "MediaSources":[{"Id":"11111111111111111111111111111111","DefaultAudioStreamIndex":2,"MediaStreams":[
+  {"Type":"Video","Index":0,"Codec":"h264"},
+  {"Type":"Audio","Index":1,"Language":"eng","DisplayTitle":"English - AAC - Stereo"},
+  {"Type":"Audio","Index":2,"Language":"jpn","DisplayTitle":"Japanese - FLAC - 5.1 - Default","IsDefault":true},
+  {"Type":"Audio","Index":3,"Language":"","DisplayTitle":""},
+  {"Type":"Subtitle","Index":4,"Language":"ENG","DisplayTitle":"English - Forced - SUBRIP","IsForced":true},
+  {"Type":"Subtitle","Index":5,"Language":"eng","DisplayTitle":"English - SUBRIP"},
+  {"Type":"Subtitle","Index":6,"Language":"spa","DisplayTitle":"","IsForced":true},
+  {"Type":"Subtitle","Index":-3,"Language":"bad"},
+  {"Type":"EmbeddedImage","Index":7}
+ ]}]})";
+
+static void test_tracks() {
+    Item film;
+    CHECK(parse_item(kFilm, film));
+    CHECK(film.tracks_known);
+    // The first version's tracks, not the item's own list.
+    CHECK(film.tracks.size() == 6);
+    if (film.tracks.size() != 6) return;
+    CHECK(!film.tracks[0].subtitle && film.tracks[0].index == 1 && film.tracks[0].lang == "eng");
+    CHECK(film.tracks[1].is_default);   // DefaultAudioStreamIndex and IsDefault
+    CHECK(film.tracks[3].subtitle && film.tracks[3].forced && film.tracks[3].lang == "eng");   // lower-cased
+    CHECK(default_audio(film.tracks) == 2);
+
+    CHECK(track_label(film.tracks[0]) == "English - AAC - Stereo");
+    CHECK(track_label(film.tracks[2]) == "Track 3");        // no title, no language
+    CHECK(track_label(film.tracks[5]) == "Spanish (forced)");   // a language, no title
+    CHECK(language_name("jpn") == "Japanese" && language_name("xyz") == "xyz");
+
+    CHECK(track_for_language(film.tracks, false, "eng") == 1);
+    CHECK(track_for_language(film.tracks, false, "jpn") == 2);
+    CHECK(track_for_language(film.tracks, false, "fre") == -1);
+    // Subtitles: the full ones before the forced (signs only) in the same language.
+    CHECK(track_for_language(film.tracks, true, "eng") == 5);
+    CHECK(track_for_language(film.tracks, true, "spa") == 6);   // only forced: still found
+    CHECK(track_for_language(film.tracks, true, "") == -1);
+
+    // Stepping through: audio wraps round, from the server's choice (-1).
+    CHECK(next_track(film.tracks, false, -1) == 3);
+    CHECK(next_track(film.tracks, false, 2) == 3);
+    CHECK(next_track(film.tracks, false, 3) == 1);
+    // Subtitles: off, each one, off.
+    CHECK(next_track(film.tracks, true, kSubOff) == 4);
+    CHECK(next_track(film.tracks, true, 4) == 5);
+    CHECK(next_track(film.tracks, true, 6) == kSubOff);
+    CHECK(next_track(film.tracks, true, 99) == 4);   // a choice that went: the first
+    CHECK(next_track({}, true, kSubOff) == kSubOff);  // none: stays off
+    CHECK(next_track({}, false, -1) == -1);
+
+    // The stream's address.
+    CHECK(track_query(-1, kSubOff).empty());
+    CHECK(track_query(2, kSubOff) == "&AudioStreamIndex=2");
+    CHECK(track_query(-1, 5) == "&SubtitleStreamIndex=5&SubtitleMethod=Encode");
+    CHECK(track_query(1, 4) == "&AudioStreamIndex=1&SubtitleStreamIndex=4&SubtitleMethod=Encode");
+
+    // A film whose reply lists no streams: not known (they are asked for).
+    Item bare;
+    CHECK(parse_item(R"({"Name":"X","Id":"11111111111111111111111111111111","Type":"Movie"})", bare));
+    CHECK(!bare.tracks_known && bare.tracks.empty());
+    // Only videos have tracks.
+    Item album;
+    CHECK(parse_item(R"({"Name":"A","Id":"11111111111111111111111111111111","Type":"MusicAlbum",
+                         "MediaStreams":[{"Type":"Audio","Index":1}]})", album));
+    CHECK(!album.tracks_known);
+}
+
 int main() {
     test_parse();
+    test_tracks();
     test_paths();
     test_search();
     test_pictures();

@@ -243,15 +243,16 @@ converts anything else to mp3.
 
 A film, an episode or a video opens its **page** first, as in Jellyfin's own
 apps: the poster or still, the year, how long it is, its rating, whether you
-have watched it, and its description.
+have watched it, its description and, when it has more than one language or
+any subtitles, which it will play with.
 
 ```
  < Sintel
  +------+  Sintel
  |      |  2010 · 15m · PG · 7.4 / 10
  |poster|  A lonely young woman, Sintel, helps and
- |      |  befriends a dragon, whom she calls Scales...
- +------+
+ +------+  befriends a dragon, whom she calls...
+ ♫ Japanese - AAC - Stereo    CC English - SUBRIP
  [> Resume 5:00] [Restart] [Watched] [Favourite]
 ```
 
@@ -261,9 +262,33 @@ have watched it, and its description.
 | Left / Right | Choose a button |
 | Space | Play, or resume |
 | R | From the start |
+| A | Choose the audio language, from a list |
+| C | Choose subtitles (or Off), from a list |
 | W | Mark as watched, or not |
 | V | Add to favourites, or take off |
 | Backspace or Esc | Back |
+
+### Languages and subtitles
+
+The page lists the video's audio tracks and subtitles as the server names
+them (*English - AAC - Stereo*, *Spanish - SUBRIP*); subtitles marked
+*signs only* are the forced ones, for signs and foreign-language lines.
+
+- **The server burns the subtitles into the picture.** Any kind of subtitle
+  works this way (text or picture subtitles from a disc), on the Cardputer's
+  screen and on a TV alike. It means the server converts the video while you
+  watch, which a server that would otherwise pass the file through has to do
+  then.
+- **Your choice is kept, by language.** Pick Japanese audio and English
+  subtitles once, and the next film or episode that has them starts with
+  them, as Jellyfin's own apps remember a choice. Pick Off and subtitles stay
+  off.
+- A video started straight from Continue Watching or Next Up asks the server
+  for its tracks first, so the same choice applies to it.
+- **While it plays**, A steps to the next audio track and C to the next
+  subtitles (Off, each one, Off again). The video starts again from where it
+  was with the new choice, after a moment of loading, and the new choice is
+  kept the same way.
 
 The video has the **whole screen**, as a game does: the status bar and the
 soft-key bar step aside, and a 16:9 picture fills 302 x 170 pixels, about
@@ -292,6 +317,8 @@ the volume at the bottom.
 | Fn + W / Fn + E | Back 10 / forward 30 seconds |
 | Down / Up | Back / forward a minute |
 | R | From the start |
+| A | The next audio track |
+| C | The next subtitles (Off, each one, Off again) |
 | + / - | Volume |
 | M | Play it on the TV, or back on this screen ([On a TV](#on-a-tv)); in Dock mode, on the monitor's desktop |
 | Esc or S | Stop |
@@ -385,7 +412,8 @@ libraries, Continue Watching, what is new in a library).
 
 ## Limits
 
-- No subtitle or audio track choice (the server's defaults are used).
+- Subtitles are burned in by the server, not drawn by the Cardputer, so
+  changing them restarts the stream from where it was.
 - Music can't be fast-forwarded or rewound within a track (ZeroShell's player
   has no seek for streams yet); video can.
 - No photos, e-books or Live TV; people and genres aren't in the search.
@@ -438,7 +466,8 @@ Tests, all run in CI:
   what it drew: the token in every request's header and in no address, the
   covers on the screen and kept for the next visit, a library of 230 in three
   pages, one search request for each kind of thing, playing a track opening
-  the player with its cover and the queue picking another, a favourite reaching the
+  the player with its cover and the queue picking another, a film's languages
+  and subtitles listed and the choice kept, a favourite reaching the
   server, signing out, a refused token, and a server from before 10.9.
 
 To try the app on a PC without a server, run the stand-in and sign in to it

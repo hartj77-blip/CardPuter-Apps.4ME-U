@@ -14,7 +14,8 @@
 //   Tracks    List (ui/list_view.h): an album or playlist, its cover beside
 //             its tracks. Typing narrows, 1 to 9 pick, Enter plays
 //   Details   Control: a film or episode. Left / Right choose a button,
-//             Enter presses it; R from the start, W watched, V favourite
+//             Enter presses it; R from the start, W watched, V favourite,
+//             A the audio language, C subtitles (a list to pick from)
 //   Search    Text: results arrive as you type, a row for each kind of thing
 //   Playing   Control: the track that is playing: its cover large, on a page
 //             tinted with it; Space pause, Left / Right previous / next,
@@ -23,7 +24,8 @@
 //   Video     Control, on the whole screen: the picture 302 x 170 and a rail
 //             on the right (play or pause, progress, volume). Enter or Space
 //             pause, Left / Right -/+10 s, Up / Down +/-1 min, R from the
-//             start, M on the TV (or back), S or Esc stop
+//             start, A next audio track, C next subtitles, M on the TV (or
+//             back), S or Esc stop
 // Fn + Q / W / E, the keyboard's media keys, work everywhere.
 //
 // Nothing waits on the network on the screen's thread: lists, searches and
@@ -289,6 +291,7 @@ public:
             case Level::Detail: return detail_key(*l, key);
             case Level::Search: return search_key(*l, key);
             case Level::Playing: return playing_key(key);
+            case Level::Pick: return pick_key(key);
         }
         return false;
     }
@@ -315,9 +318,13 @@ public:
     }
 
 private:
+    // Where a video goes: the TV when one is plugged in and Play on TV is
+    // on (Auto), or as asked. A TV that can't be used falls back to here.
+    enum class Where { Auto, Screen, Tv };
+
     // One screen above Home; the stack of them is where you are.
     struct Level {
-        enum Type { Grid, Tracks, Detail, Search, Playing } type = Grid;
+        enum Type { Grid, Tracks, Detail, Search, Playing, Pick } type = Grid;
         uint32_t serial = 0;        // names the level to work that comes back later
         std::string title;
         Query query;
@@ -330,6 +337,7 @@ private:
         int focus = -1;             // the card or row to select when it is drawn
         std::string typed;          // Tracks: what was typed to narrow the list
         bool queue = false;         // Tracks: the play queue, not an album
+        bool pick_sub = false;      // Pick: subtitles, else the audio track
         // Detail: the list it was opened from, so an episode can go on to the next.
         std::vector<Item> siblings;
         int at = 0;
@@ -488,9 +496,17 @@ private:
         }
         if (it.kind == Kind::Episode && it.season == 1) it.played = true;
         if (it.kind == Kind::Movie && it.name == "Big Buck Bunny") it.played = true;
-        if (it.playable_video())
+        if (it.playable_video()) {
             it.overview = "This is the simulator, with no server behind it. On your own Jellyfin, "
                           "the description of " + it.name + " shows here.";
+            // Tracks to choose from, as a film with a second language has.
+            it.tracks = {{1, false, "eng", "English - AAC - Stereo - Default", true, false},
+                         {2, false, "jpn", "Japanese - AAC - 5.1", false, false},
+                         {3, true, "eng", "English - SUBRIP", false, false},
+                         {4, true, "spa", "Spanish - SUBRIP", false, false},
+                         {5, true, "eng", "English - Forced - PGSSUB", false, true}};
+            it.tracks_known = true;
+        }
         return it;
     }
 
@@ -724,6 +740,8 @@ private:
             a.push_back({"Pause", 0, "Space", nullptr});
             a.push_back({"Seek 1 min", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr});
             a.push_back({"From the start", 'r', "R", [this] { video_restart(); }});
+            a.push_back({"Audio track", 'a', "A", [this] { video_step_track(false); }});
+            a.push_back({"Subtitles", 'c', "C", [this] { video_step_track(true); }});
             a.push_back({"Volume", 0, "+ -", nullptr});
             shell_set_actions(std::move(a));
             return;
@@ -776,14 +794,22 @@ private:
             common();
         } else if (l->type == Level::Detail) {
             const Item& it = l->parent;
-            // The bar has room for two or three; V works too, and is in the menu.
+            // The bar has room for three: the tracks when there is a choice
+            // to make; the rest work as well and are in the menu.
             const bool part = it.resume_s > 0;
+            const bool choice = has_choice(it);
             a.push_back({part ? "Resume" : "Play", 0, "Enter", nullptr});
-            a.push_back({"Restart", 'r', part ? "R" : nullptr, [this] { detail_play(true); }});
-            a.push_back({it.played ? "Not watched" : "Watched", 'w', "W", [this] { detail_toggle(false); }});
+            a.push_back({"Subtitles", 'c', choice ? "C" : nullptr, [this] { open_pick(true); }, choice});
+            a.push_back({"Audio", 'a', choice ? "A" : nullptr, [this] { open_pick(false); }, choice});
+            a.push_back({"Restart", 'r', part && !choice ? "R" : nullptr, [this] { detail_play(true); }});
+            a.push_back({it.played ? "Not watched" : "Watched", 'w', choice ? nullptr : "W", [this] { detail_toggle(false); }});
             a.push_back({it.favorite ? "Not a favourite" : "Favourite", 'v', nullptr, [this] { detail_toggle(true); }});
             a.push_back({"Search", 'f', nullptr, [this] { open_search(); }});
             common();
+        } else if (l->type == Level::Pick) {
+            a.push_back({"Choose", 0, "Enter", nullptr});
+            a.push_back({"Back", 0, "Esc", nullptr});
+            a.push_back({"Move", 0, LV_SYMBOL_UP LV_SYMBOL_DOWN, nullptr});
         } else if (l->type == Level::Search) {
             a.push_back({"Open", 0, "Enter", nullptr});
             a.push_back({"Back", 0, "Esc", nullptr});
@@ -877,6 +903,7 @@ private:
         else if (l->type == Level::Tracks) build_tracks(*l);
         else if (l->type == Level::Detail) build_detail(*l);
         else if (l->type == Level::Search) build_search(*l);
+        else if (l->type == Level::Pick) build_pick(*l);
         else build_playing();
         if (input_) lv_obj_move_foreground(input_);
         lv_obj_move_foreground(now_);
@@ -1265,7 +1292,7 @@ private:
             case Kind::Movie:
             case Kind::Episode:
             case Kind::Video:
-                if (play) open_video(items, i);
+                if (play) play_video(items, i);
                 else open_detail(items, i);
                 break;
             case Kind::Track: play_tracks(items, i, false); break;
@@ -1641,8 +1668,14 @@ private:
             it.resume_s = full.resume_s;
             if (!it.poster.any()) it.poster = full.poster;
             if (!it.wide.any()) it.wide = full.wide;
+            if (full.tracks_known && !it.tracks_chosen) {
+                it.tracks = full.tracks;
+                it.tracks_known = true;
+                apply_track_prefs(it);
+            }
             if (top() == l) show();
         });
+        apply_track_prefs(l.parent);
         show();
     }
 
@@ -1674,10 +1707,17 @@ private:
 
         const int by = page_h() - 22;
         const int line = lv_font_get_line_height(&zs_font_12);
-        int lines = std::max(1, (by - 36) / line);
+        // The tracks it will play with, over the buttons, when there is a choice.
+        const bool choice = has_choice(it);
+        int lines = std::max(1, (by - 36 - (choice ? line + 2 : 0)) / line);
         lv_obj_t* about = dots_label(page_, &zs_font_12, 0xc8c8c8, w, lines);
         lv_obj_set_pos(about, x, 35);
         lv_label_set_text(about, it.overview.c_str());
+        if (choice) {
+            lv_obj_t* tr = dots_label(page_, &zs_font_12, kJfDim, kScreenW - 12, 1);
+            lv_obj_set_pos(tr, 6, by - line - 2);
+            lv_label_set_text(tr, (LV_SYMBOL_AUDIO " " + audio_name(it) + "    CC " + sub_name(it)).c_str());
+        }
 
         // The buttons: Enter presses the one in focus.
         detail_buttons_.clear();
@@ -1734,9 +1774,187 @@ private:
             case 'r': case 'R': detail_play(true); return true;
             case 'w': case 'W': detail_toggle(false); return true;
             case 'v': case 'V': detail_toggle(true); return true;
+            case 'a': case 'A': open_pick(false); return true;
+            case 'c': case 'C': open_pick(true); return true;
             case 'f': case 'F': open_search(); return true;
         }
         return false;
+    }
+
+    // ---- Audio and subtitle tracks ------------------------------------------
+
+    // Something to choose: more than one language, or subtitles at all.
+    static bool has_choice(const Item& it) {
+        int audio = 0, subs = 0;
+        for (const jfapp::Track& t : it.tracks) (t.subtitle ? subs : audio)++;
+        return it.tracks_known && (audio > 1 || subs > 0);
+    }
+
+    static const jfapp::Track* find_track(const Item& it, int index) {
+        for (const jfapp::Track& t : it.tracks)
+            if (t.index == index) return &t;
+        return nullptr;
+    }
+
+    static std::string audio_name(const Item& it) {
+        const jfapp::Track* t = find_track(it, it.audio >= 0 ? it.audio : default_audio(it.tracks));
+        return t ? track_label(*t) : "Default";
+    }
+
+    static std::string sub_name(const Item& it) {
+        const jfapp::Track* t = it.sub >= 0 ? find_track(it, it.sub) : nullptr;
+        return t ? track_label(*t) : "Off";
+    }
+
+    // What was chosen before, for a video whose tracks are known now: the
+    // same language when it has one (as Jellyfin remembers a choice).
+    void apply_track_prefs(Item& it) {
+        if (!it.tracks_known || it.tracks_chosen) return;
+        it.tracks_chosen = true;
+        const std::string audio = prefs::get_str("jellyfin.audio_lang", "");
+        const std::string sub = prefs::get_str("jellyfin.sub_lang", "");
+        int a = track_for_language(it.tracks, false, audio);
+        if (a >= 0) it.audio = a;
+        if (sub != "off") {
+            int s = track_for_language(it.tracks, true, sub);
+            if (s >= 0) it.sub = s;
+        }
+    }
+
+    // A choice made: kept for the next video too, by its language.
+    static void remember_track(const Item& it, bool subtitle) {
+        if (subtitle) {
+            const jfapp::Track* t = it.sub >= 0 ? find_track(it, it.sub) : nullptr;
+            prefs::set_str("jellyfin.sub_lang", t ? (t->lang.empty() ? "" : t->lang) : "off");
+        } else if (const jfapp::Track* t = find_track(it, it.audio >= 0 ? it.audio : default_audio(it.tracks))) {
+            if (!t->lang.empty()) prefs::set_str("jellyfin.audio_lang", t->lang);
+        }
+    }
+
+    // The film's page: a list of its audio tracks, or Off and its subtitles.
+    void open_pick(bool subtitle) {
+        Level* d = top();
+        if (!d || d->type != Level::Detail) return;
+        if (!d->parent.tracks_known) {
+            say("Still asking the server for its tracks");
+            return;
+        }
+        int n = 0;
+        for (const jfapp::Track& t : d->parent.tracks) n += t.subtitle == subtitle;
+        if (n == 0 || (!subtitle && n < 2)) {
+            say(subtitle ? "This video has no subtitles" : "This video has one audio track");
+            return;
+        }
+        Level& l = push(Level::Pick, subtitle ? "Subtitles" : "Audio");
+        l.pick_sub = subtitle;
+        show();
+    }
+
+    // The Pick level's choices, in its list's order: the track indexes, and
+    // kSubOff first for subtitles.
+    std::vector<int> pick_choices(const Item& it, bool subtitle) const {
+        std::vector<int> v;
+        if (subtitle) v.push_back(kSubOff);
+        for (const jfapp::Track& t : it.tracks)
+            if (t.subtitle == subtitle) v.push_back(t.index);
+        return v;
+    }
+
+    Level* pick_owner() {
+        return stack_.size() >= 2 && stack_[stack_.size() - 2]->type == Level::Detail ? stack_[stack_.size() - 2].get()
+                                                                                       : nullptr;
+    }
+
+    void build_pick(Level& l) {
+        Level* d = pick_owner();
+        if (!d) return;
+        const Item& it = d->parent;
+        list_.build(page_, 4, 2, kScreenW - 8, page_h() - 4);
+        list_built_ = true;
+        const int current = l.pick_sub ? it.sub : (it.audio >= 0 ? it.audio : default_audio(it.tracks));
+        int at = 0, row = 0;
+        for (int choice : pick_choices(it, l.pick_sub)) {
+            const jfapp::Track* t = find_track(it, choice);
+            std::string text = t ? track_label(*t) : "Off";
+            std::string right = t && t->subtitle && t->forced ? "signs only" : "";
+            if (choice == current) at = row;
+            list_.add(choice == current ? LV_SYMBOL_OK : (l.pick_sub ? "" : LV_SYMBOL_AUDIO), text, right,
+                      [this, choice] { pick(choice); });
+            ++row;
+        }
+        list_.finish();
+        list_.focus(at);
+    }
+
+    void pick(int choice) {
+        Level* l = top();
+        Level* d = pick_owner();
+        if (!l || l->type != Level::Pick || !d) return;
+        Item& it = d->parent;
+        if (l->pick_sub) it.sub = choice;
+        else it.audio = choice;
+        it.tracks_chosen = true;
+        remember_track(it, l->pick_sub);
+        back();
+    }
+
+    bool pick_key(uint32_t key) {
+        if (list_built_ && list_.key(key)) return true;
+        if (key == LV_KEY_BACKSPACE || key == LV_KEY_DEL) {
+            back();
+            return true;
+        }
+        return false;
+    }
+
+    // Play items[i], with its tracks: a video whose tracks aren't known yet
+    // (started from Continue Watching, or the next episode) asks for them
+    // first, so the languages chosen before apply to it too.
+    void play_video(std::vector<Item> items, int i, Where where = Where::Auto) {
+        if (i < 0 || i >= int(items.size())) return;
+        Item& it = items[size_t(i)];
+        if (it.tracks_known || demo() || !jf_.signed_in()) {
+            apply_track_prefs(it);
+            open_video(items, i, where);
+            return;
+        }
+        Ask one;
+        one.path = item_path(it.id, jf_.user_id);
+        one.single = true;
+        shell_toast("Loading...");
+        ask({one}, [this, items, i, where](Answers& ans) mutable {
+            Item& it = items[size_t(i)];
+            if (ans[0].ok && !ans[0].page.items.empty() && ans[0].page.items[0].tracks_known) {
+                it.tracks = ans[0].page.items[0].tracks;
+                it.tracks_known = true;
+            }
+            apply_track_prefs(it);
+            if (!vid_) open_video(items, i, where);
+        });
+    }
+
+    // While a video plays: the next audio track, or the next subtitles. The
+    // stream starts again from here with them (the server mixes them in).
+    void video_step_track(bool subtitle) {
+        if (!vid_) return;
+        Item& it = vid_item_;
+        if (!it.tracks_known) {
+            say("The server didn't list this video's tracks");
+            return;
+        }
+        int now = subtitle ? it.sub : it.audio;
+        int next = next_track(it.tracks, subtitle, now);
+        if (next == now || (!subtitle && next == (now >= 0 ? now : default_audio(it.tracks)))) {
+            say(subtitle ? "This video has no subtitles" : "This video has one audio track");
+            return;
+        }
+        if (subtitle) it.sub = next;
+        else it.audio = next;
+        it.tracks_chosen = true;
+        remember_track(it, subtitle);
+        move_video(vid_tv_ ? Where::Tv : Where::Screen,
+                   subtitle ? (it.sub >= 0 ? "Subtitles: " + sub_name(it) : std::string("Subtitles off"))
+                            : "Audio: " + audio_name(it));
     }
 
     void detail_play(bool from_start) {
@@ -1750,7 +1968,7 @@ private:
         }
         items[size_t(at)] = l->parent;
         if (from_start) items[size_t(at)].resume_s = 0;
-        open_video(items, at);
+        play_video(items, at);
     }
 
     void detail_toggle(bool favorite) {
@@ -2367,9 +2585,6 @@ private:
         return fmt("%08x%08x%08x%08x", unsigned(rd()), unsigned(rd()), unsigned(rd()), unsigned(rd()));
     }
 
-    // Where a video goes: the TV when one is plugged in and Play on TV is
-    // on (Auto), or as asked. A TV that can't be used falls back to here.
-    enum class Where { Auto, Screen, Tv };
 
     bool tv_wanted() const { return prefs::get_int("jellyfin.tv", 1) != 0; }
     // A TV to put a video on now: plugged in, and Dock not holding the port.
@@ -2392,6 +2607,7 @@ private:
         }
         if (!tv) {
             std::string url = jf::video_url(jf_, it.id, session, kStreamW, kStreamH, kStreamKbps);
+            if (!url.empty()) url += track_query(it.audio, it.sub);
             if (url.empty()) {
                 shell_toast("Can't play " + it.name);
                 return;
@@ -2425,6 +2641,7 @@ private:
     // we can read (the one Dock's player reads too).
     bool open_on_tv(const Item& it, const std::string& session, int start, std::string& error) {
         std::string url = jf::video_url(jf_, it.id, session, kDockW, kDockH, kDockKbps);
+        if (!url.empty()) url += track_query(it.audio, it.sub);
         const char* home = std::getenv("HOME");
         if (url.empty() || !home || !*home || !jf::write_dock_options(jf_, start)) {
             error = "Can't play " + it.name + " on the TV";
@@ -2667,7 +2884,7 @@ private:
             bool keys = st.paused || vid_tv_;
             lv_obj_set_y(vid_osd_, keys ? kVidH - 58 : kVidH - 44);
             lv_label_set_text(vid_keys_, keys ? LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " 10s  " LV_SYMBOL_UP LV_SYMBOL_DOWN
-                                                " 1 min   R start   M TV   S stop"
+                                                " 1m  A audio  C subs  R start  M TV"
                                               : "");
         }
         watch_tv();
@@ -2700,7 +2917,7 @@ private:
                 l->at = next;
                 l->title = l->parent.detail.empty() ? l->parent.name : l->parent.detail;
             }
-            open_video(rest, next);
+            play_video(rest, next);   // the languages chosen before apply to it too
             say("Up next: " + rest[size_t(next)].name);
         } else {
             shell_toast("Finished " + was.name);
@@ -2730,6 +2947,8 @@ private:
             case kKeyPrevTrack: seek(-10); return true;
             case kKeyNextTrack: seek(+30); return true;
             case 'r': case 'R': video_restart(); return true;
+            case 'a': case 'A': video_step_track(false); return true;
+            case 'c': case 'C': video_step_track(true); return true;
             case '+': case '=':
                 h.set_volume(std::min(100, h.volume() + 5));
                 return true;
@@ -2760,6 +2979,7 @@ private:
         Item it = vid_item_;
         int at = vstate().pos_ms / 1000;
         std::string url = jf::video_url(jf_, it.id, new_session_id(), kDockW, kDockH, kDockKbps);
+        if (!url.empty()) url += track_query(it.audio, it.sub);
         close_video(true);
         if (!jf::write_dock_options(jf_, at) || !hal().dock_open("video", url)) {
             shell_toast("Can't open the video on the monitor");

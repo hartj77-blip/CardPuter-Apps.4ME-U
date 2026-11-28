@@ -294,6 +294,37 @@ bool read_item(const Json& it, Item& x) {
     x.favorite = ud["IsFavorite"].b;
     x.unplayed = std::max(0, int_of(ud["UnplayedItemCount"]));
 
+    // A video's tracks: those of its first version (MediaSources), which the
+    // indexes sent back refer to; else the item's own list.
+    if (x.playable_video()) {
+        const Json& sources = it["MediaSources"];
+        const Json* streams = &it["MediaStreams"];
+        int default_audio_index = -1;
+        if (sources.type == Json::Array && !sources.items.empty()) {
+            if (sources.items[0]["MediaStreams"].type == Json::Array) streams = &sources.items[0]["MediaStreams"];
+            default_audio_index = int_of(sources.items[0]["DefaultAudioStreamIndex"]);
+        }
+        if (streams->type == Json::Array) {
+            x.tracks_known = true;
+            for (const Json& st : streams->items) {
+                const std::string& type = st["Type"].text();
+                if (type != "Audio" && type != "Subtitle") continue;
+                Track t;
+                t.index = int_of(st["Index"]);
+                if (t.index < 0 || t.index > 999) continue;
+                t.subtitle = type == "Subtitle";
+                for (char ch : st["Language"].text())
+                    if (std::isalpha((unsigned char)ch) && t.lang.size() < 8) t.lang += char(std::tolower((unsigned char)ch));
+                t.title = st["DisplayTitle"].text();
+                if (t.title.empty()) t.title = st["Title"].text();
+                if (t.title.size() > 80) t.title.resize(80);
+                t.is_default = st["IsDefault"].b || (!t.subtitle && t.index == default_audio_index);
+                t.forced = st["IsForced"].b;
+                x.tracks.push_back(std::move(t));
+            }
+        }
+    }
+
     // The pictures. Jellyfin names each by the item that holds it, which
     // for a track is its album and for an episode may be its show.
     const Json& tags = it["ImageTags"];
@@ -525,6 +556,76 @@ std::vector<SearchGroup> search_paths(const std::string& text, const std::string
         {"Songs", items("Audio")},
         {"Audiobooks", items("AudioBook")},
     };
+}
+
+std::string track_query(int audio, int sub) {
+    std::string q;
+    if (audio >= 0) q += "&AudioStreamIndex=" + std::to_string(audio);
+    if (sub >= 0) q += "&SubtitleStreamIndex=" + std::to_string(sub) + "&SubtitleMethod=Encode";
+    return q;
+}
+
+std::string language_name(const std::string& code) {
+    static const char* const kNames[][2] = {
+        {"eng", "English"},   {"en", "English"},     {"jpn", "Japanese"},   {"ja", "Japanese"},
+        {"spa", "Spanish"},   {"es", "Spanish"},     {"fre", "French"},     {"fra", "French"},
+        {"fr", "French"},     {"ger", "German"},     {"deu", "German"},     {"de", "German"},
+        {"ita", "Italian"},   {"it", "Italian"},     {"por", "Portuguese"}, {"pt", "Portuguese"},
+        {"rus", "Russian"},   {"ru", "Russian"},     {"chi", "Chinese"},    {"zho", "Chinese"},
+        {"zh", "Chinese"},    {"kor", "Korean"},     {"ko", "Korean"},      {"dut", "Dutch"},
+        {"nld", "Dutch"},     {"nl", "Dutch"},       {"swe", "Swedish"},    {"sv", "Swedish"},
+        {"nor", "Norwegian"}, {"nob", "Norwegian"},  {"dan", "Danish"},     {"fin", "Finnish"},
+        {"pol", "Polish"},    {"pl", "Polish"},      {"tur", "Turkish"},    {"ara", "Arabic"},
+        {"hin", "Hindi"},     {"heb", "Hebrew"},     {"gre", "Greek"},      {"ell", "Greek"},
+        {"cze", "Czech"},     {"ces", "Czech"},      {"hun", "Hungarian"},  {"tha", "Thai"},
+        {"vie", "Vietnamese"}, {"ind", "Indonesian"}, {"ukr", "Ukrainian"}, {"und", "Unknown language"},
+    };
+    for (const auto& n : kNames)
+        if (code == n[0]) return n[1];
+    return code;
+}
+
+std::string track_label(const Track& t) {
+    std::string s = t.title;
+    if (s.empty()) s = t.lang.empty() ? "Track " + std::to_string(t.index) : language_name(t.lang);
+    if (t.forced && s.find("orced") == std::string::npos) s += " (forced)";
+    return s;
+}
+
+int track_for_language(const std::vector<Track>& tracks, bool subtitle, const std::string& lang) {
+    if (lang.empty()) return -1;
+    int best = -1, best_score = -1;
+    for (const Track& t : tracks) {
+        if (t.subtitle != subtitle || t.lang != lang) continue;
+        int score = (t.is_default ? 2 : 0) + (subtitle && !t.forced ? 4 : 0);
+        if (score > best_score) {
+            best = t.index;
+            best_score = score;
+        }
+    }
+    return best;
+}
+
+int default_audio(const std::vector<Track>& tracks) {
+    int first = -1;
+    for (const Track& t : tracks) {
+        if (t.subtitle) continue;
+        if (t.is_default) return t.index;
+        if (first < 0) first = t.index;
+    }
+    return first;
+}
+
+int next_track(const std::vector<Track>& tracks, bool subtitle, int current) {
+    std::vector<int> choices;
+    if (subtitle) choices.push_back(kSubOff);
+    for (const Track& t : tracks)
+        if (t.subtitle == subtitle) choices.push_back(t.index);
+    if (choices.empty()) return current;
+    if (!subtitle && current < 0) current = default_audio(tracks);
+    for (size_t i = 0; i < choices.size(); ++i)
+        if (choices[i] == current) return choices[(i + 1) % choices.size()];
+    return choices[subtitle && choices.size() > 1 ? 1 : 0];
 }
 
 std::string image_path(const Pic& pic, int w, int h) {

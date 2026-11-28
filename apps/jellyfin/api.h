@@ -29,6 +29,19 @@ struct Pic {
     bool any() const { return !id.empty(); }
 };
 
+// One audio or subtitle track of a video, as the server lists it.
+struct Track {
+    int index = -1;          // the server's stream index (AudioStreamIndex, SubtitleStreamIndex)
+    bool subtitle = false;   // else audio
+    std::string lang;        // "eng", "jpn"... ("" when the file doesn't say)
+    std::string title;       // the server's name for it: "English - AAC - Stereo - Default"
+    bool is_default = false;
+    bool forced = false;
+};
+
+// A video's subtitles: off, or a track's index.
+constexpr int kSubOff = -1;
+
 struct Item {
     Kind kind = Kind::Track;
     std::string id;
@@ -52,6 +65,13 @@ struct Item {
     std::string overview;    // only when asked for (item_path)
     Pic poster;              // the item's own shape: a poster, a cover, a still
     Pic wide;                // a 16:9 picture for Continue Watching and episode rows
+    // Videos: their audio and subtitle tracks (only when asked for one item:
+    // item_path), and which to play.
+    std::vector<Track> tracks;
+    bool tracks_known = false;
+    int audio = -1;          // a track's index; -1: the server's choice
+    int sub = kSubOff;       // a track's index, or kSubOff
+    bool tracks_chosen = false;   // by a person, or from what they chose before
 
     bool playable_video() const { return kind == Kind::Movie || kind == Kind::Episode || kind == Kind::Video; }
     bool playable() const { return playable_video() || kind == Kind::Track; }
@@ -122,6 +142,24 @@ std::vector<SearchGroup> search_paths(const std::string& text, const std::string
 // What a person typed, made ready to send: spaces trimmed and runs of them
 // made one. "" if nothing is left to search for.
 std::string clean_search(const std::string& typed);
+
+// What to add to a video's address for its tracks: AudioStreamIndex, and
+// SubtitleStreamIndex with SubtitleMethod=Encode, so the server burns the
+// subtitles into the picture (any kind of subtitle, on any screen).
+std::string track_query(int audio, int sub);
+// A track's name for a person: the server's title, else its language.
+std::string track_label(const Track& t);
+// "eng" -> "English" (the common ones); the code itself otherwise.
+std::string language_name(const std::string& code);
+// The track of that kind in that language: the default one first, and for
+// subtitles not the "forced" ones (signs only) if there is another. -1: none.
+int track_for_language(const std::vector<Track>& tracks, bool subtitle, const std::string& lang);
+// The audio track the server plays when none is asked for: the default one,
+// else the first. -1 when there is none.
+int default_audio(const std::vector<Track>& tracks);
+// The next choice after `current` (Left/Right or a key that steps through
+// them): audio wraps round its tracks; subtitles go Off, each track, Off.
+int next_track(const std::vector<Track>& tracks, bool subtitle, int current);
 
 // A picture, scaled by the server to cover w x h (it keeps the shape, so
 // the app crops what hangs over) and sent as JPEG.

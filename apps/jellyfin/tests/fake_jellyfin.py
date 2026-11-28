@@ -121,6 +121,15 @@ class Library:
             if rated:
                 m["OfficialRating"] = rated
         self.find("Sintel")["UserData"]["PlaybackPositionTicks"] = ticks(300)
+        # A film with a second language and subtitles, as /Items/<id> lists them.
+        sintel = self.find("Sintel")
+        sintel["MediaSources"] = [{"Id": sintel["Id"], "DefaultAudioStreamIndex": 1, "MediaStreams": [
+            {"Type": "Video", "Index": 0, "Codec": "h264"},
+            {"Type": "Audio", "Index": 1, "Language": "eng", "DisplayTitle": "English - AAC - Stereo - Default",
+             "IsDefault": True},
+            {"Type": "Audio", "Index": 2, "Language": "jpn", "DisplayTitle": "Japanese - AAC - Stereo"},
+            {"Type": "Subtitle", "Index": 3, "Language": "eng", "DisplayTitle": "English - SUBRIP"},
+            {"Type": "Subtitle", "Index": 4, "Language": "spa", "DisplayTitle": "Spanish - SUBRIP"}]}]
         self.find("Big Buck Bunny")["UserData"]["Played"] = True
         self.find("Tears of Steel")["UserData"]["IsFavorite"] = True
 
@@ -171,6 +180,7 @@ class Library:
         out = {k: v for k, v in item.items() if not k.startswith("_")}
         if not full:
             out.pop("Overview", None)
+            out.pop("MediaSources", None)
         return out
 
     def descendants(self, parent_id, recursive):

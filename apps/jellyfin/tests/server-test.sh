@@ -16,6 +16,7 @@
 #   - playing a track opens the player with its cover; the queue picks
 #     another track; leaving the app and coming back, Y finds the player again
 #   - a search asks once for each kind of thing
+#   - a film's audio languages and subtitles are listed and the choice kept
 #   - a favourite reaches the server
 #   - signing out forgets the token, the covers and the searches
 #   - a token the server no longer takes signs the app out
@@ -172,6 +173,20 @@ ok(not [r for r in log if "/Images/" in r["path"]], "covers come from the Cardpu
 ok(shot("home2.ppm") > 150, "and are on the screen")
 PY
 echo "ok   keeps covers between visits"
+
+# ---- A film's audio and subtitle tracks -----------------------------------
+# Movies, then Sintel (the 5th by name), which has a second language and
+# subtitles; C and A pick the second of each. The choice is kept by language.
+run "open:jellyfin,live:3000,right,enter,live:2500,right,right,right,right,enter,live:2000\
+,key:c,live:500,down,enter,live:500,key:a,live:500,down,enter,live:500,shot:film.ppm"
+check <<'PY'
+import re
+one = [r for r in log if re.fullmatch(r"/Items/[0-9a-f]{32}", r["path"])]
+ok(len(one) == 1 and one[0]["status"] == 200, "the film's page asks for the film itself (with its tracks)")
+PY
+grep -q '^jellyfin.sub_lang=eng$' "$CONF" || { echo "FAIL subtitles picked on the film's page weren't kept ($(grep _lang "$CONF" || true))"; exit 1; }
+grep -q '^jellyfin.audio_lang=jpn$' "$CONF" || { echo "FAIL the audio picked on the film's page wasn't kept"; exit 1; }
+echo "ok   lists a film's languages and subtitles, and keeps the choice"
 
 # ---- A token the server no longer takes -----------------------------------
 sed -i 's/^jellyfin.token=.*/jellyfin.token=00000000000000000000000000000000/' "$CONF"

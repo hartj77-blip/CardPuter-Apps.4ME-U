@@ -44,4 +44,24 @@ grep -q 'headless mock' "$DEST.tmp/epd_helper.py" \
 install -D -m 0644 "$src_files/cgi.py" "$DEST.tmp/cgi.py"
 install -D -m 0644 "$src_files/telnetlib.py" "$DEST.tmp/telnetlib.py"
 
+# Default screen_reversed / web_screen_reversed before the per-model chain in
+# initialize_epd_display(). shared.py only sets them for known Waveshare models,
+# so any other epd_type (including a stale "epd_mock" left in a device's config
+# from an earlier build) would leave them unset and crash display.py. With a
+# default, startup is safe whatever the config says.
+python3 - "$DEST.tmp/shared.py" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+needle = "            self.epd_helper = EPDHelper(self.epd_type)\n"
+if s.count(needle) != 1:
+    sys.exit(f"error: shared.py EPD anchor count={s.count(needle)}, expected 1")
+s = s.replace(needle, needle +
+              "            self.screen_reversed = True\n"
+              "            self.web_screen_reversed = True\n", 1)
+open(p, "w").write(s)
+PY
+grep -q "self.web_screen_reversed = True" "$DEST.tmp/shared.py" \
+    || { echo "error: screen_reversed default not applied" >&2; exit 1; }
+
 mv "$DEST.tmp" "$DEST"

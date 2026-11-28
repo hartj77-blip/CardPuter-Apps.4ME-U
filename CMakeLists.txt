@@ -127,6 +127,23 @@ set_property(GLOBAL PROPERTY ZS_APP_IDS ${_ids})
 file(GLOB_RECURSE BASE_SOURCES CONFIGURE_DEPENDS ${BASE_SHELL}/src/*.cpp ${BASE_SHELL}/src/fonts/*.c)
 list(FILTER BASE_SOURCES EXCLUDE REGEX "^${BASE_SHELL}/src/apps/")
 list(APPEND BASE_SOURCES ${BASE_SHELL}/src/apps/common.cpp ${BASE_SHELL}/src/apps/registry.cpp)
+# ZeroOS 0.9.3 and newer: on the device the shell carries a small preload
+# library for M5Stack's launcher apps (base/shell/CMakeLists.txt). An older
+# OS has no src/platform/m5_drm_shim.c, and its shell doesn't need one.
+if(ZS_DEVICE AND EXISTS ${BASE_SHELL}/src/platform/m5_drm_shim.c)
+  add_library(zs_m5_drm_shim MODULE ${BASE_SHELL}/src/platform/m5_drm_shim.c)
+  set_target_properties(zs_m5_drm_shim PROPERTIES PREFIX "" OUTPUT_NAME m5-drm-shim)
+  target_compile_options(zs_m5_drm_shim PRIVATE -Wall -Wextra -Os -g0)
+  target_link_options(zs_m5_drm_shim PRIVATE -s)
+  target_link_libraries(zs_m5_drm_shim PRIVATE ${CMAKE_DL_LIBS})
+  set(_zs_shim_c ${CMAKE_CURRENT_BINARY_DIR}/m5_drm_shim_blob.c)
+  add_custom_command(OUTPUT ${_zs_shim_c}
+    COMMAND ${CMAKE_COMMAND} -DIN=$<TARGET_FILE:zs_m5_drm_shim> -DOUT=${_zs_shim_c} -DNAME=zs_m5_drm_shim
+            -P ${BASE_SHELL}/cmake/embed.cmake
+    DEPENDS zs_m5_drm_shim ${BASE_SHELL}/cmake/embed.cmake
+    VERBATIM)
+  list(APPEND BASE_SOURCES ${_zs_shim_c})
+endif()
 
 add_executable(zeroshell ${BASE_SOURCES})
 # This repository first: "apps/<id>/x.h" is the copy here, never the OS's.

@@ -6,7 +6,7 @@
 # speaks the turns.
 NAME="Maps"
 SUMMARY="Offline map of New Jersey with spoken turn-by-turn directions, and your position and GPX tracks, with a GPS module"
-APP_VERSION="1.2.0"
+APP_VERSION="1.3.0"
 REPLACES="gps"   # the GPS app, now a screen in Maps (Tab > Position and tracks)
 DEPENDS="gpsd, gpsd-clients, navit, xvfb, dbus-daemon, dbus-bin, espeak-ng"
 NEEDS="gpsd, Navit, Xvfb, espeak-ng"

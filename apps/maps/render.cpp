@@ -16,15 +16,17 @@ const Theme kDay = {
     0x202020, 0xffffff, 0x3c4450, 0xffffff, 0x1f4fb0,
     0x1a73e8, 0xffffff,
     0x2f80ed, 0x1b4f9c,
+    0xdfd9cf, 0xc9c1b4,
 };
 const Theme kNight = {
-    0x0b0c0e, 0x1c1f26, 0x0d2438, 0x16301e, 0x1d3a26, 0x183238, 0x3b3626, 0x2a2a38, 0x0d2438,
+    0x111317, 0x1f232b, 0x0d2438, 0x16301e, 0x1d3a26, 0x183238, 0x3b3626, 0x2a2a38, 0x0d2438,
     0x1b4466, 0x8a5aa6, 0x3a6aa8, 0x6a6a6a, 0x444458,
-    {0x3a3f49, 0x4a505c, 0x596070, 0x77705a, 0x9a8440, 0xb07a30, 0xc8682a},
-    {0x101216, 0x101216, 0x101216, 0x101216, 0x2a2410, 0x2e1e0a, 0x341a08},
+    {0x4a505c, 0x5d6472, 0x707888, 0x9a9070, 0xc4a64e, 0xd9913e, 0xec7a36},
+    {0x101216, 0x101216, 0x101216, 0x1a1a14, 0x2a2410, 0x2e1e0a, 0x341a08},
     0xe8eaed, 0x000000, 0x30343c, 0xffffff, 0x2a5fd0,
     0x4da3ff, 0xffffff,
     0x3d8bff, 0x0c2a5c,
+    0x2b303a, 0x343a46,
 };
 
 inline uint16_t blend(uint16_t d, uint16_t s, uint32_t a) {   // a: 0..32
@@ -103,9 +105,9 @@ double Renderer::road_width(uint8_t kind, double mpp) {
         {5.0f, 3.5f, 2.2f, 1.3f, 0.9f, 0, 0, 0, 0, 0, 0},
         {6.0f, 4.5f, 3.0f, 2.2f, 1.5f, 1.1f, 0.8f, 0, 0, 0, 0},
         {7.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.5f, 1.1f, 0, 0, 0, 0},
-        {8.0f, 6.0f, 4.5f, 3.5f, 2.5f, 2.0f, 1.5f, 1.0f, 0.8f, 0, 0},
-        {8.0f, 6.5f, 5.0f, 4.0f, 3.0f, 2.5f, 2.0f, 1.6f, 1.3f, 1.0f, 0.8f},
-        {9.0f, 7.0f, 5.5f, 4.5f, 3.5f, 3.0f, 2.5f, 2.2f, 2.0f, 1.7f, 1.4f},
+        {8.0f, 6.0f, 4.5f, 3.5f, 2.5f, 2.0f, 1.5f, 1.0f, 0, 0, 0},
+        {8.0f, 6.5f, 5.0f, 4.0f, 3.0f, 2.5f, 2.0f, 1.4f, 1.1f, 0.9f, 0},
+        {9.0f, 7.0f, 5.5f, 4.5f, 3.5f, 3.0f, 2.5f, 2.0f, 1.7f, 1.4f, 1.2f},
     };
     if (!is_road(kind)) return 0;
     const float* row = kW[kind - kService];
@@ -294,7 +296,7 @@ void Renderer::draw(const Map& map, const View& v, const Theme& t, uint16_t* pix
     // Land, then what lies on it.
     for (const Item& it : items_)
         if (it.f.head.kind == kCoverage) fill(it, rgb565(t.land), false);
-    const uint32_t area_colour[] = {0, 0, t.sea, t.forest, t.park, t.wetland, t.sand, t.airport, t.water};
+    const uint32_t area_colour[] = {0, 0, t.sea, t.forest, t.park, t.wetland, t.sand, t.airport, t.water, t.building};
     for (uint8_t kind = kSea; kind <= kLastArea; kind++)
         for (const Item& it : items_)
             if (it.f.head.kind == kind) fill(it, rgb565(area_colour[kind]), false);
@@ -365,7 +367,9 @@ void Renderer::draw(const Map& map, const View& v, const Theme& t, uint16_t* pix
             f.point(0, lx, ly);
             float sx = float(lx) * it.m00 + float(ly) * it.m01 + it.bx, sy = float(lx) * it.m10 + float(ly) * it.m11 + it.by;
             const char* name = map.str(f.head.name);
-            if (*name && sx >= 0 && sy >= 0 && sx < float(w_) && sy < float(h_))
+            // Zoomed out, only the bigger places: towns from 300 m a pixel, cities from 800.
+            bool big_enough = v.mpp < 120 || (v.mpp < 300 ? kind >= kVillage : v.mpp < 800 ? kind >= kTown : kind >= kCity);
+            if (*name && big_enough && sx >= 0 && sy >= 0 && sx < float(w_) && sy < float(h_))
                 add({int(sx), int(sy), name, kind, false}, 1000.0f * float(kind));
             continue;
         }
@@ -414,8 +418,9 @@ void Renderer::draw(const Map& map, const View& v, const Theme& t, uint16_t* pix
     }
     std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.score > b.score; });
     std::vector<Rect> taken = keep_out;
+    size_t most = v.mpp >= 300 ? 7 : 16;
     for (const Cand& cd : cands) {
-        if (labels.size() >= 16) break;
+        if (labels.size() >= most) break;
         const Label& l = cd.l;
         int n = utf8_len(l.text);
         int tw = l.kind == kCity ? 9 * n : l.shield ? 6 * n + 8 : is_place(l.kind) ? 7 * n : 6 * n + 2;

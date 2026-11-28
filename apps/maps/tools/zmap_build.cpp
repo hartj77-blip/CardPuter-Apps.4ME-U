@@ -332,6 +332,7 @@ uint8_t area_kind(const pbf::Tags& t) {
     if (v == "wood") return kForest;
     if (v == "wetland") return kWetland;
     if (v == "beach" || v == "sand") return kSand;
+    if (!tag(t, "building").empty() && tag(t, "building") != "no") return kBuilding;
     v = tag(t, "waterway");
     if (v == "riverbank" || v == "dock") return kWater;
     v = tag(t, "landuse");
@@ -484,6 +485,26 @@ struct Builder {
     std::vector<Restriction> restrictions;
     // For --addresses: each street's key (fold_key), its name as written,
     // and every house number on it with where it is.
+    // For --search: gas stations, food and parking ("gas", "food", "parking").
+    struct Poi {
+        char kind;            // g gas, f food, p parking
+        std::string name;
+        Pt at;
+    };
+    std::vector<Poi> pois;
+    bool want_search = false;
+    void add_poi(const pbf::Tags& tags, Pt at) {
+        std::string_view a = pbf::tag(tags, "amenity"), name = pbf::tag(tags, "name");
+        std::string_view access = pbf::tag(tags, "access");
+        if (a == "fuel") {
+            std::string_view brand = pbf::tag(tags, "brand");
+            pois.push_back({'g', std::string(!name.empty() ? name : !brand.empty() ? brand : "Gas station"), at});
+        } else if ((a == "restaurant" || a == "fast_food" || a == "cafe") && !name.empty()) {
+            pois.push_back({'f', std::string(name), at});
+        } else if (a == "parking" && access != "private" && access != "customers" && access != "no") {
+            pois.push_back({'p', std::string(!name.empty() ? name : "Parking"), at});
+        }
+    }
     bool want_addresses = false;
     struct AddrIn {
         uint32_t street, number, city;
@@ -555,6 +576,7 @@ void Builder::read(const std::string& path) {
         node_pt.push_back(p);
         if (tags.empty()) return;
         if (want_addresses) add_address(tags, p);
+        if (want_search && !pbf::tag(tags, "amenity").empty()) add_poi(tags, p);
         uint8_t k = place_kind(pbf::tag(tags, "place"));
         std::string_view name = pbf::tag(tags, "name");
         if (!k || name.empty()) return;
@@ -586,14 +608,18 @@ void Builder::read(const std::string& path) {
         way_start.push_back(way_refs.size());
         way_refs.insert(way_refs.end(), refs.begin(), refs.end());
         if (tags.empty()) return;
-        if (want_addresses && !pbf::tag(tags, "addr:housenumber").empty()) {   // a building: its middle
+        bool addr = want_addresses && !pbf::tag(tags, "addr:housenumber").empty();
+        bool poi = want_search && !pbf::tag(tags, "amenity").empty();
+        if (addr || poi) {   // a building or a car park: its middle
             double sx = 0, sy = 0;
             size_t n = 0;
             for (size_t i = 0; i + (refs.front() == refs.back() ? 1 : 0) < refs.size(); i++) {
                 Pt q;
                 if (node(refs[i], q)) sx += q.x, sy += q.y, n++;
             }
-            if (n) add_address(tags, {int32_t(std::lround(sx / double(n))), int32_t(std::lround(sy / double(n)))});
+            Pt mid{int32_t(std::lround(sx / double(std::max<size_t>(n, 1)))), int32_t(std::lround(sy / double(std::max<size_t>(n, 1))))};
+            if (n && addr) add_address(tags, mid);
+            if (n && poi) add_poi(tags, mid);
         }
         if (pbf::tag(tags, "natural") == "coastline") coast_ways.push_back(w);
         if (want_roads && car_road(tags)) roads.push_back({w, xml_tags(tags, kRoadKeys)});
@@ -1021,7 +1047,7 @@ void Builder::write_roads(const std::string& path) const {
 // it runs through, sorted by name:
 //   kind<TAB>name<TAB>town<TAB>lat<TAB>lon
 // kind is c city, t town, v village, s suburb or hamlet, n neighbourhood,
-// r road. "town" is the nearest city, town, village or suburb (for a
+// r road, g gas station, f food, p parking. "town" is the nearest city, town, village or suburb (for a
 // place, the nearest bigger one), or empty.
 void Builder::write_search(const std::string& path) const {
     struct Place {
@@ -1078,6 +1104,12 @@ void Builder::write_search(const std::string& path) const {
     static const char kKindChar[] = {'n', 's', 'v', 't', 'c'};
     for (const Place& pl : places)
         add(kKindChar[pl.kind - kNeighbourhood], pl.name, town_of(pl.p, pl.kind), pl.p);
+    size_t n_pois = 0;
+    for (const Poi& p : pois)
+        if (!have_outline || outline.contains(p.at)) {
+            add(p.kind, p.name.substr(0, 60).c_str(), town_of(p.at, 0), p.at);
+            n_pois++;
+        }
     // Roads: one entry for each name in each town, at the middle of its longest piece.
     std::unordered_map<std::string, std::pair<size_t, Pt>> streets;
     for (const Feat& f : feats) {
@@ -1101,7 +1133,8 @@ void Builder::write_search(const std::string& path) const {
     std::fputs("#zeroos-maps-search 1\n", f);
     for (const Entry& e : out) std::fprintf(f, "%s\n", e.line.c_str());
     if (std::fclose(f) != 0 || std::rename(tmp.c_str(), path.c_str()) != 0) die("can't write " + path);
-    std::fprintf(stderr, "wrote %s: %zu places and streets\n", path.c_str(), out.size());
+    std::fprintf(stderr, "wrote %s: %zu places, streets, gas stations, food and parking (%zu of those)\n", path.c_str(),
+                 out.size(), n_pois);
 }
 
 // The house numbers (../addr.h): the streets sorted by key, and each
@@ -1168,7 +1201,7 @@ void spread(const Feat& f, std::vector<Line>& parts, LevelOut& lv, int32_t x0, i
         int down = shift - kTileBits;
         std::vector<TileFeat>& tile = lv.tiles[size_t(y0) * size_t(lv.ntx) + size_t(x0)];
         TileFeat* into = nullptr;
-        if (is_line(f.kind))   // runs of one road in a tile share a feature
+        if (is_line(f.kind) || f.kind == kBuilding)   // runs of one road, and a tile's buildings, share a feature
             for (auto it = tile.rbegin(); it != tile.rend() && it - tile.rbegin() < 64; ++it)
                 if (it->kind == f.kind && it->name == f.name && it->ref == f.ref && it->speed == f.speed) {
                     into = &*it;
@@ -1243,6 +1276,10 @@ void Builder::write(const std::string& path, const std::string& name, const std:
                 // looked at: they get twice the tolerance, and small ones go sooner.
                 bool soft = f.kind == kForest || f.kind == kWetland || f.kind == kPark || f.kind == kSand || f.kind == kStream;
                 double ftol = soft ? 2 * tol : tol;
+                if (f.kind == kBuilding) {   // the bulk of the finest level: a little coarser, and no sheds
+                    ftol = std::max(ftol, 1.5 * upm);
+                    if (std::fabs(ring_area(l)) < 30 * upm * upm) continue;
+                }
                 if (is_area(f.kind)) {
                     if (min_area > 0 && std::fabs(ring_area(l)) < (soft ? 4 : 1) * min_area) continue;
                     simplify_ring(l, ftol, s);
@@ -1405,6 +1442,7 @@ int main(int argc, char** argv) {
     Builder b;
     b.want_roads = !roads_out.empty();
     b.want_addresses = !addresses.empty();
+    b.want_search = !search.empty();
     try {
         b.read(in);
     } catch (const std::exception& e) {

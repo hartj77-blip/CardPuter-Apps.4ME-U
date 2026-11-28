@@ -14,6 +14,7 @@
 #include "apps/maps/nav.h"
 #include "apps/maps/nav_parse.h"
 #include "apps/maps/search.h"
+#include "apps/maps/sun.h"
 
 using namespace zmap;
 using namespace zmap::nav;
@@ -181,7 +182,7 @@ int main(int argc, char** argv) {
         if (argc > 1) {
             SearchIndex s;
             CHECK(s.load(argv[1]));
-            CHECK(s.size() == 11);
+            CHECK(s.size() == 15);   // 11 places and streets, 2 gas stations, a cafe and a car park
             std::vector<Place> r = s.find("zero", 5, false, 0, 0);   // the town, then streets in it
             CHECK(r.size() == 5 && r[0].kind == 't' && r[0].name == "Zeroville" && r[1].town == "Zeroville");
             r = s.find("row", 5, true, 51.5032, -0.1229);   // standing on North Row
@@ -194,7 +195,45 @@ int main(int argc, char** argv) {
             CHECK(s.find("zeroville", 5, false, 0, 0)[0].kind == 't');
             CHECK(s.find("51", 5, false, 0, 0).empty());            // not the numbers
             CHECK(s.find("", 5, false, 0, 0).empty());
+
+            // "gas", "food", "parking": the nearest of those, then what the words find anyway.
+            r = s.find("gas", 5, true, 51.500729, -0.124625);
+            CHECK(r.size() >= 2 && r[0].kind == 'g' && r[0].name == "Gas station" && r[1].name == "Zero Gas" && r[0].metres < r[1].metres);
+            r = s.find("fuel zero", 5, true, 51.500729, -0.124625);   // narrowed by a word: name or town
+            CHECK(r.size() >= 2 && r[0].kind == 'g' && r[1].name == "Zero Gas");
+            r = s.find("gas quay", 5, true, 51.500729, -0.124625);    // no gas station in Old Quay
+            for (const Place& p : r) CHECK(p.kind != 'g');
+            r = s.find("coffee", 5, true, 51.500729, -0.124625);
+            CHECK(!r.empty() && r[0].kind == 'f' && r[0].name == "Cafe Zero");
+            r = s.find("parking", 5, true, 51.500729, -0.124625);
+            CHECK(r.size() == 1 && r[0].kind == 'p' && r[0].name == "Parking");   // the private one is left out
+            CHECK(!s.find("cafe zero", 5, false, 0, 0).empty());   // and by name
+            CHECK(search_category("gas") == 'g' && search_category("restaurant") == 'f' && search_category("parking") == 'p');
+            CHECK(search_category("park") == 0 && search_category("main") == 0);
         }
+    }
+
+    // ---- The shortest route: every road weighted the same ----------------
+    {
+        std::string p = "<vehicleprofile name=\"car\" maxspeed_handling=\"0\"><roadprofile item_types=\"a\" speed=\"10\" route_weight=\"10\"/>"
+                        "<roadprofile item_types=\"b\" speed=\"120\" route_weight=\"120\"/></vehicleprofile>";
+        std::string q = shortest_profile(p);
+        CHECK(q.find("route_weight=\"10\"") == std::string::npos && q.find("route_weight=\"120\"") == std::string::npos);
+        CHECK(q.find("speed=\"120\" route_weight=\"50\"") != std::string::npos);   // the speeds stay
+        CHECK(q.find("maxspeed_handling=\"2\"") != std::string::npos);   // roads' own limits don't weigh in
+        CHECK_EQ(shortest_profile("<x/>"), "<x/>");
+    }
+
+    // ---- The sun, for automatic colours ----------------------------------
+    {
+        // Newark, 27 November 2026: sunrise about 12:03 UTC, sunset about 21:32 UTC.
+        std::time_t day = 1795737600;   // 2026-11-27 00:00 UTC
+        CHECK(!sun_up(40.7357, -74.1724, day + 11 * 3600));
+        CHECK(sun_up(40.7357, -74.1724, day + 12 * 3600 + 30 * 60));
+        CHECK(std::fabs(sun_elevation(40.7357, -74.1724, day + 17 * 3600) - 27.9) < 0.5);   // about noon
+        CHECK(sun_up(40.7357, -74.1724, day + 21 * 3600 + 30 * 60));                      // just after sunset: not yet night
+        CHECK(!sun_up(40.7357, -74.1724, day + 22 * 3600));
+        CHECK(std::fabs(sun_elevation(40.7357, -74.1724, 1782061020) - 72.7) < 0.5);        // midsummer noon
     }
 
     // ---- House numbers ------------------------------------------------

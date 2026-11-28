@@ -265,9 +265,25 @@ have watched it, and its description.
 | V | Add to favourites, or take off |
 | Backspace or Esc | Back |
 
-The video plays across the app area above the soft-key bar (16:9 fills
-242 x 136 pixels), with the sound on the speaker, the headphone jack or
-Bluetooth, whichever music would use.
+The video has the **whole screen**, as a game does: the status bar and the
+soft-key bar step aside, and a 16:9 picture fills 302 x 170 pixels, about
+1.6 times what it had above the bars. The sound is on the speaker, the
+headphone jack or Bluetooth, whichever music would use.
+
+```
+ +--------------------------------------------+--+
+ |                                            |> |   play or pause
+ |                                            || |
+ |                  picture                   || |   how far it has got,
+ |                 302 x 170                  || |   top to bottom
+ |                                            |  |
+ |                                            |<)|   the volume
+ +--------------------------------------------+--+
+```
+
+The 18 pixels left on the right are a rail that is always there: play or
+pause at the top, a blue line that fills downwards as the video plays, and
+the volume at the bottom.
 
 | Key, while it plays | Does |
 | --- | --- |
@@ -280,8 +296,11 @@ Bluetooth, whichever music would use.
 | M | Play it on the TV, or back on this screen ([On a TV](#on-a-tv)); in Dock mode, on the monitor's desktop |
 | Esc or S | Stop |
 
-Any key shows the title, time and progress for three seconds; they stay up
-while paused or loading.
+Any key shows the title, time and progress along the bottom of the picture
+for three seconds; they stay up while paused or loading. Paused, a line under
+them says what the keys do, since the soft-key bar is out of sight. Tab still
+opens the menu, and 0 the key sheet; messages such as *Resuming at 12:34*
+show on the picture.
 
 - **Continue Watching** on the home screen picks up where you stopped, on
   whichever device that was.

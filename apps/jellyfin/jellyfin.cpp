@@ -20,8 +20,10 @@
 //             tinted with it; Space pause, Left / Right previous / next,
 //             Up / Down volume, Q the queue, V favourite. It opens when you
 //             play music; Y on Home opens it again
-//   Video     Control: Enter or Space pause, Left / Right -/+10 s, Up / Down
-//             +/-1 min, R from the start, M on the TV (or back), S or Esc stop
+//   Video     Control, on the whole screen: the picture 302 x 170 and a rail
+//             on the right (play or pause, progress, volume). Enter or Space
+//             pause, Left / Right -/+10 s, Up / Down +/-1 min, R from the
+//             start, M on the TV (or back), S or Esc stop
 // Fn + Q / W / E, the keyboard's media keys, work everywhere.
 //
 // Nothing waits on the network on the screen's thread: lists, searches and
@@ -72,10 +74,14 @@ constexpr int kH = kBodyH;            // the soft-key bar takes the bottom
 constexpr int kHeadH = 20;
 constexpr int kNowH = 18;             // the now-playing bar
 
-// The video picture: the app area above the soft-key bar. 16:9 fills it
-// at 242 x 136.
-constexpr int kVidW = kScreenW;
-constexpr int kVidH = kBodyH;
+// A video has the whole screen, status bar and soft-key bar included (as a
+// game does): the picture on the left, 16:9 filling it at 302 x 170, and a
+// rail 18 px wide on the right with play or pause, how far it has got and
+// the volume.
+constexpr int kRailW = 18;
+constexpr int kVidW = kScreenW - kRailW;
+constexpr int kVidH = kScreenH;
+constexpr int kRailTrackH = 118;   // the rail's progress line
 // What we ask the server for: a picture about the size of the screen (it
 // scales down, never up) at a bitrate Wi-Fi on a Pi Zero 2 keeps up with.
 constexpr int kStreamW = 427, kStreamH = 240, kStreamKbps = 700;
@@ -2378,11 +2384,11 @@ private:
         std::string session = new_session_id();
         int start = it.resume_s > 0 ? it.resume_s : 0;
         bool tv = where == Where::Tv || (where == Where::Auto && tv_wanted() && !tv_failed_ && tv_free());
-        std::string error;
+        std::string error, fell_back;
         if (tv && !open_on_tv(it, session, start, error)) {
             tv = false;
             tv_failed_ = true;   // not again by itself until it's plugged in again
-            shell_toast(error + ": playing here");
+            fell_back = error + ": playing here";
         }
         if (!tv) {
             std::string url = jf::video_url(jf_, it.id, session, kStreamW, kStreamH, kStreamKbps);
@@ -2410,8 +2416,9 @@ private:
         build_video_view();
         set_actions();
         show_osd();
-        if (tv) shell_toast(start > 0 ? "On the TV, from " + mmss(start * 1000) : "Playing on the TV");
-        else if (start > 0) shell_toast("Resuming at " + mmss(start * 1000));
+        if (!fell_back.empty()) say(fell_back);
+        else if (tv) say(start > 0 ? "On the TV, from " + mmss(start * 1000) : "Playing on the TV");
+        else if (start > 0) say("Resuming at " + mmss(start * 1000));
     }
 
     // mpv on the HDMI port, at 720p, with the sign-in header in a file only
@@ -2443,14 +2450,14 @@ private:
         const int at = vid_at_;
         close_video(true);
         open_video(items, at, where);
-        if (!note.empty()) shell_toast(note);
+        if (!note.empty()) say(note);
     }
 
     // M: to the TV, back from it, or to Dock's player when Dock is running.
     void video_other_screen() {
         if (vid_tv_) move_video(Where::Screen, "Playing on this screen");
         else if (hal().display().dock_running) video_to_monitor();
-        else if (!tv_free()) shell_toast("Plug a TV into the HDMI port first");
+        else if (!tv_free()) say("Plug a TV into the HDMI port first");
         else move_video(Where::Tv, "");
     }
 
@@ -2493,7 +2500,12 @@ private:
     }
 
     void build_video_view() {
-        vid_ = panel(root_, 0, 0, kVidW, kVidH, 0x000000, 0);
+        // Over everything: the shell's status bar and soft-key bar too. On
+        // the top layer, but below what the shell puts there itself (the
+        // screen-off cover, the Tab menu, the key sheet, the lock screen).
+        vid_ = panel(lv_layer_top(), 0, 0, kScreenW, kScreenH, 0x000000, 0);
+        lv_obj_move_to_index(vid_, 0);
+        vid_pic_ = panel(vid_, 0, 0, kVidW, kVidH, 0x000000, 0);
 
         vid_dsc_ = lv_image_dsc_t{};
         vid_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
@@ -2504,39 +2516,64 @@ private:
         vid_dsc_.data = reinterpret_cast<const uint8_t*>(vid_pixels_.data());
         vid_dsc_.data_size = uint32_t(vid_pixels_.size() * 2);
         if (!vid_tv_) {
-            vid_img_ = lv_image_create(vid_);
+            vid_img_ = lv_image_create(vid_pic_);
             lv_image_set_src(vid_img_, &vid_dsc_);
             lv_obj_set_pos(vid_img_, 0, 0);
         } else {
             // The picture is on the TV; this screen is its remote.
-            lv_obj_t* note = label(vid_, LV_SYMBOL_VIDEO "  Playing on the TV", &zs_font_14, kJfText);
-            lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 18);
-            lv_obj_t* hint = label(vid_, "M: back to this screen", &zs_font_12, kJfDim);
-            lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 38);
+            lv_obj_t* note = label(vid_pic_, LV_SYMBOL_VIDEO "  Playing on the TV", &zs_font_14, kJfText);
+            lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 34);
+            lv_obj_t* hint = label(vid_pic_, "M: back to this screen", &zs_font_12, kJfDim);
+            lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 54);
         }
 
         // Loading: Jellyfin's spinner colour.
-        vid_wait_ = label(vid_, "Loading...", &zs_font_14, kJfBlue);
+        vid_wait_ = label(vid_pic_, "Loading...", &zs_font_14, kJfBlue);
         lv_obj_center(vid_wait_);
 
         // The info bar along the bottom, fading up from black as in
-        // Jellyfin's player: title, a blue progress line, the time.
-        vid_osd_ = panel(vid_, 0, kVidH - 42, kVidW, 42, 0x000000, 0);
+        // Jellyfin's player: title, a blue progress line, the time and,
+        // while paused, the keys (the soft-key bar is under the picture).
+        vid_osd_ = panel(vid_pic_, 0, kVidH - 58, kVidW, 58, 0x000000, 0);
         lv_obj_set_style_bg_opa(vid_osd_, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_grad_color(vid_osd_, c(0x000000), 0);
-        lv_obj_set_style_bg_main_opa(vid_osd_, LV_OPA_20, 0);
+        lv_obj_set_style_bg_main_opa(vid_osd_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_bg_grad_opa(vid_osd_, LV_OPA_90, 0);
         lv_obj_set_style_bg_grad_dir(vid_osd_, LV_GRAD_DIR_VER, 0);
         vid_title_ = dots_label(vid_osd_, &zs_font_12, kJfText, kVidW - 12, 1);
-        lv_obj_set_pos(vid_title_, 6, 4);
+        lv_obj_set_pos(vid_title_, 6, 6);
         vid_bar_ = thin_bar(vid_osd_, kVidW - 12, 3, kJfBlue);
         lv_obj_set_style_bg_color(vid_bar_, c(0x555555), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(vid_bar_, LV_OPA_COVER, LV_PART_MAIN);
         lv_bar_set_range(vid_bar_, 0, 1000);
-        lv_obj_set_pos(vid_bar_, 6, 21);
+        lv_obj_set_pos(vid_bar_, 6, 23);
         vid_time_ = label(vid_osd_, "", &zs_font_12, kJfDim);
-        lv_obj_set_pos(vid_time_, 6, 26);
+        lv_obj_set_pos(vid_time_, 6, 28);
+        vid_keys_ = dots_label(vid_osd_, &zs_font_12, kJfDim, kVidW - 12, 1);
+        lv_obj_set_pos(vid_keys_, 6, 42);
         lv_label_set_text(vid_title_, full_name(vid_item_).c_str());
+
+        // A notice of our own (the shell's toasts are under the picture).
+        vid_note_ = label(vid_pic_, "", &zs_font_12, kJfText);
+        lv_obj_set_style_bg_color(vid_note_, c(kJfRaised), 0);
+        lv_obj_set_style_bg_opa(vid_note_, LV_OPA_90, 0);
+        lv_obj_set_style_radius(vid_note_, 4, 0);
+        lv_obj_set_style_pad_hor(vid_note_, 8, 0);
+        lv_obj_set_style_pad_ver(vid_note_, 3, 0);
+        lv_obj_set_style_max_width(vid_note_, kVidW - 16, 0);
+        lv_obj_align(vid_note_, LV_ALIGN_TOP_MID, 0, 6);
+        vis(vid_note_, false);
+
+        // The rail: play or pause, how far it has got (top to bottom), the volume.
+        lv_obj_t* rail = panel(vid_, kVidW, 0, kRailW, kScreenH, kJfBg, 0);
+        vid_state_ = label(rail, LV_SYMBOL_PLAY, &zs_font_12, kJfText);
+        lv_obj_align(vid_state_, LV_ALIGN_TOP_MID, 0, 4);
+        vid_track_ = panel(rail, (kRailW - 4) / 2, 22, 4, kRailTrackH, 0x3a3a3a, 2);
+        vid_fill_ = panel(vid_track_, 0, 0, 4, 0, kJfBlue, 2);
+        lv_obj_t* spk = label(rail, LV_SYMBOL_VOLUME_MID, &zs_font_12, kJfDim);
+        lv_obj_align(spk, LV_ALIGN_TOP_MID, 0, 22 + kRailTrackH + 6);
+        lv_obj_t* vol = panel(rail, 3, kScreenH - 8, kRailW - 6, 3, 0x3a3a3a, 1);
+        vid_vol_ = panel(vol, 0, 0, 0, 3, kJfText, 1);
 
         if (group) lv_group_focus_obj(nullptr);
         if (vid_tv_) return;   // the TV draws its own pictures
@@ -2544,6 +2581,19 @@ private:
         vid_timer_ = lv_timer_create([](lv_timer_t* t) {
             static_cast<JellyfinApp*>(lv_timer_get_user_data(t))->video_pump();
         }, 20, this);
+    }
+
+    // A message while a video is up: on the picture (the shell's toasts are
+    // under it). Without a video, the shell's.
+    void say(const std::string& msg) {
+        if (!vid_ || !vid_note_) {
+            shell_toast(msg);
+            return;
+        }
+        lv_label_set_text(vid_note_, msg.c_str());
+        lv_obj_align(vid_note_, LV_ALIGN_TOP_MID, 0, 6);
+        vis(vid_note_, true);
+        vid_note_at_ = lv_tick_get();
     }
 
     void video_pump() {
@@ -2590,6 +2640,14 @@ private:
             hal().jellyfin_report(jf_, JfReport::Progress, vid_item_.id, vid_session_, vid_pos_s_, st.paused);
         }
 
+        // The rail, all the time.
+        lv_label_set_text(vid_state_, st.paused ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+        lv_obj_align(vid_state_, LV_ALIGN_TOP_MID, 0, 4);
+        int fill = st.dur_ms > 0 ? int(int64_t(kRailTrackH) * st.pos_ms / st.dur_ms) : 0;
+        lv_obj_set_height(vid_fill_, std::clamp(fill, 0, kRailTrackH));
+        lv_obj_set_width(vid_vol_, (kRailW - 6) * std::clamp(hal().volume(), 0, 100) / 100);
+        if (vid_note_ && now - vid_note_at_ > 2500) vis(vid_note_, false);
+
         const char* wait = st.loading ? "Loading..." : st.paused ? LV_SYMBOL_PAUSE : "";
         lv_label_set_text(vid_wait_, wait);
         lv_obj_set_style_text_font(vid_wait_, st.paused && !st.loading ? &zs_font_28 : &zs_font_14, 0);
@@ -2605,6 +2663,12 @@ private:
             lv_label_set_text(vid_time_, (mmss(st.pos_ms) + " / " + mmss(st.dur_ms) +
                                           fmt("   " LV_SYMBOL_VOLUME_MID " %d%%", hal().volume()))
                                              .c_str());
+            // Paused (or on the TV): what the keys do, as the soft-key bar would.
+            bool keys = st.paused || vid_tv_;
+            lv_obj_set_y(vid_osd_, keys ? kVidH - 58 : kVidH - 44);
+            lv_label_set_text(vid_keys_, keys ? LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " 10s  " LV_SYMBOL_UP LV_SYMBOL_DOWN
+                                                " 1 min   R start   M TV   S stop"
+                                              : "");
         }
         watch_tv();
     }
@@ -2630,7 +2694,6 @@ private:
             items[size_t(next)].number > was.number) {
             std::vector<Item> rest = items;
             rest[size_t(next)].resume_s = 0;
-            shell_toast("Up next: " + rest[size_t(next)].name);
             // The page under the video is the next episode's now.
             if (Level* l = top(); l && l->type == Level::Detail && l->parent.id == was.id) {
                 l->parent = rest[size_t(next)];
@@ -2638,6 +2701,7 @@ private:
                 l->title = l->parent.detail.empty() ? l->parent.name : l->parent.detail;
             }
             open_video(rest, next);
+            say("Up next: " + rest[size_t(next)].name);
         } else {
             shell_toast("Finished " + was.name);
         }
@@ -2690,7 +2754,7 @@ private:
     // Dock mode: hand the video to the monitor's player, from where we are.
     void video_to_monitor() {
         if (!hal().display().dock_running) {
-            shell_toast("Start Dock mode for the monitor first");
+            say("Start Dock mode for the monitor first");
             return;
         }
         Item it = vid_item_;
@@ -2719,9 +2783,10 @@ private:
         vid_tv_ = false;
         kit::tv_release();
         hal().jellyfin_report(jf_, JfReport::Stop, vid_item_.id, vid_session_, vid_pos_s_, false);
+        // On the top layer, which outlives the app's screen: always taken away.
+        lv_obj_delete(vid_);
+        vid_ = vid_note_ = nullptr;
         if (ui) {
-            lv_obj_delete(vid_);
-            vid_ = nullptr;
             // Every list may have a stale resume point; show the place we stopped.
             const bool finished = st.finished || (vid_item_.duration_s > 0 && vid_pos_s_ >= vid_item_.duration_s);
             const int at = finished ? 0 : vid_pos_s_;
@@ -2809,6 +2874,9 @@ private:
 
     // Video
     lv_obj_t* vid_ = nullptr;   // the player view, over everything; null when no video
+    lv_obj_t *vid_pic_ = nullptr, *vid_keys_ = nullptr, *vid_note_ = nullptr, *vid_state_ = nullptr,
+             *vid_track_ = nullptr, *vid_fill_ = nullptr, *vid_vol_ = nullptr;
+    uint32_t vid_note_at_ = 0;
     lv_obj_t *vid_img_ = nullptr, *vid_wait_ = nullptr, *vid_osd_ = nullptr, *vid_title_ = nullptr,
              *vid_bar_ = nullptr, *vid_time_ = nullptr;
     lv_timer_t* vid_timer_ = nullptr;

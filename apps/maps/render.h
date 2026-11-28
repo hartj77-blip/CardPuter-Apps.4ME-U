@@ -21,6 +21,7 @@ struct Theme {
     uint32_t text, halo, shield, shield_text, motorway_shield;
     uint32_t marker, marker_edge;
     uint32_t route, route_edge;
+    uint32_t building, building_edge;
 };
 const Theme& day_theme();
 const Theme& night_theme();

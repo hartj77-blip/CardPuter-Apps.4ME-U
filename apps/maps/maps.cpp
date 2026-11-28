@@ -3,12 +3,17 @@
 // module through gpsd (which the package sets up). A Control screen (docs/UX.md in
 // the OS); the soft-key bar shows its keys:
 //   Enter   follow my position again (after panning)
-//   G       go to: find a place or street and get directions there
+//   G       go to: find an address, a street, a town, gas, food or parking,
+//           or a saved place; then a preview of the route (Enter starts,
+//           F fastest / shortest, Esc cancels)
+//   H       directions home (once Home is saved: Go to, Tab > H)
 //   X       stop the directions            V  voice on / off
+//   Z       automatic zoom on / off
 //   - =     zoom out, zoom in
 //   arrows  pan (W A S D too)
 //   N       north up / heading up
-//   T       day / night colours        U  miles / kilometres
+//   T       colours: automatic (by the sun), day, night
+//   U       miles / kilometres
 //   I       about this map
 //   P       the GPS screen: position, satellites, saving the spot you're
 //           at, recording a track (what was the GPS app, which Maps replaces)
@@ -34,6 +39,7 @@
 #include "apps/maps/nav.h"
 #include "apps/maps/render.h"
 #include "apps/maps/search.h"
+#include "apps/maps/sun.h"
 #include "apps/maps/zmap.h"
 #include "ui/power.h"
 #include "ui/prefs.h"
@@ -48,7 +54,8 @@ constexpr int kW = kScreenW, kH = kBodyH;
 const double kZoom[] = {0.75, 1.2, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120, 200, 300, 500, 800, 1200, 2000};
 constexpr int kZooms = int(sizeof kZoom / sizeof kZoom[0]);
 constexpr int kDriveZoom = 2;
-constexpr int kBannerH = 36;   // the next turn, along the top while there are directions
+constexpr int kBannerH = 40;   // the next turn, along the top while there are directions
+constexpr int kStripH = 22;    // speed, limit and arrival, along the bottom while there are directions
 constexpr size_t kMaxResults = 30;
 namespace nav = zmap::nav;
 
@@ -79,7 +86,9 @@ public:
             lv_obj_align(d, LV_ALIGN_CENTER, 0, 10);
             return;
         }
-        night_ = prefs::get_int("maps.night", 1) != 0;
+        colours_ = prefs::get_str("maps.colours", "auto");
+        auto_zoom_ = prefs::get_int("maps.autozoom", 1) != 0;
+        shortest_ = prefs::get_int("maps.shortest", 0) != 0;
         north_up_ = prefs::get_int("maps.north", 0) != 0;
         std::string units = prefs::get_str("maps.units", "");
         imperial_ = units.empty() ? map_->imperial() : units == "mi";
@@ -120,11 +129,18 @@ public:
         lv_obj_add_flag(eta_, LV_OBJ_FLAG_HIDDEN);
         // The next turn: drawn into the map (nav_banner()), with these over it.
         banner_dist_ = label(root, "", &zs_font_20, 0xffffff);
-        lv_obj_set_pos(banner_dist_, 40, -1);
+        lv_obj_set_pos(banner_dist_, 46, 0);
         banner_text_ = label(root, "", &zs_font_14, 0xffffff);
-        lv_obj_set_width(banner_text_, kW - 46);
+        lv_obj_set_width(banner_text_, kW - 52);
         lv_label_set_long_mode(banner_text_, LV_LABEL_LONG_DOT);
-        lv_obj_set_pos(banner_text_, 40, 19);
+        lv_obj_set_pos(banner_text_, 46, 22);
+        banner_then_ = label(root, "", &zs_font_12, 0xb8c7dd);
+        lv_obj_set_pos(banner_then_, kW - 50, 2);
+        // Along the bottom with directions: speed, the limit, and the arrival.
+        strip_speed_ = label(root, "", &zs_font_20, 0xffffff);
+        strip_unit_ = label(root, "", &zs_font_12, 0xaab4c3);
+        strip_eta_ = label(root, "", &zs_font_14, 0xffffff);
+        for (lv_obj_t* o : {strip_speed_, strip_unit_, strip_eta_}) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
         scale_text_ = chip(root, &zs_font_12);
         scale_bar_ = lv_obj_create(root);
         lv_obj_remove_style_all(scale_bar_);
@@ -152,6 +168,7 @@ public:
         nc.navit_map = base + ".navit";
         nc.imperial = imperial_;
         nc.simulated = hal().system().simulated && !std::getenv("ZS_MAPS_NAVIT");
+        nc.shortest = shortest_;
         engine_ = nav::make_engine(nc);
         engine_->set_voice(voice_);
         // Directions that were going when Maps was last closed carry on.
@@ -159,8 +176,9 @@ public:
         std::string saved = prefs::get_str("maps.dest", "");
         if (std::sscanf(saved.c_str(), "%lf,%lf", &dl, &dn) == 2 && map_->contains(zmap::lon_to_x(dn), zmap::lat_to_y(dl))) {
             size_t name_at = saved.find(',', saved.find(',') + 1);
-            start_route({dl, dn}, name_at == std::string::npos ? "" : saved.substr(name_at + 1), false);
+            start_route({dl, dn}, name_at == std::string::npos ? "" : saved.substr(name_at + 1), false, false);
         }
+        update_colours();
         set_actions();
         update_overlays();
         redraw();
@@ -193,6 +211,8 @@ public:
         }
         if (navigating_) update_nav();
         if (++n_ % 10 == 0) update_overlays();
+        if (n_ % 600 == 0) update_colours();   // about once a minute
+        auto_zoom(now);
         if (power().screen_off() || searching_ || gps_panel_) return;   // nobody is looking at the map
         // Redraw when the picture would change by a pixel or so, but never
         // spend more than about a third of the time drawing.
@@ -211,8 +231,24 @@ public:
             return true;
         }
         if (searching_) return search_key(key);
+        if (previewing_) {   // the route preview: Enter starts, F changes the route, Esc (on_back) cancels
+            if (key == LV_KEY_ENTER) {
+                begin_route();
+                return true;
+            }
+            if (key == 'f' || key == 'F') {
+                toggle_shortest();
+                return true;
+            }
+            if (key == 'x' || key == 'X') {
+                stop_route();
+                return true;
+            }
+        }
         switch (key) {
             case LV_KEY_ENTER: centre(); return true;
+            case 'h': case 'H': go_saved('h'); return true;
+            case 'z': case 'Z': toggle_auto_zoom(); return true;
             case 'g': case 'G': open_search(); return true;
             case 'x': case 'X':
                 if (navigating_) ask_stop();
@@ -235,6 +271,10 @@ public:
     }
 
     bool on_back() override {
+        if (previewing_ && !searching_) {
+            stop_route();
+            return true;
+        }
         if (gps_panel_) {
             if (!map_) return false;   // nothing to go back to: home
             close_gps();
@@ -350,7 +390,10 @@ private:
         v.w = kW, v.h = kH;
         v.px = kW / 2;
         // Following with the heading up: more of the road ahead than behind.
-        v.py = follow_ && have_pos_ && !outside_ && !north_up_ ? kH * 2 / 3 : kH / 2;
+        if (follow_ && have_pos_ && !outside_ && !north_up_)
+            v.py = navigating_ && !previewing_ ? kBannerH + (kH - kBannerH - kStripH) * 72 / 100 : kH * 2 / 3;
+        else
+            v.py = navigating_ ? kBannerH + (kH - kBannerH - (previewing_ ? 0 : kStripH)) / 2 : kH / 2;
         return v;
     }
 
@@ -359,11 +402,13 @@ private:
         zmap::View v = view();
         const zmap::Theme& t = night_ ? zmap::night_theme() : zmap::day_theme();
         int top = navigating_ ? kBannerH : 0;
+        bool strip = navigating_ && !previewing_;
         std::vector<zmap::Rect> keep_out = {{kW - 26, top, kW, top + 26}, {kW - 84, kH - 20, kW, kH}};
         if (navigating_) keep_out.push_back({0, 0, kW, kBannerH + 2});
+        if (strip) keep_out.push_back({0, kH - kStripH - 2, kW, kH});
         if (*lv_label_get_text(status_)) keep_out.push_back({0, top, 170, top + 22});
         if (have_pos_) keep_out.push_back({0, kH - 40, 96, kH});
-        if (*lv_label_get_text(road_) || navigating_) keep_out.push_back({96, kH - 24, 252, kH});
+        if (*lv_label_get_text(road_)) keep_out.push_back({96, kH - 24, 252, kH});
         renderer_.draw(*map_, v, t, pixels_.data(), labels_, keep_out);
         if (route_) renderer_.route(v, t, pixels_.data(), route_xy_, route_seg_);
         if (have_pos_) {
@@ -375,6 +420,7 @@ private:
         renderer_.compass(v, t, pixels_.data(), kW - 13, top + 13);
         draw_labels(t);
         if (navigating_) nav_banner();
+        if (strip) renderer_.box(pixels_.data(), kW, kH, 0, kH - kStripH, kW, kH, zmap::rgb565(0x161a20));
         lv_obj_invalidate(canvas_);
         update_scale();
         drawn_cx_ = cx_, drawn_cy_ = cy_, drawn_up_ = up_, drawn_px_ = pos_x_, drawn_py_ = pos_y_, drawn_pos_ = have_pos_;
@@ -473,9 +519,31 @@ private:
             // Keep the screen on while driving; parked, it may sleep as usual.
             if (fix_.speed_mps > 2.5) power().stay_awake(lv_tick_get());
         }
-        set_hidden(speed_box_, !on_map);
+        // With directions the speed, limit and arrival go in one strip along the bottom.
+        bool strip = navigating_ && !previewing_;
+        set_hidden(speed_box_, !on_map || strip);
         set_hidden(limit_, !on_map || !*lv_label_get_text(limit_));
+        if (strip) {
+            set_text(strip_speed_, on_map ? lv_label_get_text(speed_) : "--");
+            set_text(strip_unit_, imperial_ ? "mph" : "km/h");
+            lv_obj_set_style_text_color(strip_speed_, lv_obj_get_style_text_color(speed_, 0), 0);
+            lv_obj_set_pos(strip_speed_, 6, kH - kStripH - 1);
+            lv_obj_align_to(strip_unit_, strip_speed_, LV_ALIGN_OUT_RIGHT_BOTTOM, 3, -3);
+            lv_obj_set_style_text_font(limit_, &zs_font_14, 0);
+            lv_obj_set_style_pad_ver(limit_, 0, 0);
+            lv_obj_set_style_pad_hor(limit_, 3, 0);
+            lv_obj_align_to(limit_, strip_unit_, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, 1);
+        } else {
+            lv_obj_set_style_text_font(limit_, &zs_font_16, 0);
+            lv_obj_set_style_pad_ver(limit_, 3, 0);
+            lv_obj_set_style_pad_hor(limit_, 4, 0);
+            lv_obj_set_pos(limit_, 60, kH - 30);
+        }
+        for (lv_obj_t* o : {strip_speed_, strip_unit_, strip_eta_}) set_hidden(o, !strip);
+        set_hidden(scale_text_, strip);
+        set_hidden(scale_bar_, strip);
         std::string name = !on_map || !road.found || navigating_ ? "" : *road.name ? road.name : road.ref;
+        if (strip) lv_obj_move_foreground(limit_);
         if (name != lv_label_get_text(road_)) {
             // As wide as the name, up to the room between the speed and the scale.
             lv_point_t size;
@@ -501,7 +569,19 @@ private:
 
     void set_actions() {
         if (searching_) {
-            shell_set_actions({{"Go", 0, "Enter", nullptr}, {"Back", 0, "Esc", nullptr}});
+            shell_set_actions({{"Go", 0, "Enter", nullptr},
+                               {"Back", 0, "Esc", nullptr},
+                               {"Save as Home", 'h', nullptr, [this] { save_focused('h'); }},
+                               {"Save as Work", 'w', nullptr, [this] { save_focused('w'); }},
+                               {"Save this place", 's', nullptr, [this] { save_focused('s'); }},
+                               {"Remove from saved", 'd', nullptr, [this] { unsave_focused(); }, true, true,
+                                "Remove it from your saved places?"}});
+            return;
+        }
+        if (previewing_) {
+            shell_set_actions({{"Start", 0, "Enter", [this] { begin_route(); }},
+                               {shortest_ ? "Fastest" : "Shortest", 'f', "F", [this] { toggle_shortest(); }},
+                               {"Cancel", 'x', "Esc", [this] { stop_route(); }}});
             return;
         }
         bool rec = track_state().recording;
@@ -517,11 +597,16 @@ private:
         if (navigating_) a.push_back({"Stop", 'x', "X", [this] { ask_stop(); }});
         else a.push_back({"Zoom", 0, "- =", nullptr});
         a.push_back({north_up_ ? "Heading up" : "North up", 'n', navigating_ ? nullptr : "N", [this] { toggle_north(); }});
+        a.push_back({"Directions home", 'h', nullptr, [this] { go_saved('h'); }, !saved_place('h').name.empty()});
+        a.push_back({"Directions to work", 'k', nullptr, [this] { go_saved('w'); }, !saved_place('w').name.empty()});
+        a.push_back({shortest_ ? "Fastest routes" : "Shortest routes", 'f', nullptr, [this] { toggle_shortest(); }});
+        a.push_back({auto_zoom_ ? "Auto zoom off" : "Auto zoom on", 'z', nullptr, [this] { toggle_auto_zoom(); }});
         a.push_back({"Position and tracks", 'p', nullptr, [this] { open_gps(); }});
         a.push_back({rec ? "Stop track" : "Record track", 'r', nullptr, [this] { toggle_track(); }});
         a.push_back({"Save this spot", 's', nullptr, [this] { mark_spot(); }});
         a.push_back({voice_ ? "Voice off" : "Voice on", 'v', nullptr, [this] { toggle_voice(); }});
-        a.push_back({night_ ? "Day colours" : "Night colours", 't', nullptr, [this] { toggle_night(); }});
+        a.push_back({colours_ == "auto" ? "Colours: automatic" : colours_ == "day" ? "Colours: day" : "Colours: night", 't', nullptr,
+                     [this] { toggle_night(); }});
         a.push_back({imperial_ ? "Kilometres" : "Miles", 'u', nullptr, [this] { toggle_units(); }});
         a.push_back({"About this map", 'i', nullptr, [this] { about(); }});
         shell_set_actions(a);
@@ -543,6 +628,7 @@ private:
     }
 
     void zoom_by(int steps) {
+        manual_zoom_at_ = lv_tick_get();
         int z = std::clamp(zoom_ + steps, 0, kZooms - 1);
         if (z == zoom_) return;
         zoom_ = z;
@@ -572,11 +658,69 @@ private:
         set_actions();
         redraw();
     }
+    // Colours: automatic (day colours while the sun is up where the map is),
+    // or always day, or always night. T goes round the three.
     void toggle_night() {
-        night_ = !night_;
-        prefs::set_int("maps.night", night_);
+        colours_ = colours_ == "auto" ? "day" : colours_ == "day" ? "night" : "auto";
+        prefs::set_str("maps.colours", colours_);
+        update_colours();
+        shell_toast(colours_ == "auto" ? "Colours change at sunrise and sunset" : colours_ == "day" ? "Day colours" : "Night colours");
         set_actions();
         redraw();
+    }
+    void update_colours() {
+        bool night = colours_ == "night" ||
+                     (colours_ == "auto" && !zmap::sun_up(zmap::y_to_lat(cy_), zmap::x_to_lon(cx_), std::time(nullptr)));
+        if (night != night_) {
+            night_ = night;
+            dirty_ = true;
+        }
+    }
+
+    // Automatic zoom while following: closer at low speed and before a
+    // turn, further out on the highway. A zoom you choose holds for 20 s.
+    void auto_zoom(uint32_t now) {
+        if (!auto_zoom_ || !follow_ || !have_pos_ || outside_ || previewing_ || searching_) return;
+        if (manual_zoom_at_ && now - manual_zoom_at_ < 20000) return;
+        double v = fix_.speed_mps;
+        if (v < 1.0 && !navigating_) return;   // parked: as it is
+        double want = v < 5 ? 1.2 : v < 11 ? 2 : v < 18 ? 3 : v < 25 ? 5 : 8;
+        if (navigating_ && route_ && next_turn_ >= 0 && next_turn_m_ < std::max(200.0, v * 12)) want = std::min(want, v < 11 ? 1.2 : 2.0);
+        int z = 0;
+        while (z + 1 < kZooms && kZoom[z + 1] <= want + 1e-6) z++;
+        if (z == zoom_) {
+            zoom_wanted_ = -1;
+            return;
+        }
+        // The same wish for two seconds, so it doesn't pump at a junction.
+        if (z != zoom_wanted_) {
+            zoom_wanted_ = z;
+            zoom_wanted_at_ = now;
+            return;
+        }
+        if (now - zoom_wanted_at_ < 2000) return;
+        zoom_ = z;
+        zoom_wanted_ = -1;
+        dirty_ = true;
+    }
+    void toggle_auto_zoom() {
+        auto_zoom_ = !auto_zoom_;
+        prefs::set_int("maps.autozoom", auto_zoom_);
+        shell_toast(auto_zoom_ ? "Automatic zoom on" : "Automatic zoom off");
+        set_actions();
+    }
+    void toggle_shortest() {
+        shortest_ = !shortest_;
+        prefs::set_int("maps.shortest", shortest_);
+        engine_->set_shortest(shortest_);
+        if (navigating_) {   // plan again: show the new route when it comes
+            route_.reset();
+            route_xy_.clear();
+            fitted_ = false;
+            dirty_ = true;
+        }
+        shell_toast(shortest_ ? "Shortest route" : "Fastest route");
+        set_actions();
     }
     void toggle_units() {
         imperial_ = !imperial_;
@@ -650,24 +794,74 @@ private:
         std::string note;
         double clat = 0, clon = 0;
         here(clat, clon);
+        results_.clear();
+        roles_.clear();
+        std::vector<std::string> headers;   // a section's title before row i ("" for none)
         if (query_.empty()) {
-            results_ = recent_places();
+            // Home, Work and saved places, then the last places gone to.
+            for (char role : {'h', 'w'}) {
+                zmap::Place p = saved_place(role);
+                if (p.name.empty()) continue;
+                results_.push_back(p);
+                roles_.push_back(role);
+            }
+            for (const zmap::Place& p : places_list("maps.saved")) {
+                results_.push_back(p);
+                roles_.push_back('s');
+            }
+            size_t saved = results_.size();
+            for (const zmap::Place& p : places_list("maps.recent")) {
+                results_.push_back(p);
+                roles_.push_back('r');
+            }
+            headers.assign(results_.size(), "");
+            if (saved) headers[0] = "Saved";
+            if (results_.size() > saved) headers[saved] = "Recent";
             if (results_.empty())
-                note = search_.ok() ? (search_.has_addresses() ? "Type an address, a street or a town:\n\"20 nassau st\", \"main st princeton\""
+                note = search_.ok() ? (search_.has_addresses() ? "Type an address, a street or a town:\n\"20 nassau st\", \"main st princeton\",\nor \"gas\", \"food\", \"parking\""
                                                                : "Type a town or a street.\nAdd the town to narrow it down: \"main st princeton\"")
                                     : "No search index for this map.";
+            else if (saved_place('h').name.empty())
+                note = "";
         } else if (!search_.ok()) {
-            results_.clear();
             note = "No search index for this map.";
         } else {
             results_ = search_.find(query_, kMaxResults, true, clat, clon);
+            // Grouped: addresses, then gas, food and parking, then towns, then streets.
+            auto group = [](char k) { return k == 'a' ? 0 : k == 'g' || k == 'f' || k == 'p' ? 1 : k == 'r' ? 3 : 2; };
+            std::stable_sort(results_.begin(), results_.end(), [&](const zmap::Place& a, const zmap::Place& b) { return group(a.kind) < group(b.kind); });
+            roles_.assign(results_.size(), 0);
+            headers.assign(results_.size(), "");
+            static const char* kGroup[] = {"Addresses", "Nearby", "Places", "Streets"};
+            int last = -1;
+            for (size_t i = 0; i < results_.size(); i++) {
+                int g = group(results_[i].kind);
+                if (g == 1) headers[i] = results_[i].kind == 'g' ? "Gas" : results_[i].kind == 'f' ? "Food" : "Parking";
+                else if (g != last) headers[i] = kGroup[g];
+                if (g == 1 && i > 0 && results_[i - 1].kind == results_[i].kind) headers[i] = "";
+                last = g;
+            }
             if (results_.empty()) note = "Nothing called \"" + query_ + "\" on this map.";
         }
+        lv_obj_t* first = nullptr;
         for (size_t i = 0; i < results_.size(); i++) {
             zmap::Place& p = results_[i];
+            if (!headers[i].empty()) {
+                lv_obj_t* h = lv_list_add_text(search_list_, headers[i].c_str());
+                lv_obj_set_style_text_color(h, c(kMuted), 0);
+                lv_obj_set_style_bg_opa(h, LV_OPA_TRANSP, 0);
+                lv_obj_set_style_pad_ver(h, 1, 0);
+            }
             if (p.metres < 0) p.metres = nav::metres({clat, clon}, {p.lat, p.lon});
-            std::string text = p.name + (p.town.empty() ? "" : ", " + p.town) + "   " + short_distance(p.metres);
-            lv_obj_t* b = list_button(search_list_, p.kind == 'r' ? LV_SYMBOL_RIGHT : p.kind == 'a' ? LV_SYMBOL_HOME : ZS_ICON_PIN, text.c_str(),
+            char role = roles_[i];
+            std::string text = role == 'h' ? "Home   " + p.name : role == 'w' ? "Work   " + p.name : p.name;
+            if (!p.town.empty() && role != 'h' && role != 'w') text += ", " + p.town;
+            text += "   " + short_distance(p.metres);
+            const char* icon = role == 'h' ? LV_SYMBOL_HOME : role == 'w' ? LV_SYMBOL_BELL : role == 'r' ? LV_SYMBOL_LOOP
+                             : p.kind == 'a' ? LV_SYMBOL_HOME : p.kind == 'r' ? LV_SYMBOL_RIGHT : p.kind == 'g' ? LV_SYMBOL_TINT
+                             : p.kind == 'f' ? LV_SYMBOL_BELL : p.kind == 'p' ? ZS_ICON_CAR : ZS_ICON_PIN;
+            if (role == 's') icon = LV_SYMBOL_OK;
+            lv_obj_t* b = list_button(search_list_, icon, text.c_str(),
                                       [](lv_event_t* e) {
                                           auto* app = static_cast<MapsApp*>(lv_event_get_user_data(e));
                                           auto* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
@@ -677,32 +871,29 @@ private:
             lv_obj_set_user_data(b, reinterpret_cast<void*>(uintptr_t(i)));
             lv_obj_t* l = lv_obj_get_child(b, -1);
             if (l) lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+            if (!first) first = b;
         }
         finish_list(search_list_);
-        if (!results_.empty() && group) lv_group_focus_obj(lv_obj_get_child(search_list_, 0));
+        if (first && group) lv_group_focus_obj(first);
         lv_label_set_text(search_note_, note.c_str());
         set_hidden(search_note_, note.empty());
     }
 
-    // Where "near" means: you, or else the middle of the map on screen.
-    void here(double& lat, double& lon) const {
-        lat = zmap::y_to_lat(have_pos_ && !outside_ ? pos_y_ : cy_);
-        lon = zmap::x_to_lon(have_pos_ && !outside_ ? pos_x_ : cx_);
-    }
+    // ---- Saved places --------------------------------------------------
+    // Home and Work (maps.home, maps.work: one place each) and the saved
+    // places (maps.saved), as "kind|name|town|lat|lon;...".
 
-    void pick(size_t i) {
-        if (i >= results_.size()) return;
-        zmap::Place p = results_[i];
-        close_search();
-        std::string name = p.name + (p.town.empty() || (p.kind != 'r' && p.kind != 'a') ? "" : ", " + p.town);
-        remember_place(p);
-        start_route({p.lat, p.lon}, name, true);
+    static std::string place_text(const zmap::Place& p) {
+        auto clean = [](std::string s) {
+            for (char& ch : s)
+                if (ch == '|' || ch == ';' || ch == '\n' || ch == '=') ch = ' ';
+            return s;
+        };
+        return fmt("%c|%s|%s|%.6f|%.6f", p.kind, clean(p.name).c_str(), clean(p.town).c_str(), p.lat, p.lon);
     }
-
-    // The last places gone to, newest first: "kind|name|town|lat|lon;..."
-    std::vector<zmap::Place> recent_places() const {
+    static std::vector<zmap::Place> places_list(const char* key) {
         std::vector<zmap::Place> out;
-        std::string all = prefs::get_str("maps.recent", "");
+        std::string all = prefs::get_str(key, "");
         size_t at = 0;
         while (at < all.size()) {
             size_t end = all.find(';', at);
@@ -719,26 +910,105 @@ private:
         }
         return out;
     }
-    void remember_place(const zmap::Place& p) {
-        auto clean = [](std::string s) {
-            for (char& ch : s)
-                if (ch == '|' || ch == ';' || ch == '\n' || ch == '=') ch = ' ';
-            return s;
-        };
-        std::string entry = fmt("%c|%s|%s|%.6f|%.6f", p.kind, clean(p.name).c_str(), clean(p.town).c_str(), p.lat, p.lon);
-        std::string all = entry;
-        int kept = 1;
-        for (const zmap::Place& o : recent_places()) {
-            if (o.name == p.name && o.town == p.town) continue;
-            if (++kept > 8) break;
-            all += fmt(";%c|%s|%s|%.6f|%.6f", o.kind, clean(o.name).c_str(), clean(o.town).c_str(), o.lat, o.lon);
+    static void set_places_list(const char* key, const std::vector<zmap::Place>& list, size_t most) {
+        std::string all;
+        for (size_t i = 0; i < list.size() && i < most; i++) all += (all.empty() ? "" : ";") + place_text(list[i]);
+        prefs::set_str(key, all);
+    }
+    static zmap::Place saved_place(char role) {
+        std::vector<zmap::Place> l = places_list(role == 'h' ? "maps.home" : "maps.work");
+        return l.empty() ? zmap::Place{} : l[0];
+    }
+
+    // The row in focus in Go to, or -1.
+    int focused_row() const {
+        lv_obj_t* f = group ? lv_group_get_focused(group) : nullptr;
+        if (!f || !search_list_ || lv_obj_get_parent(f) != search_list_) return -1;
+        size_t i = size_t(uintptr_t(lv_obj_get_user_data(f)));
+        return i < results_.size() ? int(i) : -1;
+    }
+    void save_focused(char role) {
+        int i = focused_row();
+        if (i < 0) {
+            shell_toast("Pick a place in the list first");
+            return;
         }
-        prefs::set_str("maps.recent", all);
+        zmap::Place p = results_[size_t(i)];
+        if (role == 'h' || role == 'w') {
+            set_places_list(role == 'h' ? "maps.home" : "maps.work", {p}, 1);
+            shell_toast((role == 'h' ? "Home is " : "Work is ") + p.name);
+        } else {
+            std::vector<zmap::Place> l = places_list("maps.saved");
+            for (const zmap::Place& o : l)
+                if (o.name == p.name && o.town == p.town) {
+                    shell_toast(p.name + " is already saved");
+                    return;
+                }
+            l.insert(l.begin(), p);
+            set_places_list("maps.saved", l, 20);
+            shell_toast("Saved " + p.name);
+        }
+        refresh_search();
+    }
+    void unsave_focused() {
+        int i = focused_row();
+        if (i < 0 || roles_[size_t(i)] == 0 || roles_[size_t(i)] == 'r') {
+            shell_toast("Only a saved place can be removed");
+            return;
+        }
+        char role = roles_[size_t(i)];
+        zmap::Place p = results_[size_t(i)];
+        if (role == 'h' || role == 'w') {
+            prefs::set_str(role == 'h' ? "maps.home" : "maps.work", "");
+        } else {
+            std::vector<zmap::Place> l = places_list("maps.saved"), keep;
+            for (const zmap::Place& o : l)
+                if (!(o.name == p.name && o.town == p.town)) keep.push_back(o);
+            set_places_list("maps.saved", keep, 20);
+        }
+        shell_toast("Removed " + p.name);
+        refresh_search();
+    }
+    // H on the map: straight to Home (or Work), with the preview first.
+    void go_saved(char role) {
+        zmap::Place p = saved_place(role);
+        if (p.name.empty()) {
+            shell_toast(role == 'h' ? "No Home yet: in Go to, pick a place and press Tab > H" : "No Work yet: in Go to, Tab > W on a place");
+            return;
+        }
+        start_route({p.lat, p.lon}, role == 'h' ? "Home" : "Work", true, true);
+    }
+
+    // Where "near" means: you, or else the middle of the map on screen.
+    void here(double& lat, double& lon) const {
+        lat = zmap::y_to_lat(have_pos_ && !outside_ ? pos_y_ : cy_);
+        lon = zmap::x_to_lon(have_pos_ && !outside_ ? pos_x_ : cx_);
+    }
+
+    void pick(size_t i) {
+        if (i >= results_.size()) return;
+        zmap::Place p = results_[i];
+        char role = i < roles_.size() ? roles_[i] : 0;
+        close_search();
+        std::string name = role == 'h' ? "Home" : role == 'w' ? "Work"
+                         : p.name + (p.town.empty() || p.kind == 'c' || p.kind == 't' || p.kind == 'v' ? "" : ", " + p.town);
+        if (role != 'h' && role != 'w') remember_place(p);
+        start_route({p.lat, p.lon}, name, true, true);
+    }
+
+    // The last places gone to, newest first (maps.recent).
+    void remember_place(const zmap::Place& p) {
+        std::vector<zmap::Place> l{p};
+        for (const zmap::Place& o : places_list("maps.recent"))
+            if (!(o.name == p.name && o.town == p.town)) l.push_back(o);
+        set_places_list("maps.recent", l, 8);
     }
 
     // ---- Directions ----------------------------------------------------
 
-    void start_route(nav::LatLon dest, const std::string& name, bool say) {
+    // Directions to dest. With `preview`, the whole route is shown first,
+    // with its distance and time: Enter starts, F changes it, Esc cancels.
+    void start_route(nav::LatLon dest, const std::string& name, bool say, bool preview) {
         double lat, lon;
         here(lat, lon);
         nav::Fix f;
@@ -748,6 +1018,8 @@ private:
         engine_->position(f);
         engine_->go(dest, name, {lat, lon});
         navigating_ = true;
+        previewing_ = preview;
+        if (preview) follow_ = false;
         dest_name_ = name;
         route_.reset();
         route_xy_.clear();
@@ -755,8 +1027,26 @@ private:
         fitted_ = false;
         next_turn_ = -1;
         announced_turn_ = -1;
-        prefs::set_str("maps.dest", fmt("%.6f,%.6f,", dest.lat, dest.lon) + name);
-        if (say) shell_toast("Directions to " + name);
+        if (!preview) prefs::set_str("maps.dest", fmt("%.6f,%.6f,", dest.lat, dest.lon) + name);
+        dest_ = dest;
+        if (say && !preview) shell_toast("Directions to " + name);
+        set_actions();
+        update_overlays();
+        dirty_ = true;
+    }
+
+    // From the preview to driving.
+    void begin_route() {
+        previewing_ = false;
+        prefs::set_str("maps.dest", fmt("%.6f,%.6f,", dest_.lat, dest_.lon) + dest_name_);
+        if (have_pos_ && !outside_) {
+            follow_ = true;
+            zoom_ = drive_zoom_;
+            manual_zoom_at_ = 0;
+            engine_->say("Starting the route to " + dest_name_);
+        } else {
+            shell_toast("No GPS fix yet: the directions start when there is one");
+        }
         set_actions();
         update_overlays();
         dirty_ = true;
@@ -769,12 +1059,14 @@ private:
     void stop_route() {
         engine_->stop();
         navigating_ = false;
+        previewing_ = false;
         route_.reset();
         route_xy_.clear();
         prefs::set_str("maps.dest", "");
         set_hidden(eta_, true);
         lv_label_set_text(banner_dist_, "");
         lv_label_set_text(banner_text_, "");
+        lv_label_set_text(banner_then_, "");
         set_actions();
         update_overlays();
         dirty_ = true;
@@ -790,7 +1082,7 @@ private:
         }
         nav_ = engine_->take();
         for (const std::string& said : nav_.said)
-            if (said.find("reached your destination") != std::string::npos) {
+            if (!previewing_ && said.find("reached your destination") != std::string::npos) {
                 arrived();
                 return;
             }
@@ -808,9 +1100,10 @@ private:
                 route_xy_.push_back(zmap::lat_to_y(p.lat));
             }
             route_seg_ = 0;
-            // With no position yet, show the whole route once.
-            if (!fitted_ && !(have_pos_ && !outside_)) fit_route();
-            if (!fitted_ && have_pos_ && !outside_) engine_->say("Starting the route to " + dest_name_);
+            est_s_ = shortest_ ? estimate_time(*route_) : -1;
+            // The preview, or no position yet: show the whole route once.
+            if (!fitted_ && (previewing_ || !(have_pos_ && !outside_))) fit_route();
+            if (!fitted_ && !previewing_ && have_pos_ && !outside_) engine_->say("Starting the route to " + dest_name_);
             fitted_ = true;
             dirty_ = true;
         }
@@ -831,14 +1124,14 @@ private:
                 break;
             }
         double left = next >= 0 ? route_->turn_along[size_t(next)] - along : 0;
-        if (next >= 0 && route_->turns[size_t(next)].kind == nav::kArrive && left < 25 && have_pos_) {
+        if (!previewing_ && next >= 0 && route_->turns[size_t(next)].kind == nav::kArrive && left < 25 && have_pos_) {
             arrived();
             return;
         }
         if (next != next_turn_ || std::fabs(left - next_turn_m_) > 5) dirty_ = true;
         next_turn_ = next;
         next_turn_m_ = left;
-        if (have_pos_ && !outside_ && next >= 0) announce(route_->turns[size_t(next)], next, left);
+        if (!previewing_ && have_pos_ && !outside_ && next >= 0) announce(route_->turns[size_t(next)], next, left);
     }
 
     // Spoken: once about half a minute before a turn ("In 500 feet, turn
@@ -891,7 +1184,7 @@ private:
         if (x0 > x1) return;
         cx_ = (x0 + x1) / 2, cy_ = (y0 + y1) / 2;
         double upm = zmap::units_per_metre(zmap::y_to_lat(cy_));
-        double need = std::max((x1 - x0) / upm / (kW - 30), (y1 - y0) / upm / (kH - kBannerH - 30));
+        double need = std::max((x1 - x0) / upm / (kW - 30), (y1 - y0) / upm / (kH - kBannerH - 24));
         zoom_ = kZooms - 1;
         for (int i = 0; i < kZooms; i++)
             if (kZoom[i] >= need) {
@@ -903,44 +1196,89 @@ private:
         up_ = 0;
     }
 
-    // The banner along the top: the next turn's arrow, how far, and what.
+    // For the shortest route Navit's time counts every road at the same
+    // speed, so it is worked out here instead: the route's roads, sampled
+    // every 500 m on the map, at their speed limit or a usual speed for
+    // their kind of road.
+    double estimate_time(const nav::Route& r) const {
+        static const double kKmh[] = {16, 40, 48, 56, 64, 80, 97};   // service .. motorway
+        double total = 0;
+        for (double at = 0, end = r.cum.empty() ? 0 : r.cum.back(); at < end; at += 500) {
+            size_t i = size_t(std::upper_bound(r.cum.begin(), r.cum.end(), at) - r.cum.begin());
+            const nav::LatLon& p = r.line[std::min(i, r.line.size() - 1)];
+            zmap::RoadHit h = zmap::nearest_road(*map_, zmap::lon_to_x(p.lon), zmap::lat_to_y(p.lat), -1, 40);
+            double kmh = h.found ? kKmh[std::clamp(int(h.kind) - zmap::kService, 0, 6)] : 40;
+            int limit = h.speed & 0x7f;
+            if (limit) kmh = (h.speed & 0x80) ? limit * 1.609344 : limit;
+            total += std::min(500.0, end - at) / (kmh / 3.6);
+        }
+        return total;
+    }
+
+    // "5:32  23 min  12 mi": arrival time, time and distance left.
+    std::string eta_text() const {
+        if (!route_ || nav_.left_s < 0 || nav_.left_m < 0) return "";
+        double left_s = nav_.left_s;
+        if (shortest_ && est_s_ > 0 && !route_->cum.empty() && route_->cum.back() > 0)
+            left_s = est_s_ * std::min(1.0, nav_.left_m / route_->cum.back());
+        std::time_t when = std::time(nullptr) + std::time_t(left_s);
+        char clock[16];
+        std::strftime(clock, sizeof clock, imperial_ ? "%l:%M" : "%H:%M", std::localtime(&when));
+        std::string c0 = clock;
+        while (!c0.empty() && c0[0] == ' ') c0.erase(0, 1);
+        long mins = std::lround(left_s / 60);
+        std::string dur = mins < 60 ? fmt("%ld min", std::max(mins, 1L)) : fmt("%ld h %02ld", mins / 60, mins % 60);
+        return c0 + "  " + dur + "  " + short_distance(nav_.left_m);
+    }
+
+    // The banner along the top: the next turn's arrow, how far, what, and
+    // the turn after it if it comes soon. In the preview: where to, and how
+    // far and long.
     void nav_banner() {
-        const zmap::Theme& t = night_ ? zmap::night_theme() : zmap::day_theme();
         renderer_.box(pixels_.data(), kW, kH, 0, 0, kW, kBannerH, zmap::rgb565(0x1c3d6e));
-        std::string dist, text;
-        if (!route_) {
+        std::string dist, text, then;
+        int x = 46;
+        if (previewing_) {
+            x = 8;
+            dist = "To " + dest_name_;
+            std::string eta = eta_text();
+            text = !route_ ? (nav_.state == nav::Snapshot::kStarting ? "Starting the route planner..." : "Planning the route...")
+                 : eta.empty() ? "Working out the time..." : eta + (shortest_ ? "  (shortest)" : "");
+        } else if (!route_) {
+            x = 8;
             text = nav_.state == nav::Snapshot::kStarting ? "Starting the route planner..." : "Planning the route...";
         } else if (next_turn_ >= 0) {
             const nav::Maneuver& m = route_->turns[size_t(next_turn_)];
-            renderer_.turn_icon(pixels_.data(), kW, kH, m.kind, 19, kBannerH / 2.0f, 26, zmap::rgb565(0xffffff));
+            renderer_.turn_icon(pixels_.data(), kW, kH, m.kind, 22, kBannerH / 2.0f, 32, zmap::rgb565(0xffffff));
             dist = short_distance(next_turn_m_);
             text = m.text;
+            // "then" and the turn after, when it comes within 400 m of this one.
+            size_t n2 = size_t(next_turn_) + 1;
+            if (n2 < route_->turns.size() && route_->turn_along[n2] - route_->turn_along[size_t(next_turn_)] < 400) {
+                renderer_.box(pixels_.data(), kW, kH, kW - 52, 3, kW - 3, kBannerH - 3, zmap::rgb565(0x2b5594));
+                renderer_.turn_icon(pixels_.data(), kW, kH, route_->turns[n2].kind, kW - 27, 25, 18, zmap::rgb565(0xffffff));
+                then = "then";
+            }
         } else {
+            x = 8;
             text = "Follow the route";
         }
-        (void)t;
-        lv_obj_set_x(banner_dist_, route_ ? 40 : 8);
+        lv_obj_set_x(banner_dist_, x);
+        lv_obj_set_style_text_font(banner_dist_, previewing_ ? &zs_font_16 : &zs_font_20, 0);
+        lv_obj_set_width(banner_dist_, kW - x - (then.empty() ? 6 : 56));
+        lv_label_set_long_mode(banner_dist_, LV_LABEL_LONG_DOT);
         if (dist != lv_label_get_text(banner_dist_)) lv_label_set_text(banner_dist_, dist.c_str());
-        lv_obj_set_y(banner_text_, dist.empty() ? 9 : 19);
-        lv_obj_set_x(banner_text_, route_ ? 40 : 8);
+        lv_obj_set_y(banner_text_, dist.empty() ? 11 : 22);
+        lv_obj_set_x(banner_text_, x);
+        lv_obj_set_width(banner_text_, kW - x - (then.empty() ? 6 : 56));
         if (text != lv_label_get_text(banner_text_)) lv_label_set_text(banner_text_, text.c_str());
-        // Arrival time, time and distance left.
-        std::string eta;
-        if (route_ && nav_.left_s >= 0 && nav_.left_m >= 0) {
-            std::time_t when = std::time(nullptr) + std::time_t(nav_.left_s);
-            char clock[16];
-            std::strftime(clock, sizeof clock, imperial_ ? "%l:%M" : "%H:%M", std::localtime(&when));
-            std::string c0 = clock;
-            while (!c0.empty() && c0[0] == ' ') c0.erase(0, 1);
-            long mins = std::lround(nav_.left_s / 60);
-            std::string dur = mins < 60 ? fmt("%ld min", std::max(mins, 1L)) : fmt("%ld h %02ld", mins / 60, mins % 60);
-            eta = c0 + "  " + dur + "  " + short_distance(nav_.left_m);
-        }
-        if (eta != lv_label_get_text(eta_)) {
-            lv_label_set_text(eta_, eta.c_str());
-            lv_obj_align(eta_, LV_ALIGN_BOTTOM_MID, 14, -3);
-        }
-        set_hidden(eta_, eta.empty());
+        if (then != lv_label_get_text(banner_then_)) lv_label_set_text(banner_then_, then.c_str());
+        lv_obj_set_pos(banner_then_, kW - 40, 3);
+        // The arrival, in the strip along the bottom.
+        std::string eta = previewing_ ? "" : eta_text();
+        if (eta != lv_label_get_text(strip_eta_)) lv_label_set_text(strip_eta_, eta.c_str());
+        lv_obj_align(strip_eta_, LV_ALIGN_BOTTOM_RIGHT, -6, -2);
+        set_hidden(eta_, true);
     }
 
     // "450 ft", "0.3 mi", "12 mi"; "350 m", "2.4 km".
@@ -1143,7 +1481,15 @@ private:
     double next_turn_m_ = 0;
     bool navigating_ = false, voice_ = true, fitted_ = false;
     std::string dest_name_;
-    lv_obj_t *banner_dist_ = nullptr, *banner_text_ = nullptr, *eta_ = nullptr;
+    lv_obj_t *banner_dist_ = nullptr, *banner_text_ = nullptr, *banner_then_ = nullptr, *eta_ = nullptr;
+    lv_obj_t *strip_speed_ = nullptr, *strip_unit_ = nullptr, *strip_eta_ = nullptr;
+    bool previewing_ = false, shortest_ = false, auto_zoom_ = true;
+    nav::LatLon dest_;
+    std::string colours_ = "auto";
+    uint32_t manual_zoom_at_ = 0, zoom_wanted_at_ = 0;
+    int zoom_wanted_ = -1;
+    double est_s_ = -1;   // the shortest route's time, worked out here (estimate_time)
+    std::vector<char> roles_;   // Go to's rows: 'h' Home, 'w' Work, 's' saved, 'r' recent, 0 found
     // Position and tracks
     lv_obj_t *gps_panel_ = nullptr, *gps_status_ = nullptr, *gps_lat_ = nullptr, *gps_lon_ = nullptr, *gps_hint_ = nullptr;
     lv_obj_t *gps_alt_ = nullptr, *gps_speed_ = nullptr, *gps_head_ = nullptr, *gps_acc_ = nullptr, *gps_sats_ = nullptr,

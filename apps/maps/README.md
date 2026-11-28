@@ -1,8 +1,8 @@
 # Maps
 
 A map of New Jersey for the car that works with no internet, with spoken turn-by-turn directions.
-Type an address, a street or a town, and Maps plans the route, shows the next turn, and says it as you get
-there. It also shows how fast you're going, the road you're on and its speed limit.
+Type an address, a street or a town (or "gas", "food", "parking"), and Maps shows you the route,
+then guides you: the next turn, and the turn after it, said as you get there. It also shows how fast you're going, the road you're on and its speed limit.
 
 Everything comes with the app, made from [OpenStreetMap](https://www.openstreetmap.org) data
 (© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)). Nothing is downloaded
@@ -26,15 +26,28 @@ Installing or updating Maps replaces the GPS app.
    Start with a house number for an address: `20 nassau st`, `100 washington st hob`. The
    addresses come first (with a house icon), then the street itself, in case that number
    isn't on the map.
-2. Pick one with the arrows and press **Enter**. The places you went to last are listed before you type.
-3. Maps plans the route (a few seconds) and draws it in blue.
+   `gas`, `food` (or `coffee`, `restaurant`) and `parking` list the nearest of those; add a
+   word to narrow it down (`gas princeton`, `wawa`). Results come in groups: addresses, gas,
+   food and parking, places, streets.
+2. Pick one with the arrows and press **Enter**. Before you type, Go to lists your saved places
+   (Home, Work and the rest), then the places you went to last.
+3. **The preview:** Maps plans the route (a few seconds) and shows all of it, with when you'd
+   arrive, how long it takes and how far it is. **F** switches between the fastest and the
+   shortest route. **Enter** starts; **Esc** cancels.
+
+**Saved places:** in Go to, on any place in the list, **Tab > H** saves it as Home, **Tab > W**
+as Work, and **Tab > S** to your saved places; **Tab > D** removes a saved one. On the map, **H**
+gives directions home straight away (with the preview), and **Tab > K** to work.
 
 While you drive:
 
 | Where | Shows |
 | --- | --- |
-| Along the top | The next turn: an arrow, how far, and what to do ("Turn right into Bridge Street") |
-| Bottom middle | When you'll arrive, how long it will take, and how far is left |
+| Along the top | The next turn: a big arrow, how far, and what to do ("Turn right into Bridge Street"). When another turn comes soon after it (within 400 m), a small "then" arrow on the right |
+| Along the bottom | Your speed and the speed limit on the left; when you'll arrive, how long it will take and how far is left on the right |
+
+The map zooms itself as you drive: in close at low speed and before a turn, further out on the
+highway. A zoom you choose with **-** or **=** holds for 20 seconds. **Z** turns this off and on.
 
 You'll hear each turn twice: about half a minute before it ("In 500 feet, turn right into Bridge
 Street") and as you get there. **V** turns the voice off and on. If you take another way, Navit
@@ -76,6 +89,12 @@ receiver starts afresh.
 
 Mesh's **GPS** button opens Maps straight on this screen (`shell_open_app("maps", "gps")`).
 
+## Colours
+
+**T** goes round automatic, day and night. Automatic (the default) uses the day colours while the
+sun is up where the map is, and the night colours from a little after sunset, worked out from the
+date and time ([sun.h](sun.h)), so it needs no light sensor. In towns, zoomed in, buildings are drawn.
+
 ## On screen
 
 | Where | Shows |
@@ -94,7 +113,10 @@ The map turns so that the way you're going is up, and shows more of the road ahe
 
 | Key | Does |
 | --- | --- |
-| **G** | Go to: find a town or a street and get directions there |
+| **G** | Go to: find an address, a street, a town, gas, food or parking, or a saved place, and get directions there |
+| **H** | Directions home (once you've saved Home) |
+| **F** | In the route preview: fastest or shortest route. **Enter** starts, **Esc** cancels |
+| **Z** | Automatic zoom off and on |
 | **P** | Position and tracks: the GPS screen |
 | **R** | Start or stop recording a track |
 | **X** | Stop the directions |
@@ -102,7 +124,7 @@ The map turns so that the way you're going is up, and shows more of the road ahe
 | Arrows (or **W A S D**) | Look around. The map stops following you |
 | **Enter** | Follow me again |
 | **N** | North up, or the way you're going up |
-| **Tab** | The menu: also **S** save this spot, **V** voice on or off, **T** day or night colours, **U** miles or kilometres, **I** about this map |
+| **Tab** | The menu: also **K** directions to work, **S** save this spot, **V** voice on or off, **T** colours (automatic, day, night), **U** miles or kilometres, **I** about this map |
 | **Esc** | Home (in Go to: clear what you typed, then back to the map) |
 
 Miles are the default on a US map. The last place you were is remembered, so the map opens there
@@ -112,14 +134,14 @@ before the GPS has a fix.
 
 | Path | What |
 | --- | --- |
-| `/usr/share/zeroos/maps/new-jersey.zmap` | The map the app comes with (about 60 MB) |
-| `/usr/share/zeroos/maps/new-jersey.search` | Go to's list of towns and streets (about 7 MB) |
+| `/usr/share/zeroos/maps/new-jersey.zmap` | The map the app comes with, with its buildings (about 90 MB) |
+| `/usr/share/zeroos/maps/new-jersey.search` | Go to's list of towns, streets, gas stations, food and parking (about 8 MB) |
 | `/usr/share/zeroos/maps/new-jersey.addr` | Go to's house numbers (about 7 MB) |
 | `/usr/share/zeroos/maps/new-jersey.navit` | The roads, for Navit to plan routes on (about 26 MB) |
 | `~/Maps/` | Maps you add yourself (the same files, with the same name before the dot): they come first. A map without a `.addr` file still finds towns and streets |
 | `~/Documents/waypoints.txt`, `~/Documents/Tracks/` | Spots you saved, and the tracks you recorded (GPX) |
 | `/etc/default/gpsd` | gpsd's settings, set by Maps for the expansion port's UART and USB dongles. The one that was there is kept and put back when Maps is removed |
-| `~/.config/zeroos/settings.conf` | The places you went to last (`maps.recent`), where directions were going (`maps.dest`), and the app's settings |
+| `~/.config/zeroos/settings.conf` | Home and Work (`maps.home`, `maps.work`), your saved places (`maps.saved`), the places you went to last (`maps.recent`), where directions were going (`maps.dest`), and the app's settings |
 
 Another app can open the map at a place: `shell_open_app("maps", "40.7357,-74.1724")`.
 
@@ -128,7 +150,7 @@ Another app can open the map at a place: `shell_open_app("maps", "40.7357,-74.17
 ### The map
 
 The map is a `.zmap` file, a format of this app's own ([zmap.h](zmap.h)): the roads, railways, water,
-woods, parks, the coastline, the state line and place names, at four levels of detail, cut into
+woods, parks, buildings, the coastline, the state line and place names, at four levels of detail, cut into
 tiles. The app maps the file into memory, so only the part on screen is read from the SD card, and
 draws it itself ([render.cpp](render.cpp)): areas, then roads from the smallest to the largest
 with their edges, then the route, then the names that fit. A screen takes a few milliseconds on a
@@ -139,8 +161,8 @@ The files are made when the package is built: [prepare.sh](prepare.sh) downloads
 Jersey extract and its outline and runs [tools/zmap_build.cpp](tools/zmap_build.cpp). That reads the
 OpenStreetMap data, builds the sea from the coastline (OpenStreetMap has no sea areas, only the
 line where land meets it), simplifies everything for each level of detail and cuts it into tiles.
-It also writes the search list (each place, and each named road once in each town it runs
-through), the house numbers, and the roads a car may use, with their turn restrictions, which Navit's `maptool` turns
+It also writes the search list (each place, each named road once in each town it runs
+through, and the gas stations, places to eat and public car parks), the house numbers, and the roads a car may use, with their turn restrictions, which Navit's `maptool` turns
 into Navit's routing map. It all takes under a minute and about half a gigabyte of memory, which is
 why it isn't done on the Cardputer.
 
@@ -222,7 +244,8 @@ whose `.osm.pbf` is committed) and checks:
 - the map: what each level holds, what colour each place is drawn, names that don't overlap, the
   road and speed limit found at a point (and at a junction, by heading), and hundreds of damaged
   copies of the file, which must never crash the app;
-- the search, the house numbers (and damaged `.addr` files), and the roads written for Navit;
+- the search (gas, food and parking too), the house numbers (and damaged `.addr` files), and the roads written for Navit;
+- the shortest route's profile, and the sun for automatic colours;
 - reading Navit's answers: the route's line, the turns and their words, the position sent to it;
 - a real route: where Navit is installed (CI installs it), Navit plans one across the town, and
   nothing of it is left running afterwards.
@@ -237,4 +260,6 @@ The simulated GPS walks through the town, so the simulator and CI's screenshots 
 - How long Navit takes to start and to plan a long route (Princeton to Hoboken) on the Cardputer.
 - That following a fix while driving is smooth, and the screen stays on.
 - That the voice is heard, and in time for each turn, at highway speed.
+- That the automatic zoom feels right in town and on the highway.
+- How a screen full of buildings draws on the Cardputer (a city, zoomed in).
 - The speed limits and road names against real roads.

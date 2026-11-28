@@ -49,7 +49,8 @@ enum Kind : uint8_t {
     kSand,
     kAirport,
     kWater,          // lakes, wide rivers
-    kLastArea = kWater,
+    kBuilding,       // only in the finest level
+    kLastArea = kBuilding,
 
     kStream = 20,
     kRiver,

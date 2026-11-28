@@ -59,6 +59,8 @@ public:
     // Speak this (with espeak-ng), cutting short anything still being said.
     // Nothing when the voice is off, or in the simulator.
     virtual void say(const std::string& text) = 0;
+    // The shortest route rather than the fastest. Plans again if a route is going.
+    virtual void set_shortest(bool on) = 0;
     // A copy of the state; `said` is handed over once.
     virtual Snapshot take() = 0;
 };
@@ -67,9 +69,14 @@ struct Config {
     std::string navit_map;   // Navit's routing map (.navit, a binfile)
     bool imperial = false;
     bool simulated = false;  // the stand-in, not Navit
+    bool shortest = false;   // the shortest route, not the fastest
 };
 
 std::unique_ptr<Engine> make_engine(const Config& c);
+
+// Navit's car profile (a <vehicleprofile> element) with every road weighted
+// the same, for the shortest route rather than the fastest.
+std::string shortest_profile(const std::string& profile);
 
 // Built from a line and turns: the turns' places along the line.
 std::shared_ptr<Route> make_route(std::vector<LatLon> line, std::vector<Maneuver> turns, LatLon dest, std::string name);

@@ -141,6 +141,14 @@ node(150, 195, {"addr:housenumber": "7", "addr:street": "Market St.", "addr:city
 way([(180, -200), (220, -200), (220, -170), (180, -170)],
     {"building": "house", "addr:housenumber": "20", "addr:street": "South Row"}, closed=True)
 node(5000, 5000, {"addr:housenumber": "1", "addr:street": "High Street"})   # outside the region: left out
+
+# Gas, food and parking for Go to ("gas", "food", "parking").
+node(-150, 90, {"amenity": "fuel", "brand": "Zero Gas"})
+node(-60, 30, {"amenity": "fuel"})                                    # no name: "Gas station"
+node(110, 80, {"amenity": "cafe", "name": "Cafe Zero"})
+node(300, 200, {"amenity": "restaurant"})                             # no name: left out
+way([(330, 110), (380, 110), (380, 150), (330, 150)], {"amenity": "parking"}, closed=True)   # its middle
+node(250, -100, {"amenity": "parking", "access": "private"})          # private: left out
 node(-380, -260, {"place": "suburb", "name": "Old Quay"})
 
 path = os.path.join(HERE, "town.osm.pbf")

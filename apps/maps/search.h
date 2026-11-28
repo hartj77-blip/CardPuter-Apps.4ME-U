@@ -8,6 +8,9 @@
 // House numbers: when the query starts with one ("12 main st princeton"),
 // the streets that match the rest are found as usual, and the number is
 // looked up on each in the .addr file (addr.h), near where that street is.
+//
+// "gas", "food" or "parking" (and the like: search_category()) lists the
+// nearest of those, narrowed by any other words ("gas princeton").
 #pragma once
 
 #include <cstdint>
@@ -19,7 +22,8 @@
 namespace zmap {
 
 struct Place {
-    char kind = 'r';     // c city, t town, v village, s suburb, n neighbourhood, r road, a an address
+    char kind = 'r';     // c city, t town, v village, s suburb, n neighbourhood, r road, a an address,
+                         // g gas station, f food, p parking
     std::string name, town;
     double lat = 0, lon = 0;
     double metres = -1;  // from where the search was made, if known
@@ -42,11 +46,15 @@ public:
 
 private:
     std::vector<Place> find_words(const std::vector<std::string>& words, size_t max, bool have_near, double lat, double lon,
-                                  bool roads_only) const;
+                                  bool roads_only, const std::string& kinds = "") const;
     AddressFile addr_;
     std::string text_, folded_;   // the file, and the same lower-cased with accents kept
     std::vector<uint32_t> lines_; // where each entry starts
 };
+
+// The kind a word asks for: 'g' for "gas", "fuel"...; 'f' for "food",
+// "coffee"...; 'p' for "parking"; 0 for any other word.
+char search_category(const std::string& folded_word);
 
 // "washington st" -> {"washington", "st"}: lower case, split on spaces and
 // punctuation.

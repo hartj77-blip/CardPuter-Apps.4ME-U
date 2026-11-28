@@ -29,6 +29,25 @@ extern char** environ;
 
 namespace zmap::nav {
 
+// The car profile with every road weighted the same: Navit then finds the
+// shortest way, not the fastest (the speeds stay, for the time it takes).
+std::string shortest_profile(const std::string& profile) {
+    std::string out = profile;
+    // A road's own speed limit would otherwise weigh in again (maxspeed_handling 0).
+    size_t mh = out.find("maxspeed_handling=\"");
+    if (mh != std::string::npos) {
+        size_t end = out.find('"', mh + 19);
+        if (end != std::string::npos) out.replace(mh + 19, end - mh - 19, "2");
+    }
+    for (size_t at = 0; (at = out.find("route_weight=\"", at)) != std::string::npos;) {
+        at += 14;
+        size_t end = out.find('"', at);
+        if (end == std::string::npos) break;
+        out.replace(at, end - at, "50");
+    }
+    return out;
+}
+
 std::shared_ptr<Route> make_route(std::vector<LatLon> line, std::vector<Maneuver> turns, LatLon dest, std::string name) {
     auto r = std::make_shared<Route>();
     r->line = std::move(line);
@@ -213,7 +232,12 @@ protected:
 class FakeEngine : public Base {
 public:
     void say(const std::string&) override {}
+    void set_shortest(bool) override {   // the same L, planned again, as Navit would
+        if (planned_) go(last_dest_, last_name_, last_from_);
+    }
     void go(LatLon dest, const std::string& name, LatLon from) override {
+        planned_ = true;
+        last_dest_ = dest, last_name_ = name, last_from_ = from;
         Fix f;
         {
             std::lock_guard<std::mutex> l(mu_);
@@ -238,6 +262,7 @@ public:
         });
     }
     void stop() override {
+        planned_ = false;
         publish([](Snapshot& s) {
             s.state = Snapshot::kOff;
             s.route.reset();
@@ -245,6 +270,11 @@ public:
             s.left_m = s.left_s = -1;
         });
     }
+
+private:
+    bool planned_ = false;
+    LatLon last_dest_, last_from_;
+    std::string last_name_;
 };
 
 // ---- Navit ---------------------------------------------------------------
@@ -283,6 +313,21 @@ public:
         {
             std::lock_guard<std::mutex> l(mu_);
             to_say_ = text;
+        }
+        cv_.notify_all();
+    }
+
+    void set_shortest(bool on) override {
+        {
+            std::lock_guard<std::mutex> l(mu_);
+            if (cfg_.shortest == on) return;
+            cfg_.shortest = on;
+            // Navit takes its car settings at start: start it again, then plan again.
+            if (want_) {
+                restart_ = true;
+                new_request_ = true;
+                snap_.state = Snapshot::kPlanning;
+            }
         }
         cv_.notify_all();
     }
@@ -333,6 +378,11 @@ private:
     }
 
     bool start() {
+        {
+            std::lock_guard<std::mutex> l(mu_);
+            restart_ = false;
+            new_request_ = true;   // the destination goes to the new Navit
+        }
         for (const char* p : {"navit", "Xvfb", "dbus-daemon", "dbus-send"})
             if (!on_path(p)) {
                 fail(std::string("Routing needs ") + p + ": reinstall Maps");
@@ -404,7 +454,7 @@ private:
     bool wait_ms(int ms, bool work = false) {
         std::unique_lock<std::mutex> l(mu_);
         cv_.wait_for(l, std::chrono::milliseconds(ms),
-                     [&] { return quit_ || (work && (!to_say_.empty() || new_request_ || !want_)); });
+                     [&] { return quit_ || (work && (!to_say_.empty() || new_request_ || !want_ || restart_)); });
         return quit_;
     }
 
@@ -425,6 +475,12 @@ private:
     bool write_config() {
         std::string sys = read_file("/etc/navit/navit.xml");
         std::string profile = xml_element(sys, "<vehicleprofile name=\"car\"", "</vehicleprofile>");
+        bool shortest;
+        {
+            std::lock_guard<std::mutex> l(mu_);
+            shortest = cfg_.shortest;
+        }
+        if (shortest) profile = shortest_profile(profile);
         std::string navigation = xml_element(sys, "<navigation>", "</navigation>");
         if (profile.empty()) return false;
         std::ofstream o(dir_ + "/navit.xml");
@@ -496,7 +552,7 @@ private:
             std::string say;
             {
                 std::lock_guard<std::mutex> l(mu_);
-                if (quit_) return;
+                if (quit_ || restart_) return;
                 say.swap(to_say_);
                 want = want_;
                 fresh = new_request_;
@@ -647,7 +703,7 @@ private:
     Config cfg_;
     std::thread thread_;
     std::condition_variable cv_;
-    bool quit_ = false, want_ = false, new_request_ = false, no_turns_ = false;
+    bool quit_ = false, want_ = false, new_request_ = false, no_turns_ = false, restart_ = false;
     LatLon want_dest_, want_from_, dest_;
     std::string want_name_, dest_name_, to_say_;
     std::string dir_, fifo_path_;

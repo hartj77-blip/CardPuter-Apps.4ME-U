@@ -36,6 +36,16 @@ double metres(double la1, double lo1, double la2, double lo2) {
 
 }  // namespace
 
+char search_category(const std::string& w) {
+    static const char* const kGas[] = {"gas", "fuel", "petrol", "gasoline", nullptr};
+    static const char* const kFood[] = {"food", "restaurant", "restaurants", "eat", "coffee", "cafe", "breakfast", "lunch", "dinner", nullptr};
+    static const char* const kParking[] = {"parking", nullptr};
+    for (auto [list, kind] : {std::pair{kGas, 'g'}, std::pair{kFood, 'f'}, std::pair{kParking, 'p'}})
+        for (const char* const* k = list; *k; k++)
+            if (w == *k) return kind;
+    return 0;
+}
+
 std::vector<std::string> search_words(const std::string& s) {
     std::vector<std::string> out;
     std::string w;
@@ -72,7 +82,7 @@ bool SearchIndex::load(const std::string& path) {
         size_t end = text_.find('\n', at);
         // kind TAB name TAB town TAB lat TAB lon: four tabs, a known kind.
         if (end - at > 6 && text_[at + 1] == '\t' && std::count(text_.begin() + long(at), text_.begin() + long(end), '\t') == 4 &&
-            std::strchr("ctvsnr", text_[at]))
+            std::strchr("ctvsnrgfp", text_[at]))
             lines_.push_back(uint32_t(at));
         at = end + 1;
     }
@@ -83,6 +93,24 @@ bool SearchIndex::load(const std::string& path) {
 std::vector<Place> SearchIndex::find(const std::string& query, size_t max, bool have_near, double lat, double lon) const {
     std::vector<std::string> words = search_words(query);
     if (words.empty() || !ok()) return {};
+    // "gas", "food", "parking": the nearest of those, then what the words find anyway.
+    std::string kinds, others_text;
+    std::vector<std::string> others;
+    for (const std::string& w : words) {
+        char k = search_category(w);
+        if (k && kinds.find(k) == std::string::npos) kinds += k;
+        else if (!k) others.push_back(w);
+    }
+    if (!kinds.empty()) {
+        std::vector<Place> out = find_words(others, max, have_near, lat, lon, false, kinds);
+        std::stable_sort(out.begin(), out.end(), [](const Place& a, const Place& b) { return a.metres < b.metres; });
+        for (Place& p : find_words(words, max, have_near, lat, lon, false)) {
+            bool seen = false;
+            for (const Place& o : out) seen |= o.name == p.name && o.town == p.town && o.kind == p.kind;
+            if (!seen && out.size() < max) out.push_back(std::move(p));
+        }
+        return out;
+    }
     // "12 main st princeton": a house number first, and then a street.
     if (words.size() >= 2 && std::isdigit(uint8_t(words[0][0])) && addr_.ok()) {
         std::vector<std::string> rest(words.begin() + 1, words.end());
@@ -125,9 +153,9 @@ std::vector<Place> SearchIndex::find(const std::string& query, size_t max, bool 
 }
 
 std::vector<Place> SearchIndex::find_words(const std::vector<std::string>& words, size_t max, bool have_near, double lat,
-                                           double lon, bool roads_only) const {
+                                           double lon, bool roads_only, const std::string& kinds) const {
     std::vector<Place> out;
-    if (words.empty()) return out;
+    if (words.empty() && kinds.empty()) return out;
     struct Hit {
         uint32_t line;
         int score;
@@ -138,6 +166,7 @@ std::vector<Place> SearchIndex::find_words(const std::vector<std::string>& words
     for (const std::string& w : words) whole += (whole.empty() ? "" : " ") + w;
     for (uint32_t at : lines_) {
         if (roads_only && folded_[at] != 'r') continue;
+        if (!kinds.empty() && kinds.find(folded_[at]) == std::string::npos) continue;
         size_t end = folded_.find('\n', at);
         // Every word typed starts a word of the name or the town.
         // Only the name and the town: not the numbers after them.

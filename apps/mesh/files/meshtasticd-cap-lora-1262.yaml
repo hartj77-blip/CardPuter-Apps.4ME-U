@@ -29,3 +29,8 @@ Webserver:
 
 General:
   MaxNodes: 100
+  # The API moves off the usual port: zeroos-meshd answers 4403 for the app,
+  # ZeroShell and phones, and is the only one that talks to the radio here
+  # (meshtasticd takes one API connection at a time). zeroos-mesh-firewall
+  # keeps this port to this device.
+  APIPort: 4404

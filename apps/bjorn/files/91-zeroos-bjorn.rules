@@ -1,0 +1,11 @@
+// Bjorn (README.md): the Bjorn app (ZeroShell, as pi) turns the service and its
+// "Allow on this network" toggle on and off. Without this, pi can't start or
+// stop a system service and the app's Turn on / off does nothing. Installed
+// with the Bjorn app; removed with it.
+polkit.addRule(function(action, subject) {
+    if (subject.user != "pi" || action.id != "org.freedesktop.systemd1.manage-units") return;
+    var unit = action.lookup("unit");
+    if (unit == "bjorn.service" || unit == "zeroos-bjorn-lan.service") {
+        return polkit.Result.YES;
+    }
+});

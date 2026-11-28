@@ -31,5 +31,7 @@ payload() {
     install -D -m 0644 "$F/bjorn.service" "$D/etc/systemd/system/bjorn.service"
     install -D -m 0644 "$F/zeroos-bjorn-lan.service" "$D/etc/systemd/system/zeroos-bjorn-lan.service"
     install -D -m 0755 "$F/zeroos-bjorn-firewall" "$D/usr/lib/zeroos/bjorn-firewall"
+    # Let ZeroShell (pi) start and stop the service without root (like Router).
+    install -D -m 0644 "$F/91-zeroos-bjorn.rules" "$D/etc/polkit-1/rules.d/91-zeroos-bjorn.rules"
     install -D -m 0644 "$F/THIRD_PARTY.md" "$D/usr/share/doc/zeroos-app-bjorn/THIRD_PARTY.md"
 }

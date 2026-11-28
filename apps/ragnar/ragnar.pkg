@@ -32,6 +32,8 @@ payload() {
     install -D -m 0644 "$F/ragnar.service" "$D/etc/systemd/system/ragnar.service"
     install -D -m 0644 "$F/zeroos-ragnar-lan.service" "$D/etc/systemd/system/zeroos-ragnar-lan.service"
     install -D -m 0755 "$F/zeroos-ragnar-firewall" "$D/usr/lib/zeroos/ragnar-firewall"
+    # Let ZeroShell (pi) start and stop the service without root (like Router).
+    install -D -m 0644 "$F/91-zeroos-ragnar.rules" "$D/etc/polkit-1/rules.d/91-zeroos-ragnar.rules"
     # Credits for the vendored source.
     install -D -m 0644 "$F/THIRD_PARTY.md" "$D/usr/share/doc/zeroos-app-ragnar/THIRD_PARTY.md"
 }

@@ -131,15 +131,19 @@ commit. It is a capable offensive tool.
 
 None of this has run on a Cardputer Zero yet. Known unknowns:
 
-- **Python dependency closure.** `DEPENDS` covers the Debian-packaged core.
-  Bjorn also imports `ping3`, `get-mac`, `smbprotocol` and `pysmb`, which are
-  **not** in Debian and are **not** installed here. Bjorn's orchestrator loads
-  its action modules at startup, so a missing one can crash the scanning thread
-  (the web UI still runs). Check `journalctl -u bjorn` and vendor the missing
-  wheels (a `requirements-extra.txt` + a pip step into the state dir) if the
-  recon actions don't run.
-- **The mock display.** Confirm Bjorn starts with `epd_type=epd_mock`, renders
-  `screen.png`, and that nothing else imports the real Waveshare driver.
+- **Scan actions' Python deps.** Startup and the web UI are fixed, but a few
+  modules Bjorn's *scan actions* use — `ping3`, `get-mac` (`getmac`) and `pysmb`
+  (`smb`) — are **not** in Debian and are **not** installed here. They load
+  lazily when the orchestrator runs an action, so the web UI is fine, but ARP
+  discovery and SMB steps fail until those are vendored (a `requirements-extra`
+  + a pip step into the tree). This is the main remaining functional gap.
+- **The headless display.** `prepare.sh` ships `epd_mock.py` and an
+  `epd_helper.py` that falls back to the mock when the real Waveshare driver
+  can't import, so Bjorn runs with no HAT; `epd_type` stays a real model so
+  `screen_reversed`/`web_screen_reversed` are set. Confirm `screen.png` renders.
+- **Python 3.13 stdlib.** Debian trixie is Python 3.13, which removed `cgi` and
+  `telnetlib` (PEP 594); both are vendored into the tree. Confirm no other
+  removed-stdlib imports surface on the device.
 - **Capabilities.** Confirm `nmap` and `arp-scan` work with the ambient
   `CAP_NET_RAW`/`CAP_NET_ADMIN` and don't need more.
 - **Wi-Fi gate.** Bjorn starts its orchestrator only when `nmcli` reports a

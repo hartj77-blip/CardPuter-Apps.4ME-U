@@ -1,0 +1,43 @@
+# Ragnar, headless (no display), web dashboard on :8000. The Ragnar app turns
+# this on and off; it is not started at boot.
+#
+# Upstream Ragnar runs this as root. Here it runs as a locked-down dynamic user
+# with only the two network capabilities its scanners need (raw sockets for
+# scapy/nmap/arp-scan/tcpdump), the same trade ZeroOS makes for Net Tools. The
+# cost: features that reconfigure the system (Wi-Fi access point, nmcli,
+# raspi-config) do not work under this; the scan/probe core and the web UI do.
+[Unit]
+Description=Ragnar network recon (headless web UI on :8000)
+After=network-online.target
+Wants=network-online.target
+# Ragnar and Bjorn both use :8000, so only one runs at a time.
+Conflicts=bjorn.service
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=ragnar
+WorkingDirectory=/var/lib/ragnar
+Environment=RAGNAR_HEADLESS=1
+Environment=RAGNAR_WEB_PORT=8000
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+# Ragnar writes its db, config and logs next to its own .py files, so it runs
+# from a writable copy. Refresh the code on each start; keep the user's data
+# (the db, config/shared_config.json and the data/ tree).
+ExecStartPre=/usr/bin/rsync -a --delete \
+    --exclude=/data/ --exclude=/config/shared_config.json \
+    --exclude=*.db --exclude=*.sqlite --exclude=*.sqlite3 --exclude=*.log \
+    /usr/lib/zeroos/ragnar/ /var/lib/ragnar/
+ExecStart=/usr/bin/python3 -OO /var/lib/ragnar/headlessRagnar.py
+# Keep the dashboard off the LAN by default: only this device (loopback) and
+# your Tailscale network can reach :8000 until "Allow on this network" starts
+# zeroos-ragnar-lan.service. The + runs the helper with full privileges, not as
+# the sandboxed service user. These never fail the unit.
+ExecStartPost=+/usr/lib/zeroos/ragnar-firewall lock
+ExecStopPost=+/usr/lib/zeroos/ragnar-firewall clear
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

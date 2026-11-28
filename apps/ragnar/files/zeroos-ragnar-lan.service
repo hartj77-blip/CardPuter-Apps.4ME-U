@@ -1,0 +1,17 @@
+# "Allow on this network" in the Ragnar app: open the dashboard (:8000) to the
+# network the Cardputer is on. Stopping it, or stopping Ragnar, closes it again
+# so only this device and your tailnet can reach it. Runs as root (default) to
+# change the firewall.
+[Unit]
+Description=Ragnar: allow the dashboard (:8000) from this network
+After=ragnar.service
+BindsTo=ragnar.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/zeroos/ragnar-firewall open
+ExecStop=/usr/lib/zeroos/ragnar-firewall lock
+
+[Install]
+WantedBy=ragnar.service

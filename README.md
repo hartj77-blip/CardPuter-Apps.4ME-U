@@ -215,6 +215,8 @@ the app. It all goes again when you remove the app.
 | [Tether](apps/tether/README.md) | `tether` | Get online through your phone: Wi-Fi hotspot, USB or Bluetooth | usbmuxd, python3 |
 | [Router](apps/router/README.md) | `router` | Plug in a laptop (Ethernet or USB-C) and send all its traffic through a Tailscale exit node, with a kill switch. Needs Remote | python3, nftables, dnsmasq |
 | [Net Tools](apps/net/README.md) | `net` | Seven tools: Discover devices, scan Ports, Trace routes, DNS, packet Capture, Netinfo, and Share the Ethernet port with a laptop | arp-scan, nmap, mtr, dig, tcpdump, iproute2, dnsmasq, nftables |
+| [Bjorn](apps/bjorn/README.md) | `bjorn` | The original Bjorn: autonomous network recon with its own web dashboard on port 8000, run headless (no e-paper HAT). The on-device screen is a control panel. Only on networks you own or may test | python3, pillow, nmap, arp-scan |
+| [Ragnar](apps/ragnar/README.md) | `ragnar` | A large Bjorn fork with more features and its own UI, run headless with a web dashboard on port 8000. Shares port 8000 with Bjorn, so only one runs at a time. Only on networks you own or may test | python3, flask, scapy, nmap, arp-scan, tcpdump |
 
 ### Extra hardware
 

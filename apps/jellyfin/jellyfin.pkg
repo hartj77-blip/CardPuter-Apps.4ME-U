@@ -4,6 +4,6 @@
 # curl, which is part of ZeroOS. It used to be a tab in the Media app.
 NAME="Jellyfin"
 SUMMARY="Music, movies and shows from your Jellyfin server, with cover art and search, in Jellyfin's own look"
-APP_VERSION="2.3.0"
+APP_VERSION="2.4.0"
 DEPENDS="mpv, libmpv2"
 NEEDS="mpv"

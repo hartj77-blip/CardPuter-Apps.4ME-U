@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # Vendor the Bjorn source (infinition/Bjorn, MIT) into $WORK/bjorn at a pinned
 # commit, and make it run headless on ZeroOS:
-#   - drop in the epd_mock driver (files/epd_mock.py) so no e-paper HAT, and no
-#     RPi.GPIO / spidev, is needed;
-#   - default epd_type to epd_mock so the mock loads at startup.
-# Bjorn's Display still renders and writes web/screen.png, so the web UI and the
-# Bjorn face work; only the physical panel is stubbed. Kept if already fetched.
+#   - drop in the epd_mock driver (files/epd_mock.py), a no-hardware e-paper EPD;
+#   - replace epd_helper.py (files/epd_helper.py) with one that falls back to
+#     the mock when the real Waveshare driver can't import (no HAT, so no
+#     RPi.GPIO / spidev / SPI device).
+# The configured epd_type is left as the real model (epd2in13_V4): shared.py
+# only sets screen_reversed / web_screen_reversed for known models, so forcing
+# an "epd_mock" type would leave those unset and crash display.py. The loader
+# uses the mock for the (absent) panel while the model name keeps those flags
+# correct. Bjorn's Display still renders and writes web/screen.png, so the web
+# UI and the Bjorn face work; only the physical panel is stubbed. Kept if
+# already fetched.
 #
 # Bump COMMIT deliberately and re-check that it still starts (journalctl -u
 # bjorn): Bjorn's startup imports its action modules, a few of which need Python
@@ -23,13 +29,39 @@ git clone --filter=blob:none "$REPO" "$DEST.tmp"
 git -C "$DEST.tmp" checkout -q "$COMMIT"
 rm -rf "$DEST.tmp/.git" "$DEST.tmp/.github"
 
-# Headless by default: load the mock e-paper driver instead of the Waveshare
-# one. $F is this app's files/ folder (make-app-deb.sh sets it); fall back to
-# the script's own dir when run by hand.
+# Headless: ship the mock EPD and the fallback loader. $F is this app's files/
+# folder (make-app-deb.sh sets it); fall back to the script's own dir when run
+# by hand.
 src_files="${F:-$(cd "$(dirname "$0")" && pwd)/files}"
 install -D -m 0644 "$src_files/epd_mock.py" "$DEST.tmp/resources/waveshare_epd/epd_mock.py"
-sed -i 's/"epd_type": *"epd2in13_V4"/"epd_type": "epd_mock"/' "$DEST.tmp/shared.py"
-grep -q '"epd_type": "epd_mock"' "$DEST.tmp/shared.py" \
-    || { echo "error: could not set epd_type default to epd_mock in shared.py" >&2; exit 1; }
+install -D -m 0644 "$src_files/epd_helper.py" "$DEST.tmp/epd_helper.py"
+grep -q 'headless mock' "$DEST.tmp/epd_helper.py" \
+    || { echo "error: epd_helper.py fallback not installed" >&2; exit 1; }
+
+# Python 3.13 (Debian trixie) removed cgi and telnetlib from the stdlib
+# (PEP 594); Bjorn imports both (utils.py, the telnet actions). Ship vendored
+# copies in the tree root so `import cgi` / `import telnetlib` resolve there.
+install -D -m 0644 "$src_files/cgi.py" "$DEST.tmp/cgi.py"
+install -D -m 0644 "$src_files/telnetlib.py" "$DEST.tmp/telnetlib.py"
+
+# Default screen_reversed / web_screen_reversed before the per-model chain in
+# initialize_epd_display(). shared.py only sets them for known Waveshare models,
+# so any other epd_type (including a stale "epd_mock" left in a device's config
+# from an earlier build) would leave them unset and crash display.py. With a
+# default, startup is safe whatever the config says.
+python3 - "$DEST.tmp/shared.py" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+needle = "            self.epd_helper = EPDHelper(self.epd_type)\n"
+if s.count(needle) != 1:
+    sys.exit(f"error: shared.py EPD anchor count={s.count(needle)}, expected 1")
+s = s.replace(needle, needle +
+              "            self.screen_reversed = True\n"
+              "            self.web_screen_reversed = True\n", 1)
+open(p, "w").write(s)
+PY
+grep -q "self.web_screen_reversed = True" "$DEST.tmp/shared.py" \
+    || { echo "error: screen_reversed default not applied" >&2; exit 1; }
 
 mv "$DEST.tmp" "$DEST"

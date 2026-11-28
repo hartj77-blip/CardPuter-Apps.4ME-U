@@ -5,7 +5,7 @@
 # prepare.sh, which also drops in the mock display driver.
 NAME="Bjorn"
 SUMMARY="The original Bjorn: autonomous network recon with its web dashboard on :8000"
-APP_VERSION="1.0.0"
+APP_VERSION="1.0.1"
 # Debian's own packages for Bjorn's core, so apt resolves them with no pip. The
 # web UI is Python's own http.server (no Flask). Pillow (the rendered screen),
 # numpy, rich, pandas, netifaces, paramiko (SSH), pymysql, sqlalchemy,

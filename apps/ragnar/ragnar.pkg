@@ -4,7 +4,7 @@
 # source is vendored at a pinned commit by prepare.sh.
 NAME="Ragnar"
 SUMMARY="Bjorn-family network recon: a background service with a web dashboard on :8000"
-APP_VERSION="1.0.0"
+APP_VERSION="1.0.1"
 # Debian's own packages for Ragnar's headless core, so apt resolves them and no
 # pip --break-system-packages is needed. The Python web UI and scanners:
 # flask + cors + socketio (the dashboard), scapy/python-nmap (scanning),

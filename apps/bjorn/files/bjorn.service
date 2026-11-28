@@ -1,0 +1,40 @@
+# Bjorn, headless (mock e-paper, no HAT), web dashboard on :8000. The Bjorn app
+# turns this on and off; it is not started at boot. It and Ragnar both use
+# :8000, so only one runs at a time (Conflicts).
+#
+# Upstream runs Bjorn as root. Here it runs as a locked-down dynamic user with
+# only the network capabilities its scanners need (raw sockets for nmap and
+# arp-scan), the same trade ZeroOS makes for Net Tools. Features that reconfigure
+# the system (Wi-Fi, reboot/shutdown from the web UI) do not work under this; the
+# scan/probe core and the web UI do.
+[Unit]
+Description=Bjorn network recon (headless web UI on :8000)
+After=network-online.target
+Wants=network-online.target
+Conflicts=ragnar.service
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=bjorn
+WorkingDirectory=/var/lib/bjorn
+Environment=PYTHONUNBUFFERED=1
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+# Bjorn writes its config, db, loot and logs next to its own .py files, so it
+# runs from a writable copy. Refresh the code on each start; keep the user's
+# state (config/, data/, backup/).
+ExecStartPre=/usr/bin/rsync -a --delete \
+    --exclude=/config/ --exclude=/data/ --exclude=/backup/ \
+    /usr/lib/zeroos/bjorn/ /var/lib/bjorn/
+ExecStart=/usr/bin/python3 -OO /var/lib/bjorn/Bjorn.py
+# Keep the dashboard off the LAN by default: only this device (loopback) and
+# your Tailscale network reach :8000 until "Allow on this network" starts
+# zeroos-bjorn-lan.service. The + runs the helper with full privileges.
+ExecStartPost=+/usr/lib/zeroos/bjorn-firewall lock
+ExecStopPost=+/usr/lib/zeroos/bjorn-firewall clear
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

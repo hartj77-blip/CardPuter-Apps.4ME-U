@@ -1,0 +1,42 @@
+#!/bin/sh
+# Gate who can reach Bjorn's web dashboard (TCP 8000). Bjorn binds every
+# interface and serves its UI with no login, so it must not be open to the whole
+# LAN by default.
+#
+#   lock    only this device (loopback) and your Tailscale network may reach
+#           :8000; everyone else is dropped. (Bjorn start.)
+#   open    remove the block, so the network the Cardputer is on may reach it
+#           too. ("Allow on this network".)
+#   clear   remove the rule entirely. (Bjorn stop.)
+#
+# A dedicated nftables table, so it never touches other rules. Best-effort:
+# a failure here never stops Bjorn.
+set -eu
+
+TABLE="inet zeroos_bjorn"
+PORT=8000
+TAILSCALE_IF="tailscale0"
+
+lock() {
+    nft add table $TABLE 2>/dev/null || true
+    nft add chain $TABLE input '{ type filter hook input priority -10 ; policy accept ; }' 2>/dev/null || true
+    nft flush chain $TABLE input
+    nft add rule $TABLE input tcp dport $PORT iif lo accept
+    nft add rule $TABLE input tcp dport $PORT iifname "$TAILSCALE_IF" accept
+    nft add rule $TABLE input tcp dport $PORT ct state established,related accept
+    nft add rule $TABLE input tcp dport $PORT drop
+}
+
+clear() {
+    nft list table $TABLE >/dev/null 2>&1 && nft delete table $TABLE || true
+}
+
+# "open" means the LAN may reach it: that is simply no block.
+open() { clear; }
+
+case "${1:-}" in
+    lock)  lock ;;
+    open)  open ;;
+    clear) clear ;;
+    *) echo "usage: $0 lock|open|clear" >&2; exit 2 ;;
+esac

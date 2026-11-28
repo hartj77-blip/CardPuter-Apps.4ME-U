@@ -1,0 +1,17 @@
+# "Allow on this network" in the Bjorn app: open the dashboard (:8000) to the
+# network the Cardputer is on. Stopping it, or stopping Bjorn, closes it again
+# so only this device and your tailnet can reach it. Runs as root (default) to
+# change the firewall.
+[Unit]
+Description=Bjorn: allow the dashboard (:8000) from this network
+After=bjorn.service
+BindsTo=bjorn.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/zeroos/bjorn-firewall open
+ExecStop=/usr/lib/zeroos/bjorn-firewall lock
+
+[Install]
+WantedBy=bjorn.service
